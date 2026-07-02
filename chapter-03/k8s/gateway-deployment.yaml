@@ -1,0 +1,94 @@
+# Listing 3.11: Gateway Deployment with anti-affinity and headless service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-gateway
+  namespace: observability
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: otel-gateway
+  template:
+    metadata:
+      labels:
+        app: otel-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: otel-gateway
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: otel-gateway
+        image: otel/opentelemetry-collector-contrib:0.154.0
+        args:
+        - --config=/etc/otel/config.yaml
+        ports:
+        - containerPort: 4317
+          name: otlp-grpc
+        - containerPort: 8888
+          name: metrics
+        resources:
+          limits:
+            memory: 4Gi
+            cpu: 2000m
+          requests:
+            memory: 2Gi
+            cpu: 1000m
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otel
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: otel-gateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-gateway-headless
+  namespace: observability
+spec:
+  clusterIP: None
+  selector:
+    app: otel-gateway
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-gateway
+  namespace: observability
+spec:
+  selector:
+    app: otel-gateway
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: metrics
+    port: 8888
+    targetPort: 8888

@@ -1,0 +1,55 @@
+# Consumer collector Deployment: drains the otlp_spans Kafka topic into Jaeger.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-consumer
+  namespace: observability
+  labels:
+    app: otel-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-consumer
+  template:
+    metadata:
+      labels:
+        app: otel-consumer
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      containers:
+      - name: otel-consumer
+        image: otel/opentelemetry-collector-contrib:0.154.0
+        args:
+        - --config=/etc/otel/config.yaml
+        ports:
+        - containerPort: 8888
+          name: metrics
+        resources:
+          limits:
+            memory: 1Gi
+            cpu: 1000m
+          requests:
+            memory: 256Mi
+            cpu: 100m
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otel
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: otel-consumer-config

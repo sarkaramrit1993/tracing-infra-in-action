@@ -1,0 +1,13 @@
+# ServiceMonitor for Prometheus scraping of gateway metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-gateway
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: otel-gateway
+  endpoints:
+  - port: metrics
+    interval: 15s

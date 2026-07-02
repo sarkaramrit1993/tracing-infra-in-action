@@ -1,0 +1,46 @@
+# Stream-time path sink: reads assembled traces emitted by the Flink job from
+# the traces.assembled topic and writes them to Jaeger. Source label is set
+# to stream-then-store so they are distinguishable from the storage-time path
+# in the Jaeger UI.
+receivers:
+  kafka:
+    brokers:
+      - kafka-1:9093
+      - kafka-2:9093
+      - kafka-3:9093
+    protocol_version: "3.9.0"
+    group_id: trace-storage-stream
+    initial_offset: earliest
+    traces:
+      topics: ["traces.assembled"]
+      encoding: otlp_proto
+
+processors:
+  resource:
+    attributes:
+      - key: assembly.source
+        value: stream-then-store
+        action: upsert
+  batch:
+    send_batch_size: 4096
+    timeout: 2s
+
+exporters:
+  otlp:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check: {}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [kafka]
+      processors: [resource, batch]
+      exporters: [otlp]
+  telemetry:
+    metrics:
+      level: detailed

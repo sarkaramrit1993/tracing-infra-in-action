@@ -1,0 +1,45 @@
+# Storage-time path control: reads raw spans from Kafka and writes them straight
+# to Jaeger v2. Spans land in Jaeger as soon as they arrive, no assembly buffer.
+# Compare against the stream-time path in stream-config.yaml.
+receivers:
+  kafka:
+    brokers:
+      - kafka-1:9093
+      - kafka-2:9093
+      - kafka-3:9093
+    protocol_version: "3.9.0"
+    group_id: trace-storage-jaeger
+    initial_offset: earliest
+    traces:
+      topics: ["otlp_spans"]
+      encoding: otlp_proto
+
+processors:
+  resource:
+    attributes:
+      - key: assembly.source
+        value: store-then-stitch
+        action: upsert
+  batch:
+    send_batch_size: 4096
+    timeout: 2s
+
+exporters:
+  otlp:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check: {}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [kafka]
+      processors: [resource, batch]
+      exporters: [otlp]
+  telemetry:
+    metrics:
+      level: detailed

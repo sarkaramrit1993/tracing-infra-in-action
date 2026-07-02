@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: otel-agent
+    static_configs:
+      - targets: ["otel-agent:8888"]
+
+  - job_name: otel-gateway
+    static_configs:
+      - targets: ["otel-gateway:8888"]
+
+  - job_name: otel-consumer
+    static_configs:
+      - targets: ["otel-consumer:8888"]
+
+  - job_name: otel-stream-consumer
+    static_configs:
+      - targets: ["otel-stream-consumer:8888"]
+
+  - job_name: flink-jobmanager
+    metrics_path: /
+    static_configs:
+      - targets: ["flink-jobmanager:9249"]
+
+  - job_name: flink-taskmanager
+    metrics_path: /
+    static_configs:
+      - targets: ["flink-taskmanager:9249"]
+
+  - job_name: clickhouse
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["clickhouse:9363"]

@@ -1,0 +1,73 @@
+# Listing 3.2: Tenant-aware routing with the routing connector
+# Routes spans to different gateway pools based on tenant identity or tier
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+  batch:
+    send_batch_size: 1000
+    timeout: 5s
+
+connectors:
+  routing:
+    default_pipelines: [traces/default]
+    error_mode: ignore
+    table:
+      - statement: route() where attributes["tenant.id"] == "enterprise-a"
+        pipelines: [traces/enterprise]
+      - statement: route() where attributes["tenant.tier"] == "premium"
+        pipelines: [traces/premium]
+
+exporters:
+  otlp/default:
+    endpoint: otel-gateway-1:4317
+    tls:
+      insecure: true
+  otlp/enterprise:
+    endpoint: otel-gateway-2:4317
+    tls:
+      insecure: true
+  otlp/premium:
+    endpoint: otel-gateway-2:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [routing]
+    traces/default:
+      receivers: [routing]
+      exporters: [otlp/default]
+    traces/enterprise:
+      receivers: [routing]
+      exporters: [otlp/enterprise]
+    traces/premium:
+      receivers: [routing]
+      exporters: [otlp/premium]

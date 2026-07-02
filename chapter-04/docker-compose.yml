@@ -1,0 +1,177 @@
+# Shared Kafka broker config: KRaft mode, 3-node quorum, identical except for
+# NODE_ID and ADVERTISED_LISTENERS (declared per-broker below).
+x-kafka-common-env: &kafka-common-env
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9094,2@kafka-2:9094,3@kafka-3:9094
+  KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_NUM_PARTITIONS: 6
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+x-kafka-healthcheck: &kafka-healthcheck
+  test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9093"]
+  interval: 10s
+  timeout: 10s
+  retries: 10
+  start_period: 30s
+
+networks:
+  ch4:
+    driver: bridge
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+
+services:
+  # --- Application ---
+  checkout-service:
+    build: ./app
+    networks: [ch4]
+    ports:
+      - "8080:8080"
+    environment:
+      OTEL_SERVICE_NAME: checkout-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-agent:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_BSP_SCHEDULE_DELAY: "5000"
+      OTEL_BSP_MAX_QUEUE_SIZE: "2048"
+      OTEL_BSP_MAX_EXPORT_BATCH_SIZE: "512"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      otel-agent:
+        condition: service_started
+
+  # --- OTel Agent (sidecar-style) ---
+  otel-agent:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch4]
+    volumes:
+      - ./collector/agent-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+    depends_on:
+      otel-gateway:
+        condition: service_started
+
+  # --- OTel Gateway ---
+  otel-gateway:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch4]
+    volumes:
+      - ./collector/gateway-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4327:4317"
+      - "8889:8888"
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+
+  # --- Kafka Brokers (KRaft, no ZooKeeper) ---
+  kafka-1:
+    image: apache/kafka:4.3.0
+    networks: [ch4]
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9093
+    healthcheck: *kafka-healthcheck
+
+  kafka-2:
+    image: apache/kafka:4.3.0
+    networks: [ch4]
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9093
+    healthcheck: *kafka-healthcheck
+
+  kafka-3:
+    image: apache/kafka:4.3.0
+    networks: [ch4]
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9093
+    healthcheck: *kafka-healthcheck
+
+  # --- Kafka Topic Initialization ---
+  kafka-init:
+    image: apache/kafka:4.3.0
+    networks: [ch4]
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Creating Kafka topics..."
+        /opt/kafka/bin/kafka-topics.sh --create --topic otlp_spans \
+          --partitions 6 --replication-factor 2 \
+          --config retention.ms=86400000 \
+          --config cleanup.policy=delete \
+          --config min.insync.replicas=1 \
+          --bootstrap-server kafka-1:9093
+        /opt/kafka/bin/kafka-topics.sh --create --topic otlp_spans.DLT \
+          --partitions 4 --replication-factor 2 \
+          --config retention.ms=604800000 \
+          --bootstrap-server kafka-1:9093
+        echo "Topics created successfully."
+
+  # --- OTel Consumer (reads from Kafka, writes to Jaeger) ---
+  otel-consumer:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch4]
+    volumes:
+      - ./collector/consumer-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "8890:8888"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  # --- Jaeger (trace backend, v2 built on OTel Collector) ---
+  jaeger:
+    image: jaegertracing/jaeger:2.19.0
+    networks: [ch4]
+    ports:
+      - "16686:16686"
+
+  # --- Prometheus (metrics) ---
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    networks: [ch4]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml

@@ -1,0 +1,48 @@
+# Gateway partitions by trace_id so every span for a trace lands on the same
+# Kafka partition. The Flink keyed-state assembler depends on this contract
+# to see whole traces inside one operator instance.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    send_batch_size: 8192
+    timeout: 1s
+
+exporters:
+  kafka:
+    brokers:
+      - kafka-1:9093
+      - kafka-2:9093
+      - kafka-3:9093
+    protocol_version: "3.9.0"
+    traces:
+      topic: otlp_spans
+      encoding: otlp_proto
+    partition_traces_by_id: true
+    producer:
+      compression: lz4
+      required_acks: 1
+      max_message_bytes: 1000000
+
+extensions:
+  health_check: {}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [kafka]
+  telemetry:
+    metrics:
+      level: detailed

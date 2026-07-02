@@ -1,0 +1,44 @@
+# Listing 3.15: PrometheusRule alerts for collector health
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: otel-collector-alerts
+  namespace: observability
+spec:
+  groups:
+  - name: otel-collector
+    rules:
+    - alert: CollectorSpanDrops
+      expr: rate(otelcol_processor_dropped_spans[5m]) > 0
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Collector dropping spans"
+        description: "{{ $labels.pod }} is dropping spans"
+    - alert: CollectorExportFailures
+      expr: rate(otelcol_exporter_send_failed_spans[5m]) > 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Collector export failures"
+        description: "{{ $labels.pod }} failing to export spans"
+    - alert: CollectorHighMemory
+      expr: >
+        container_memory_usage_bytes{pod=~"otel-.*"}
+        / container_spec_memory_limit_bytes > 0.85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Collector high memory usage"
+        description: "{{ $labels.pod }} memory above 85%"
+    - alert: CollectorQueueBacklog
+      expr: otelcol_exporter_queue_size > 1000
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Collector export queue building"
+        description: "{{ $labels.pod }} has {{ $value }} spans queued"

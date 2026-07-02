@@ -1,0 +1,11 @@
+# Pod Disruption Budget for gateway availability during cluster operations
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otel-gateway-pdb
+  namespace: observability
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: otel-gateway

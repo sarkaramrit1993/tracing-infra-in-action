@@ -1,0 +1,95 @@
+services:
+  # Round-robin agent for routing benchmark Phase A
+  otel-agent-random:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-agent-random
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/agent-config-random.yaml:/etc/otel/config.yaml:ro
+    depends_on:
+      - otel-gateway-1
+      - otel-gateway-2
+
+  # Memory-queue agent for bench_persistent_queue Phase A (fair comparison)
+  otel-agent-memory:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-agent-memory
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/agent-memory-config.yaml:/etc/otel/config.yaml:ro
+    depends_on:
+      - otel-gateway-1
+
+  # Persistent-queue agent for bench_persistent_queue Phase B
+  otel-agent-pq:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-agent-pq
+    command: ["--config=/etc/otel/config.yaml"]
+    user: "0:0"
+    volumes:
+      - ./collector/persistent-queue-config.yaml:/etc/otel/config.yaml:ro
+      - pq-data:/var/lib/otelcol/queue
+    depends_on:
+      - otel-gateway-1
+
+  # Blackhole agent for backpressure benchmark (queue_size: 500)
+  otel-agent-blackhole:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-agent-blackhole
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/agent-blackhole-config.yaml:/etc/otel/config.yaml:ro
+    depends_on:
+      - otel-gateway-blackhole
+
+  # Blackhole gateway -- exports to nonexistent endpoint (queue_size: 100)
+  otel-gateway-blackhole:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-gateway-blackhole
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/gateway-blackhole-config.yaml:/etc/otel/config.yaml:ro
+
+  benchmark:
+    build: ./benchmarks
+    container_name: benchmark
+    depends_on:
+      - checkout-service
+      - otel-agent
+      - otel-agent-random
+      - otel-agent-memory
+      - otel-agent-pq
+      - otel-agent-blackhole
+      - otel-gateway-blackhole
+      - otel-gateway-1
+      - otel-gateway-2
+      - jaeger
+      - prometheus
+    environment:
+      - OTLP_GRPC_ENDPOINT=otel-agent:4317
+      - OTLP_HTTP_ENDPOINT=http://otel-agent:4318
+      - PROMETHEUS_URL=http://prometheus:9090
+      - AGENT_METRICS_URL=http://otel-agent:8888/metrics
+      - GATEWAY1_GRPC_ENDPOINT=otel-gateway-1:4317
+      - GATEWAY1_METRICS_URL=http://otel-gateway-1:8888/metrics
+      - GATEWAY2_METRICS_URL=http://otel-gateway-2:8888/metrics
+      - AGENT_RANDOM_GRPC_ENDPOINT=otel-agent-random:4317
+      - AGENT_RANDOM_METRICS_URL=http://otel-agent-random:8888/metrics
+      - AGENT_MEMORY_GRPC_ENDPOINT=otel-agent-memory:4317
+      - AGENT_MEMORY_METRICS_URL=http://otel-agent-memory:8888/metrics
+      - AGENT_PQ_GRPC_ENDPOINT=otel-agent-pq:4317
+      - AGENT_PQ_METRICS_URL=http://otel-agent-pq:8888/metrics
+      - AGENT_BLACKHOLE_GRPC_ENDPOINT=otel-agent-blackhole:4317
+      - AGENT_BLACKHOLE_METRICS_URL=http://otel-agent-blackhole:8888/metrics
+      - GATEWAY_BLACKHOLE_METRICS_URL=http://otel-gateway-blackhole:8888/metrics
+      - JAEGER_QUERY_URL=http://jaeger:16686
+    volumes:
+      - ./benchmarks/results:/app/results
+    command: ["--all", "--runs", "5"]
+    networks:
+      default:
+        aliases:
+          - benchmark
+
+volumes:
+  pq-data:

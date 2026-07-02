@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  checkout-service:
+    build: ./app
+    ports:
+      - "8080:8080"
+    environment:
+      - OTEL_SERVICE_NAME=checkout-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
+      - OTEL_BSP_SCHEDULE_DELAY=5000
+      - OTEL_BSP_MAX_QUEUE_SIZE=2048
+      - OTEL_BSP_EXPORT_TIMEOUT=30000
+    depends_on:
+      - otel-collector
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.5.0
+    ports:
+      - "16686:16686" # Jaeger UI
+    # Jaeger v2 listens on OTLP gRPC :4317 inside the container
+    # (reached as jaeger:4317 from the otel-collector service).

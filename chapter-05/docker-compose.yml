@@ -1,0 +1,337 @@
+# Chapter 5 extends Chapter 4: same 3-broker KRaft Kafka cluster, adds Flink 2.2
+# for stream-time assembly and ClickHouse 25.8 for storage-time assembly. Both
+# paths coexist so the reader can compare them on the same span stream.
+
+x-kafka-common-env: &kafka-common-env
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9094,2@kafka-2:9094,3@kafka-3:9094
+  KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_NUM_PARTITIONS: 16
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+  # Match the data topics so the exactly-once sink's __transaction_state topic
+  # comes up without needing all three brokers (default 3 stalls InitProducerId).
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+x-kafka-healthcheck: &kafka-healthcheck
+  test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9093"]
+  interval: 10s
+  timeout: 10s
+  retries: 10
+  start_period: 30s
+
+networks:
+  ch5:
+    driver: bridge
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+  clickhouse-data:
+  flink-checkpoints:
+
+services:
+  # --- Application ---
+  checkout-service:
+    build: ./app
+    networks: [ch5]
+    ports:
+      - "8080:8080"
+    environment:
+      OTEL_SERVICE_NAME: checkout-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-agent:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_BSP_SCHEDULE_DELAY: "5000"
+      OTEL_BSP_MAX_QUEUE_SIZE: "2048"
+      OTEL_BSP_MAX_EXPORT_BATCH_SIZE: "512"
+    command: ["python", "checkout.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      otel-agent:
+        condition: service_started
+
+  # --- OTel Agent (sidecar tier) ---
+  otel-agent:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch5]
+    volumes:
+      - ./collector/agent-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+    depends_on:
+      otel-gateway:
+        condition: service_started
+
+  # --- OTel Gateway: partitions by trace_id, writes to Kafka ---
+  otel-gateway:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch5]
+    volumes:
+      - ./collector/gateway-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4327:4317"
+      - "8889:8888"
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+
+  # --- Kafka Brokers (KRaft, no ZooKeeper) ---
+  kafka-1:
+    image: apache/kafka:4.3.0
+    networks: [ch5]
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9093
+    healthcheck: *kafka-healthcheck
+    restart: unless-stopped
+
+  kafka-2:
+    image: apache/kafka:4.3.0
+    networks: [ch5]
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9093
+    healthcheck: *kafka-healthcheck
+    restart: unless-stopped
+
+  kafka-3:
+    image: apache/kafka:4.3.0
+    networks: [ch5]
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9093
+    healthcheck: *kafka-healthcheck
+    restart: unless-stopped
+
+  # --- Kafka Topic Initialization ---
+  # Three topics carry the two assembly paths:
+  #   otlp_spans         raw spans from gateway (consumed by both paths)
+  #   traces.assembled   whole traces from Flink stream-time assembly
+  #   spans.late         late spans diverted by the watermark policy
+  kafka-init:
+    image: apache/kafka:4.3.0
+    networks: [ch5]
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Creating Kafka topics for Chapter 5..."
+        # min.insync.replicas=1 pairs with the producers' acks=1 (set in app/):
+        # the low-latency demo default. RF=2 still survives a single-broker loss
+        # without data loss on already-acked-and-replicated records; raise both to
+        # min.insync.replicas=2 + acks=all for stronger in-sync durability.
+        /opt/kafka/bin/kafka-topics.sh --create --topic otlp_spans \
+          --partitions 16 --replication-factor 2 \
+          --config retention.ms=86400000 \
+          --config cleanup.policy=delete \
+          --config min.insync.replicas=1 \
+          --bootstrap-server kafka-1:9093,kafka-2:9093,kafka-3:9093
+        /opt/kafka/bin/kafka-topics.sh --create --topic traces.assembled \
+          --partitions 16 --replication-factor 2 \
+          --config retention.ms=86400000 \
+          --bootstrap-server kafka-1:9093,kafka-2:9093,kafka-3:9093
+        /opt/kafka/bin/kafka-topics.sh --create --topic spans.late \
+          --partitions 4 --replication-factor 2 \
+          --config retention.ms=604800000 \
+          --bootstrap-server kafka-1:9093,kafka-2:9093,kafka-3:9093
+        echo "Topics created."
+
+  # --- ClickHouse (storage-time path target) ---
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    networks: [ch5]
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+      - "9363:9363"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./clickhouse/users.d/z-allow-network.xml:/etc/clickhouse-server/users.d/z-allow-network.xml
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./clickhouse/materialized_views.sql:/docker-entrypoint-initdb.d/02-mvs.sql
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Storage-time consumer: Kafka otlp_spans -> ClickHouse otel_traces ---
+  consumer-clickhouse:
+    build: ./app
+    networks: [ch5]
+    command: ["python", "consumer_clickhouse.py"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka-1:9093,kafka-2:9093,kafka-3:9093
+      KAFKA_TOPIC: otlp_spans
+      KAFKA_GROUP: trace-storage-clickhouse
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+
+  # --- Storage-time consumer (control): Kafka otlp_spans -> Jaeger v2 ---
+  otel-consumer:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch5]
+    volumes:
+      - ./collector/consumer-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "8890:8888"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  # --- Flink JobManager (stream-time assembly orchestrator) ---
+  flink-jobmanager:
+    build: ./flink
+    networks: [ch5]
+    ports:
+      - "8081:8081"
+      - "9249:9249"
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: &flink_props |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        rest.address: 0.0.0.0
+        rest.bind-address: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 1
+        parallelism.default: 1
+        state.backend.type: hashmap
+        execution.checkpointing.interval: 30s
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.dir: file:///flink-checkpoints
+        execution.checkpointing.savepoint-dir: file:///flink-checkpoints/savepoints
+        restart-strategy.type: fixed-delay
+        restart-strategy.fixed-delay.attempts: 3
+        restart-strategy.fixed-delay.delay: 10s
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 2048m
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
+    volumes:
+      - flink-checkpoints:/flink-checkpoints
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  # --- Flink TaskManager (runs the KeyedProcessFunction) ---
+  flink-taskmanager:
+    build: ./flink
+    networks: [ch5]
+    ports:
+      - "9250:9249"
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: *flink_props
+    volumes:
+      - flink-checkpoints:/flink-checkpoints
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+
+  # --- Flink job submitter: submits assembly_job.py once on startup ---
+  flink-job-submit:
+    build: ./flink
+    networks: [ch5]
+    environment:
+      # Keep equal to taskmanager.numberOfTaskSlots; the client reads it here.
+      PARALLELISM: "1"
+    command: >
+      bash -c '
+        echo "Waiting for a TaskManager to register with the JobManager...";
+        for i in $$(seq 1 60); do
+          slots=$$(curl -sf http://flink-jobmanager:8081/overview | grep -o "\"taskmanagers\":[0-9]*" | grep -o "[0-9]*$$");
+          if [ -n "$$slots" ] && [ "$$slots" -ge 1 ]; then
+            echo "TaskManager registered (taskmanagers=$$slots). Submitting job.";
+            exec /opt/flink/bin/flink run -py /opt/flink/jobs/assembly_job.py \
+              --jobmanager flink-jobmanager:8081 \
+              --pyExecutable /usr/bin/python3;
+          fi;
+          echo "  attempt $$i/60: no TaskManager yet, retrying in 5s...";
+          sleep 5;
+        done;
+        echo "ERROR: no TaskManager registered after 300s, aborting submit." >&2;
+        exit 1
+      '
+    depends_on:
+      flink-taskmanager:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+
+  # --- Stream-time path sink: Kafka traces.assembled -> Jaeger via OTel ---
+  otel-stream-consumer:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch5]
+    volumes:
+      - ./collector/stream-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "8891:8888"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+
+  # --- Jaeger v2 (trace backend for both storage-time and stream-time) ---
+  jaeger:
+    image: jaegertracing/jaeger:2.19.0
+    networks: [ch5]
+    ports:
+      - "16686:16686"
+      - "4319:4317"
+
+  # --- Prometheus (metrics for collector, Flink, ClickHouse) ---
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    networks: [ch5]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml

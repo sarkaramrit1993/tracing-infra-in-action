@@ -1,0 +1,69 @@
+# Listings 3.1, 3.4, 3.5: Agent config with load balancing, memory limiting, and retry
+# Routes spans to gateways using trace-aware load balancing (static resolver for docker-compose)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Listing 3.4: Memory limiter for controlled degradation
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+    limit_percentage: 0
+    spike_limit_percentage: 0
+  batch:
+    send_batch_size: 1000
+    timeout: 5s
+
+exporters:
+  # Listing 3.1: Load balancing exporter for trace-aware routing
+  # Uses static resolver for docker-compose (DNS resolver for Kubernetes)
+  loadbalancing:
+    protocol:
+      otlp:
+        timeout: 10s
+        tls:
+          insecure: true
+        # Listing 3.5: Retry and sending queue configuration
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 5000
+    resolver:
+      static:
+        hostnames:
+          - otel-gateway-1:4317
+          - otel-gateway-2:4317
+    routing_key: traceID
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [loadbalancing]

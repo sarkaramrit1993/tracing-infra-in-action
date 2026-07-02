@@ -1,0 +1,61 @@
+# Listing 3.7: Gateway config with priority-based filtering and Jaeger export
+# In production, gateways export to Kafka; here they export to Jaeger for local demo
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 16
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1800
+    spike_limit_mib: 400
+  batch:
+    send_batch_size: 10000
+    timeout: 5s
+    send_batch_max_size: 15000
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: development
+        action: upsert
+  # Listing 3.7: Priority-based span filtering for graceful degradation
+  filter/low_priority:
+    error_mode: ignore
+    traces:
+      span:
+        - 'name == "health"'
+        - 'name == "healthz"'
+        - 'name == "ready"'
+        - 'name == "readiness"'
+        - 'name == "liveness"'
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/low_priority, resource, batch]
+      exporters: [otlp/jaeger]

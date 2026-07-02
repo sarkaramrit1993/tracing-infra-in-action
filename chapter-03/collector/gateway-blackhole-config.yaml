@@ -1,0 +1,60 @@
+# Gateway that exports to a nonexistent backend (connection refused)
+# Small queue fills fast to create backpressure cascade
+# Used by bench_backpressure.py
+#
+# Backpressure mechanism:
+# 1. Consumers retry against dead backend → block → queue fills → T1 (~1s)
+# 2. Heap exceeds 128 MiB → memory_limiter refuses permanently
+#    (spike_limit=100 means accept-again at 28 MiB, below idle heap ~51 MiB)
+# 3. Receiver returns ResourceExhausted to agent → agent retries exhaust → T3/T4 (~29s)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 100  # accept-again threshold = 28 MiB (below idle heap ~51 MiB = permanent refuse)
+  batch:
+    send_batch_size: 1000
+    timeout: 2s
+
+exporters:
+  otlp/blackhole:
+    endpoint: nonexistent-backend:4317
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 0s  # infinite retry — consumers block, queue fills
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 100
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/blackhole]

@@ -1,0 +1,12 @@
+<clickhouse>
+    <!-- The image restricts the password-less `default` user to localhost.
+         This file loads after (z- prefix) and re-opens it to the container
+         network so the demos can connect. Local demo only, not for production. -->
+    <users>
+        <default>
+            <networks replace="replace">
+                <ip>::/0</ip>
+            </networks>
+        </default>
+    </users>
+</clickhouse>

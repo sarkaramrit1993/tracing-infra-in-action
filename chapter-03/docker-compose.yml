@@ -1,0 +1,73 @@
+services:
+  checkout-service:
+    build: ./app
+    container_name: checkout-service
+    ports:
+      - "8080:8080"
+    environment:
+      - OTEL_SERVICE_NAME=checkout-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-agent:4317
+      - OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
+      - OTEL_BSP_SCHEDULE_DELAY=5000
+      - OTEL_BSP_MAX_QUEUE_SIZE=2048
+      - OTEL_BSP_EXPORT_TIMEOUT=30000
+    depends_on:
+      - otel-agent
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  otel-agent:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-agent
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/agent-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Metrics
+    depends_on:
+      - otel-gateway-1
+      - otel-gateway-2
+
+  otel-gateway-1:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-gateway-1
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/gateway-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4327:4317"   # OTLP gRPC (remapped)
+      - "8889:8888"   # Metrics
+    depends_on:
+      - jaeger
+
+  otel-gateway-2:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    container_name: otel-gateway-2
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/gateway-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4337:4317"   # OTLP gRPC (remapped)
+      - "8890:8888"   # Metrics
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.16.0
+    container_name: jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14250:14250" # gRPC (legacy Jaeger protocol)
+
+  prometheus:
+    image: prom/prometheus:v3.10.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
