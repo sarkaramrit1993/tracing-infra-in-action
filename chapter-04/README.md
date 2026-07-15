@@ -1,6 +1,6 @@
 # Chapter 4: Ingestion and Buffering at Scale
 
-Code and exploration exercises for Chapter 4 of *Tracing in Action*.
+Code and exploration exercises for Chapter 4 of *Tracing Infrastructure in Action*.
 
 ## Prerequisites
 

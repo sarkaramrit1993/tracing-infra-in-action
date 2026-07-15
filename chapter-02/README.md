@@ -1,6 +1,6 @@
 # Chapter 2: OpenTelemetry and Trace Fundamentals
 
-Companion code for Chapter 2 of *Tracing in Action*.
+Companion code for Chapter 2 of *Tracing Infrastructure in Action*.
 
 This environment demonstrates:
 - OpenTelemetry's three-layer architecture (SDK → Collector → Backend)
