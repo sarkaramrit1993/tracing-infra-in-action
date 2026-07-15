@@ -1,6 +1,6 @@
 # Chapter 5: Trace Assembly and Processing Patterns
 
-Code and exploration exercises for Chapter 5 of *Tracing in Action*.
+Code and exploration exercises for Chapter 5 of *Tracing Infrastructure in Action*.
 
 This chapter contrasts store-then-stitch (Tempo, Jaeger, SigNoz, X-Ray) with
 stream-then-store (Edgar, Refinery, Infinite Tracing, Salesforce). Both

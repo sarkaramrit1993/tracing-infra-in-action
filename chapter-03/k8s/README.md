@@ -1,6 +1,6 @@
 # Chapter 3: Kubernetes Walkthrough
 
-Companion Kubernetes deployment for *Tracing in Action* (Manning, 2026) by Amrit Sarkar.
+Companion Kubernetes deployment for *Tracing Infrastructure in Action* (Manning, 2026) by Amrit Sarkar.
 
 The docker-compose stacks in the [main README](../README.md) are enough to run every collector example. This guide covers the Kubernetes path: a self-contained, single-command cluster that mirrors the production agent/gateway topology end to end.
 

@@ -1,6 +1,6 @@
 # Chapter 3: Trace Collection and Routing
 
-Companion code for *Tracing in Action* (Manning, 2026) by Amrit Sarkar.
+Companion code for *Tracing Infrastructure in Action* (Manning, 2026) by Amrit Sarkar.
 
 Multi-tier collector architectures, trace-aware load balancing, backpressure handling, and production Kubernetes deployments.
 
