@@ -8,14 +8,14 @@ spec:
   groups:
   - name: otel-collector
     rules:
-    - alert: CollectorSpanDrops
-      expr: rate(otelcol_processor_dropped_spans[5m]) > 0
+    - alert: CollectorSpansRefused
+      expr: rate(otelcol_receiver_refused_spans[5m]) > 0
       for: 2m
       labels:
         severity: warning
       annotations:
-        summary: "Collector dropping spans"
-        description: "{{ $labels.pod }} is dropping spans"
+        summary: "Collector refusing spans"
+        description: "{{ $labels.pod }} is refusing spans at the receiver"
     - alert: CollectorExportFailures
       expr: rate(otelcol_exporter_send_failed_spans[5m]) > 0
       for: 5m
