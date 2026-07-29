@@ -5,6 +5,20 @@
 #   3. trace-aware routing spreads spans across BOTH gateways, the
 #      three-tier claim this chapter makes.
 #
+# Assertion 1 scopes the Prometheus up-check to the three jobs this chapter
+# is actually about (otel-agent, otel-gateway-1, otel-gateway-2) and requires
+# exactly those three, not merely "at least 3". This file's prometheus.yml
+# scrapes eight jobs total (it also carries agent variants for the
+# routing/backpressure demos elsewhere in the chapter), so an unscoped
+# "count(up == 1) >= 3" could be satisfied by unrelated targets while one of
+# the three that matter here is down.
+#
+# Assertion 2 reads otelcol_receiver_accepted_spans and
+# otelcol_exporter_sent_spans, both monotonic counters since collector
+# start. It takes a before/after reading around the 50 checkouts below and
+# asserts the delta grew, rather than asserting the raw totals are non-zero
+# (which leftover traffic from any earlier run would satisfy forever).
+#
 # Assertion 3 is directional, not a fixed split: it asserts each gateway
 # received a non-zero share, never an exact ratio. The precise distribution
 # is a property of the trace-id mix, not a constant. The full skew
@@ -31,20 +45,24 @@ RUNNING=$(docker compose ps --status running --services)
 for svc in otel-agent otel-gateway-1 otel-gateway-2; do
     echo "$RUNNING" | grep -qx "$svc" || fail "service '$svc' not running"
 done
-UP=$(promql 'count(up == 1)')
-[ "$(printf '%.0f' "$UP")" -ge 3 ] || fail "fewer than 3 Prometheus targets are up (got $UP)"
+UP=$(promql 'count(up{job=~"otel-agent|otel-gateway-1|otel-gateway-2"} == 1)')
+[ "$(printf '%.0f' "$UP")" -eq 3 ] || fail "expected exactly 3 of otel-agent/otel-gateway-1/otel-gateway-2 up in Prometheus (got $UP)"
 pass "agent and both gateways are running and scraped"
 
 echo "== 2. spans accepted by the agent are exported onward =="
+ACCEPTED_BEFORE=$(printf '%.0f' "$(promql 'sum(otelcol_receiver_accepted_spans)')")
+SENT_BEFORE=$(printf '%.0f' "$(promql 'sum(otelcol_exporter_sent_spans)')")
 for _ in $(seq 1 50); do curl -s -o /dev/null http://localhost:8080/checkout; done
 echo "waiting for batch export and two Prometheus scrapes (40s)..."
 sleep 40
 
-ACCEPTED=$(promql 'sum(otelcol_receiver_accepted_spans)')
-SENT=$(promql 'sum(otelcol_exporter_sent_spans)')
-[ "$(printf '%.0f' "$ACCEPTED")" -gt 0 ] || fail "no spans accepted by any receiver"
-[ "$(printf '%.0f' "$SENT")" -gt 0 ] || fail "no spans exported by any exporter"
-pass "spans accepted ($(printf '%.0f' "$ACCEPTED")) and exported ($(printf '%.0f' "$SENT"))"
+ACCEPTED_AFTER=$(printf '%.0f' "$(promql 'sum(otelcol_receiver_accepted_spans)')")
+SENT_AFTER=$(printf '%.0f' "$(promql 'sum(otelcol_exporter_sent_spans)')")
+ACCEPTED_DELTA=$((ACCEPTED_AFTER - ACCEPTED_BEFORE))
+SENT_DELTA=$((SENT_AFTER - SENT_BEFORE))
+[ "$ACCEPTED_DELTA" -gt 0 ] || fail "no new spans accepted by any receiver during this run (before=$ACCEPTED_BEFORE, after=$ACCEPTED_AFTER)"
+[ "$SENT_DELTA" -gt 0 ] || fail "no new spans exported by any exporter during this run (before=$SENT_BEFORE, after=$SENT_AFTER)"
+pass "spans accepted (+$ACCEPTED_DELTA) and exported (+$SENT_DELTA) during this run"
 
 echo "== 3. both gateways received spans (trace-aware routing spreads load) =="
 G1=$(promql 'sum(otelcol_receiver_accepted_spans{job="otel-gateway-1"})')
