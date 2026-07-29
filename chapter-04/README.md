@@ -59,9 +59,13 @@ bash tests/test_stack.sh
 ```
 
 Steps 3 and 4 of the script stop one broker, then two, and assert on whether
-the trace arrives. Watch Jaeger, not the curl exit code: that gap between
-"request succeeded" and "trace captured" is the operational intuition the
-chapter prose cannot match. The script restores all three brokers on exit.
+the trace arrives. The two-broker case is a total outage rather than a
+partial one: all three brokers also form the KRaft controller quorum, and
+losing two of three voters loses controller majority, so the cluster stops
+accepting writes entirely, regardless of replication factor. Watch Jaeger,
+not the curl exit code: that gap between "request succeeded" and "trace
+captured" is the operational intuition the chapter prose cannot match. The
+script restores all three brokers on exit.
 
 ### Dead-letter topic
 
