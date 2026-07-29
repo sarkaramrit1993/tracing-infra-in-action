@@ -16,6 +16,12 @@
 # calls as their own one-span traces, which are not checkout traces and are
 # excluded below rather than miscounted as partial ones.
 #
+# Assertion 3's grouped query is scoped to trace_ids carrying a "GET
+# /checkout" root span; if that population is empty, the grouping returns no
+# rows and the partial-trace count reads zero having examined nothing. The
+# script checks the population size first and fails loudly if it is empty or
+# far short of the traffic sent, so the atomicity check cannot pass vacuously.
+#
 # Prereq: `docker compose up -d` has settled. Give it 90 seconds: Kafka has
 # to elect controllers, ClickHouse has to apply its schema, and the Flink
 # job has to submit. Watch `docker compose logs -f flink-job-submit` to
@@ -51,6 +57,20 @@ ASSEMBLED=$(docker compose exec -T kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
 pass "traces.assembled holds $ASSEMBLED assembled traces"
 
 echo "== 3. atomicity: no partial checkout traces in the store =="
+# The grouped query below only examines trace_ids that carry a "GET
+# /checkout" root span. If that population is empty (checkout traffic never
+# reached ClickHouse) the grouping returns no rows, PARTIAL reads 0, and the
+# assertion would pass having checked nothing. Confirm the population is
+# real before trusting an all-clear on it: require at least a quarter of
+# the 120 checkouts sent above to be present as checkout trace_ids.
+CHECKOUT_TRACES=$(CH --query "
+    SELECT count(DISTINCT trace_id) FROM tracing.otel_traces
+    WHERE span_name = 'GET /checkout'")
+[ "${CHECKOUT_TRACES:-0}" -gt 0 ] || fail "no checkout trace_ids (span_name='GET /checkout') found in tracing.otel_traces; the atomicity check below would pass on an empty set"
+MIN_CHECKOUT_TRACES=30
+[ "$CHECKOUT_TRACES" -ge "$MIN_CHECKOUT_TRACES" ] || fail "only $CHECKOUT_TRACES checkout trace_ids found in the store, expected at least $MIN_CHECKOUT_TRACES of the 120 checkouts sent"
+pass "found $CHECKOUT_TRACES checkout trace_ids to check for partial traces"
+
 # Scope to trace_ids that carry the "GET /checkout" root span so the
 # healthcheck's one-span "GET /health" traces (see header) are not
 # miscounted as partial. A real checkout trace has 7 spans; fewer than that
