@@ -44,8 +44,9 @@ land in `spans.late` via a side output and never re-enter the main pipeline.
 - **app/**: Flask checkout producer, ClickHouse consumer, Jaeger consumer
   reference implementation, scatter-gather query, standalone agent helper.
 - **flink/**: PyFlink 2.2 assembly job, runtime config, Dockerfile.
-- **clickhouse/**: storage schema (`otel_traces` wide table) and
-  materialized views (`red_service_minute`, `service_graph_minute`).
+- **clickhouse/**: storage schema (`otel_traces` wide table) and the
+  `red_service_minute` materialized view. The service graph is derived by
+  query, not a materialized view — see the walkthrough in step 8 below.
 - **collector/**: OTel agent, gateway, storage-time consumer, stream-time consumer.
 - **benchmarks/**: storage-time write cost, stream-time buffer cost,
   atomicity audit.
