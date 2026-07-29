@@ -60,17 +60,17 @@ Scenarios: `steady`, `spike`, `backpressure`, `multi-tenant`, `hot-trace`, `fail
 
 ## Collector Configs
 
-All configs live in `collector/`. Each maps to a chapter listing:
+All configs live in `collector/`. `single-tier-config.yaml` is a baseline single collector with no book listing of its own; the rest map to chapter listings:
 
-| File                            | Listing(s)   | Pattern                                    |
-|---------------------------------|--------------|--------------------------------------------|
-| `agent-config.yaml`             | 3.1, 3.4, 3.5 | Load balancing + memory limiter + retry  |
-| `tenant-routing-config.yaml`    | 3.2          | Tenant-aware routing connector             |
-| `spillover-config.yaml`         | 3.3          | Fallback exporter for hot spots            |
-| `persistent-queue-config.yaml`  | 3.6          | Disk-backed queue                          |
-| `gateway-config.yaml`           | 3.7          | Priority filtering + Jaeger export         |
-| `resilient-agent-config.yaml`   | 3.8          | Complete production agent                  |
-| `single-tier-config.yaml`       | --           | Baseline single collector                  |
+| Listing | File                                       | Pattern                                     |
+|---------|---------------------------------------------|----------------------------------------------|
+| 3.1     | `collector/agent-config.yaml`               | Load balancing exporter routing by trace ID |
+| 3.2     | `collector/tenant-routing-config.yaml`      | Tenant-aware routing connector              |
+| 3.3     | `collector/spillover-config.yaml`           | Fallback exporter for hot spot spillover    |
+| 3.4     | `collector/gateway-config.yaml`             | Memory limiter for controlled degradation   |
+| 3.5     | `collector/agent-config.yaml`               | Retry and sending queue configuration       |
+| 3.7     | `collector/persistent-queue-config.yaml`    | Disk-backed queue with file storage         |
+| 3.9     | `collector/resilient-agent-config.yaml`     | Complete resilient agent configuration      |
 
 To swap agent configs, edit the volume mount in `docker-compose.yml`:
 
@@ -82,7 +82,17 @@ otel-agent:
 
 ## Kubernetes
 
-For the full cluster walkthrough, see [k8s/README.md](k8s/README.md).
+For the full cluster walkthrough, see [k8s/README.md](k8s/README.md). Manifests map to chapter listings:
+
+| Listing | File                          | Pattern                                                          |
+|---------|-------------------------------|-------------------------------------------------------------------|
+| 3.10    | `k8s/agent-daemonset.yaml`    | DaemonSet running one collector agent per node                    |
+| 3.11    | `k8s/agent-configmap.yaml`    | Agent ConfigMap with node enrichment and DNS-based gateway routing |
+| 3.12    | `k8s/gateway-deployment.yaml` | Gateway Deployment with anti-affinity and headless service        |
+| 3.13    | `k8s/gateway-configmap.yaml`  | Gateway ConfigMap with health-check filtering and Kafka export    |
+| 3.14    | `k8s/hpa.yaml`                | HPA with asymmetric scale-up/scale-down policies                  |
+| 3.15    | `k8s/network-policies.yaml`   | Network policies restricting agent and gateway traffic            |
+| 3.16    | `k8s/prometheus-rules.yaml`   | PrometheusRule alerts for collector health                        |
 
 ## Tear down
 

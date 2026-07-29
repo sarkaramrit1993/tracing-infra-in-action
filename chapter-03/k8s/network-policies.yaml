@@ -1,4 +1,4 @@
-# Listing 3.14: Network policies restricting agent and gateway traffic
+# Listing 3.15: Network policies restricting agent and gateway traffic
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

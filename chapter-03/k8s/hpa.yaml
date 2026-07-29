@@ -1,4 +1,4 @@
-# Listing 3.13: HPA configuration with asymmetric scale-up/scale-down policies
+# Listing 3.14: HPA configuration with asymmetric scale-up/scale-down policies
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
