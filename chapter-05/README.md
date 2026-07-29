@@ -46,7 +46,7 @@ land in `spans.late` via a side output and never re-enter the main pipeline.
 - **flink/**: PyFlink 2.2 assembly job, runtime config, Dockerfile.
 - **clickhouse/**: storage schema (`otel_traces` wide table) and the
   `red_service_minute` materialized view. The service graph is derived by
-  query, not a materialized view — see the walkthrough in step 8 below.
+  query, not a materialized view. See the walkthrough in step 8 below.
 - **collector/**: OTel agent, gateway, storage-time consumer, stream-time consumer.
 - **benchmarks/**: storage-time write cost, stream-time buffer cost,
   atomicity audit.
@@ -59,7 +59,7 @@ land in `spans.late` via a side output and never re-enter the main pipeline.
 | 5.2 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
 | 5.4 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
 
-Not mapped: 5.3 (`loadbalancingexporter` config for Kafka-free trace-aware routing — this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.5 (service graph derivation query — the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
+Not mapped: 5.3 (`loadbalancingexporter` config for Kafka-free trace-aware routing; this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.5 (service graph derivation query; the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
 
 ### Pinned versions
 
