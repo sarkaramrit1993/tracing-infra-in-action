@@ -30,9 +30,13 @@ docker compose down -v   # tear down when finished
 
 ## Verifying
 
-Each chapter's `tests/test_stack.sh` checks the stack against a live run:
-services up, a trace produced, and the trace reaching Jaeger (chapter 4 also
-checks that the trace still lands with one Kafka broker down). See
-[`setup/README.md`](setup/README.md) for memory, ports, and per-chapter
+Each chapter has a `tests/test_stack.sh` that checks that chapter's stack
+against a live run, but what it checks differs by chapter. Chapters 2 and 4
+confirm services are up, a trace is produced, and the trace reaches Jaeger
+(chapter 4 also checks that the trace still lands with one Kafka broker
+down, and does not with two). Chapter 3 confirms the collection tier
+through Prometheus metrics and does not query Jaeger. Chapter 5 confirms
+trace assembly through ClickHouse and Kafka and has no services-up step.
+See [`setup/README.md`](setup/README.md) for memory, ports, and per-chapter
 requirements, and [`troubleshooting.md`](troubleshooting.md) for what to do
 when a stack doesn't come up cleanly.
