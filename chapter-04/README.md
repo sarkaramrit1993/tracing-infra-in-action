@@ -109,4 +109,4 @@ Results are written to `benchmarks/results/` (gitignored).
 | 4.7 | `collector/gateway-config.yaml` | Gateway collector, full pipeline (memory limiter, batch, Kafka exporter) |
 | 4.8 | `collector/consumer-config.yaml` | Consumer collector with Kafka receiver |
 
-Not mapped: 4.1 (tenant-based routing connector — this stack doesn't route by tenant), 4.4 and 4.5 (raw Kafka producer/consumer client properties — the OTel Collector's Kafka exporter and receiver expose a smaller settings surface than a raw Kafka client, so these don't have a direct file equivalent here), 4.6 (Kafka tiered storage — not configured in this stack; see chapter 7 for cold-tier storage).
+Not mapped: 4.1 (tenant-based routing connector; this stack doesn't route by tenant), 4.4 and 4.5 (raw Kafka producer/consumer client properties; the OTel Collector's Kafka exporter and receiver expose a smaller settings surface than a raw Kafka client, so these don't have a direct file equivalent here), 4.6 (Kafka tiered storage, not configured in this stack; see chapter 7 for cold-tier storage).
