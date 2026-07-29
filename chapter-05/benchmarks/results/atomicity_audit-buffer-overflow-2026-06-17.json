@@ -1,0 +1,36 @@
+{
+  "mode": "buffer-overflow",
+  "rate": 0.05,
+  "result": {
+    "whole": 678,
+    "absent": 0,
+    "partial": 322,
+    "partial_examples": [
+      {
+        "trace_id": "trace-000000",
+        "spans_present": 7,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000001",
+        "spans_present": 6,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000002",
+        "spans_present": 7,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000005",
+        "spans_present": 7,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000008",
+        "spans_present": 7,
+        "spans_expected": 8
+      }
+    ]
+  }
+}
