@@ -116,8 +116,10 @@ This runs in the background (the trailing `&`), so steps 2 through 10 below
 execute concurrently against live traffic. Note the printed PID and stop the
 loop when you are done with `kill <PID>` (or run `jobs` then `kill %1`).
 
-The checkout endpoint produces a six-span trace per call across five
+The checkout endpoint produces a seven-span trace per call across five
 services, which is the depth Figure 5.7's service-graph derivation needs.
+Six of those spans are created explicitly by the endpoint; the seventh is the
+root span Flask auto-instrumentation opens for the request itself.
 
 ### 2. Prometheus targets are healthy (proves the metrics surface)
 
