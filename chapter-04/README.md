@@ -52,33 +52,52 @@ docker compose exec kafka-1 /opt/kafka/bin/kafka-consumer-groups.sh \
 
 ### Failure test
 
-Replication factor 2 tolerates one broker down, and `curl` returns 200 either way, so the real signal for step 3 is whether the trace still reaches Jaeger, not whether checkout succeeds. Step 4 checks the partition state directly instead:
+Replication factor 2 tolerates one broker down, and `curl` returns 200 either way, so the real signal is whether the trace still reaches Jaeger, not whether checkout succeeds:
 
 ```bash
 bash tests/test_stack.sh
 ```
 
-Steps 3 and 4 of the script stop one broker, then two. Step 3 confirms one
-broker down is tolerated: every partition still has a live replica, so the
-trace lands. Step 4 confirms what two down actually does, which is a
-partial outage rather than a total one. `otlp_spans` has 6 partitions at
-RF=2 across 3 brokers, so under standard round-robin assignment the
-surviving broker already leads a share of them before anything fails.
-Stopping two of three brokers leaves only the partitions whose replicas
-both sat on the stopped brokers without a leader; the rest keep a leader on
-the survivor and keep accepting spans. Checkout keeps answering 200
-throughout either way, so a fraction of new traces going silently missing
-while nothing looks wrong at the edge is the actual lesson here, and it is
-a harder failure to notice than a clean outage would be.
+Step 3 stops `kafka-2` and confirms one broker down is tolerated: every
+partition still has a live replica, so the trace lands. The script restores
+the broker on exit.
 
-Step 4 checks this directly by counting leaderless partitions on the
-surviving broker, rather than sending one checkout and hoping it lands on
-a broken partition. In one manual run against this topology, stopping
-kafka-2 then kafka-1 left 2 of 6 partitions leaderless, and 12 of 20
-checkouts sent while both brokers were down still produced a trace. Those
-figures follow from which two brokers are stopped and how the partition
-replicas happen to be assigned; they are not a fixed rate for the chapter.
-The script restores all three brokers on exit.
+### Losing two brokers, by hand
+
+The two-broker case is worth seeing, but it does not make a good automated
+check, so run it yourself:
+
+```bash
+docker compose stop kafka-2 kafka-1
+curl -s http://localhost:8080/checkout      # still 200
+# watch Jaeger: some checkouts produce a trace, some do not
+docker compose start kafka-1 kafka-2
+```
+
+What you should see is a partial outage rather than a total one. `otlp_spans`
+has 6 partitions at RF=2 across 3 brokers, so the surviving broker already
+leads a share of them before anything fails. Stopping two leaves only the
+partitions whose replicas both sat on the stopped brokers without a leader.
+The rest keep a leader on the survivor and keep accepting spans. Checkout
+answers 200 throughout, so a fraction of new traces goes silently missing
+while nothing looks wrong at the edge. That is the lesson, and it is a
+harder failure to notice than a clean outage would be.
+
+On one run against this topology, stopping `kafka-2` then `kafka-1` left 2 of
+6 partitions leaderless and 12 of 20 checkouts still produced a trace. Those
+numbers follow from which brokers you stop and how the replicas happen to be
+assigned, so treat them as an illustration rather than a fixed rate.
+
+Two things make this a poor automated assertion, which is why the script
+stops at step 3. Asserting that a single trace fails is a coin flip, since
+most partitions survive. Reading partition metadata instead is worse: with
+one broker left there is no controller quorum, so `kafka-topics.sh --describe`
+can only answer from that broker's cached metadata, and once the cache is
+gone it stalls for about a minute and returns nothing.
+
+Note also that when Kafka comes back, the gateway flushes everything it
+queued while the brokers were down, so the trace count jumps in one step.
+That backlog is why a naive before-and-after count is misleading here.
 
 ### Dead-letter topic
 
