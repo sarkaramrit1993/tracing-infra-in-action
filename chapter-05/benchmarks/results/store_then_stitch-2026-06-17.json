@@ -1,0 +1,11 @@
+{
+  "backend": "parquet",
+  "num_spans": 10000,
+  "num_iterations": 20,
+  "raw_json_bytes": 3634812,
+  "proto_proxy_bytes": 1800199,
+  "compressed_size_bytes": 540995,
+  "avg_write_ms": 7.802829000138445,
+  "p95_write_ms": 19.753207991016097,
+  "throughput_spans_per_s": 1281586.460477677
+}

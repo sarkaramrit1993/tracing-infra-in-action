@@ -1,0 +1,50 @@
+# Chapter 5 benchmark results
+
+Generated from the committed JSON in `benchmarks/results/` by
+`scripts/render_results.py`. Re-run that script after adding a result file.
+
+## Atomicity audit
+
+Source: `atomicity_audit-none-2026-06-17.json`, `atomicity_audit-drop-whole-trace-2026-06-17.json`, `atomicity_audit-producer-crash-2026-06-17.json`, `atomicity_audit-buffer-overflow-2026-06-17.json`
+
+| Scenario | Whole traces | Absent | Partial |
+|---|---|---|---|
+| none | 1000 | 0 | 0 |
+| drop-whole-trace | 950 | 50 | 0 |
+| producer-crash | 959 | 41 | 0 |
+| buffer-overflow | 678 | 0 | 322 |
+
+> Only buffer-overflow produces partial traces. That is the failure the atomicity rule exists to prevent.
+
+## Store-then-stitch write cost
+
+Source: `store_then_stitch-2026-06-17.json`
+
+| Metric | Value |
+|---|---|
+| backend | parquet |
+| num_spans | 10000 |
+| num_iterations | 20 |
+| raw_json_bytes | 3634812 |
+| proto_proxy_bytes | 1800199 |
+| compressed_size_bytes | 540995 |
+| avg_write_ms | 7.802829000138445 |
+| p95_write_ms | 19.753207991016097 |
+| throughput_spans_per_s | 1281586.460477677 |
+
+## Stream-time buffer cost
+
+Source: `stream_time-2026-06-17.json`
+
+| Metric | Value |
+|---|---|
+| traces_per_sec | 5000 |
+| spans_per_trace | 8 |
+| span_size_bytes | 2048 |
+| decision_wait_s | 30.0 |
+| mem_factor | 4.0 |
+| peak_wire_buffer_bytes | 2457681920 |
+| closed_form_buffer_bytes | 2457600000 |
+| modeled_in_memory_bytes | 9830727680 |
+| peak_in_flight_traces | 150005 |
+| traces_emitted | 150000 |

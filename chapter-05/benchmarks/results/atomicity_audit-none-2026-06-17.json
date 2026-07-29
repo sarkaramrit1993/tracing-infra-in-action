@@ -1,0 +1,10 @@
+{
+  "mode": "none",
+  "rate": 0.05,
+  "result": {
+    "whole": 1000,
+    "absent": 0,
+    "partial": 0,
+    "partial_examples": []
+  }
+}

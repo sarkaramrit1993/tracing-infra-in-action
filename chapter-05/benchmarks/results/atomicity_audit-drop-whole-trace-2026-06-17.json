@@ -1,0 +1,10 @@
+{
+  "mode": "drop-whole-trace",
+  "rate": 0.05,
+  "result": {
+    "whole": 950,
+    "absent": 50,
+    "partial": 0,
+    "partial_examples": []
+  }
+}

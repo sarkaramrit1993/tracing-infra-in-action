@@ -1,0 +1,10 @@
+{
+  "mode": "producer-crash",
+  "rate": 0.05,
+  "result": {
+    "whole": 959,
+    "absent": 41,
+    "partial": 0,
+    "partial_examples": []
+  }
+}
