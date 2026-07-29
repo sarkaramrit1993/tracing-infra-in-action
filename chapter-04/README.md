@@ -55,14 +55,13 @@ docker compose exec kafka-1 /opt/kafka/bin/kafka-consumer-groups.sh \
 Replication factor 2 tolerates one broker down, and `curl` returns 200 either way, so the real signal is whether the trace still reaches Jaeger, not whether checkout succeeds:
 
 ```bash
-docker compose stop kafka-2
-curl http://localhost:8080/checkout    # 200, and the trace still lands in Jaeger (one broker down)
-docker compose stop kafka-1
-curl http://localhost:8080/checkout    # still 200, but the trace does NOT reach Jaeger (two brokers down)
-docker compose start kafka-1 kafka-2
+bash tests/test_stack.sh
 ```
 
-Watch Jaeger, not the curl exit code: that gap between "request succeeded" and "trace captured" is the operational intuition the chapter prose cannot match.
+Steps 3 and 4 of the script stop one broker, then two, and assert on whether
+the trace arrives. Watch Jaeger, not the curl exit code: that gap between
+"request succeeded" and "trace captured" is the operational intuition the
+chapter prose cannot match. The script restores all three brokers on exit.
 
 ### Dead-letter topic
 
