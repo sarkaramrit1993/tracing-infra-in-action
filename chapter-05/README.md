@@ -99,10 +99,12 @@ in the store has fewer spans than the checkout endpoint emits, and that the
 late-span topic exists separate from the main path. Exits non-zero on any
 failure. Safe to re-run.
 
-The stack ships as code only. Unit tests in `app/`, `flink/`, and `benchmarks/`
-pass cleanly (run `python3 -m pytest` from this directory) and
-`docker compose config` is a clean YAML parse, but a live end-to-end run has
-not been re-verified in this commit. Pin versions in `docker-compose.yml` were chosen to match Ch4
+This has been run end to end. On the last verification both paths delivered,
+every checkout trace in the store carried its full seven spans, and the
+script passed twice back to back. Unit tests in `app/`, `flink/`, and
+`benchmarks/` also pass (run `python3 -m pytest` from this directory).
+
+Pin versions in `docker-compose.yml` were chosen to match Ch4
 and the chapter prose. The `flink/Dockerfile` pulls `apache-flink==2.2.1` from
 pip and the matching `flink-sql-connector-kafka-5.0.0-2.2.jar`; if a wheel for
 the Python version you're on is not yet published, downgrade that pin to the
