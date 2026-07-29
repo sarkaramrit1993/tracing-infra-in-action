@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-randomly pyyaml
+          pip install pyyaml
 
       - name: Validate compose files
         run: |
@@ -61,13 +61,28 @@ jobs:
       - name: Parse the Grafana dashboard
         run: python -c "import json; json.load(open('chapter-03/dashboards/collector-health.json'))"
 
-      - name: Offline unit tests
+      # Each chapter's tests run against that chapter's own pinned
+      # requirements, in their own virtualenv. The chapters pin different
+      # OpenTelemetry versions, so a single shared environment cannot satisfy
+      # both, and hand-picking a subset of packages hides the fact that these
+      # tests import the full SDK. This also checks the requirements files
+      # themselves still resolve.
+      - name: Chapter 3 offline tests
         run: |
-          python -m pytest \
-            chapter-03/benchmarks/test_benchmarks.py \
+          python -m venv /tmp/venv-ch03
+          /tmp/venv-ch03/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch03/bin/pip install --quiet -r chapter-03/benchmarks/requirements.txt pytest
+          /tmp/venv-ch03/bin/python -m pytest chapter-03/benchmarks/test_benchmarks.py -q
+
+      - name: Chapter 5 offline tests
+        run: |
+          python -m venv /tmp/venv-ch05
+          /tmp/venv-ch05/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch05/bin/pip install --quiet -r chapter-05/app/requirements.txt pytest
+          /tmp/venv-ch05/bin/python -m pytest \
             chapter-05/app/test_consumer_clickhouse.py \
-            chapter-05/benchmarks/test_atomicity_audit.py \
             chapter-05/flink/test_assembly_helpers.py \
+            chapter-05/benchmarks/test_atomicity_audit.py \
             -q
 
       - name: Verification scripts are syntactically valid
