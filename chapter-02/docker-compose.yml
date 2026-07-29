@@ -8,6 +8,7 @@ services:
     environment:
       - OTEL_SERVICE_NAME=checkout-service
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      # Listing 2.1: SDK batch configuration environment variables
       - OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
       - OTEL_BSP_SCHEDULE_DELAY=5000
       - OTEL_BSP_MAX_QUEUE_SIZE=2048
