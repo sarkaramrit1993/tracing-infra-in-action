@@ -99,10 +99,17 @@ in the store has fewer spans than the checkout endpoint emits, and that the
 late-span topic exists separate from the main path. Exits non-zero on any
 failure. Safe to re-run.
 
-This has been run end to end. On the last verification both paths delivered,
-every checkout trace in the store carried its full seven spans, and the
-script passed twice back to back. Unit tests in `app/`, `flink/`, and
-`benchmarks/` also pass (run `python3 -m pytest` from this directory).
+Give this stack the memory it asks for. Both paths deliver and every checkout
+trace carries its full seven spans when Flink has room, but on a Docker
+allocation under roughly 6 GB the Flink taskmanager is OOM-killed partway
+through a run and the assembly job fails with it. Assertions 2 and 5 above
+exist to catch exactly that, because the traces assembled before the crash
+stay in the topic and make a dead stack look healthy. If the script fails on
+either, raise Docker's memory limit rather than reading the earlier
+assertions as a pass. See `troubleshooting.md`.
+
+Unit tests in `app/`, `flink/`, and `benchmarks/` pass independently of the
+stack (run `python3 -m pytest` from this directory).
 
 Pin versions in `docker-compose.yml` were chosen to match Ch4
 and the chapter prose. The `flink/Dockerfile` pulls `apache-flink==2.2.1` from

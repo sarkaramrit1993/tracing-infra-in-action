@@ -116,6 +116,12 @@ exits with `IllegalConfigurationException` rather than starting. That failure
 is immediate and loud, not an OOM kill, so `docker compose ps -a` shows
 `Exited (1)` and the logs name the sum that overflowed.
 
-The whole stack fits in roughly 2.8 GB with those settings, and the
-verification script passes. Compose picks the override file up automatically;
-delete it to go back to the published sizing.
+That gets the whole stack up in roughly 2.8 GB and the assembly job starts.
+It is not enough to finish a verification run. Under the script's traffic the
+taskmanager is still OOM-killed, at 1024m and at 1600m alike, and the job
+fails with it. Assertions 2 and 5 of `chapter-05/tests/test_stack.sh` are
+there to catch that, so you will see a real failure rather than a false pass.
+
+Use the override to explore the topology on a small machine. To verify the
+chapter, give Docker the memory the stack actually asks for. Compose picks the
+override file up automatically; delete it to go back to the published sizing.
