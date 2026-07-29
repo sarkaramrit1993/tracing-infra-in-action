@@ -1,3 +1,4 @@
+# Listing 4.8: Consumer collector with Kafka receiver
 # The OTel Collector Kafka receiver handles offset commit, poll sizing, and
 # cooperative rebalancing internally, so this file intentionally looks thinner
 # than Listing 4.5's raw Kafka consumer config.

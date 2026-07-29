@@ -133,6 +133,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # Listing 4.3: Creating the trace topic (dev-scale partition count)
         echo "Creating Kafka topics..."
         /opt/kafka/bin/kafka-topics.sh --create --topic otlp_spans \
           --partitions 6 --replication-factor 2 \

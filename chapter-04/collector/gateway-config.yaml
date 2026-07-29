@@ -1,3 +1,4 @@
+# Listing 4.7: Gateway collector with Kafka exporter
 receivers:
   otlp:
     protocols:
@@ -15,6 +16,7 @@ processors:
     timeout: 1s
 
 exporters:
+  # Listing 4.2: OTel Collector Kafka exporter with trace-ID partitioning
   kafka:
     brokers:
       - kafka-1:9093
