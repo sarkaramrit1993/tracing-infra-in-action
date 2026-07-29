@@ -89,6 +89,16 @@ docker compose logs -f flink-job-submit
 
 ## Verify it works
 
+```bash
+bash tests/test_stack.sh
+```
+
+Asserts that the storage-time path fills ClickHouse, that the stream-time
+path produces assembled traces on `traces.assembled`, that no checkout trace
+in the store has fewer spans than the checkout endpoint emits, and that the
+late-span topic exists separate from the main path. Exits non-zero on any
+failure. Safe to re-run.
+
 The stack ships as code only. Unit tests in `app/`, `flink/`, and `benchmarks/`
 pass cleanly (run `python3 -m pytest` from this directory) and
 `docker compose config` is a clean YAML parse, but a live end-to-end run has
@@ -97,7 +107,8 @@ and the chapter prose. The `flink/Dockerfile` pulls `apache-flink==2.2.1` from
 pip and the matching `flink-sql-connector-kafka-5.0.0-2.2.jar`; if a wheel for
 the Python version you're on is not yet published, downgrade that pin to the
 closest available `apache-flink==2.2.x` (the `KeyedProcessFunction` API the
-assembly job uses is identical) and re-run `docker compose build flink`.
+assembly job uses is identical) and re-run `docker compose build
+flink-jobmanager flink-taskmanager flink-job-submit`.
 
 Each step below proves one of the chapter's figures or claims with a
 runnable command. Run them in order after the stack settles.
