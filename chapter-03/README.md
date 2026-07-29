@@ -47,6 +47,20 @@ python scripts/load-generator.py --scenario steady --duration 60 --rate 10
 
 Scenarios: `steady`, `spike`, `backpressure`, `multi-tenant`, `hot-trace`, `failover`.
 
+## Verify it works
+
+```bash
+bash tests/test_stack.sh
+```
+
+Asserts that the agent and both gateways are running and scraped, that spans
+accepted by the agent are exported onward, and that trace-aware routing puts
+spans on both gateways. Exits non-zero on any failure. Safe to re-run.
+
+The routing assertion only checks that each gateway received a non-zero
+share, not a fixed split; for the full skew measurement (Gini coefficient,
+skew ratio) see `BENCHMARKS.md` and `benchmarks/bench_routing.py`.
+
 ## Application Endpoints
 
 | Endpoint          | Method | What it does                                      |
