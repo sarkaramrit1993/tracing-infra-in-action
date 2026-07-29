@@ -50,6 +50,16 @@ land in `spans.late` via a side output and never re-enter the main pipeline.
 - **benchmarks/**: storage-time write cost, stream-time buffer cost,
   atomicity audit.
 
+## Listings
+
+| Listing | File | Pattern |
+|---------|------|---------|
+| 5.1 | `app/scatter_gather_query.py` | ClickHouse trace-assembly query |
+| 5.2 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
+| 5.4 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
+
+Not mapped: 5.3 (`loadbalancingexporter` config for Kafka-free trace-aware routing — this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.5 (service graph derivation query — the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
+
 ### Pinned versions
 
 | Component | Version |

@@ -25,6 +25,7 @@ CLICKHOUSE_PORT = int(os.environ.get("CLICKHOUSE_PORT", "9000"))
 SHARDS = os.environ.get("CLICKHOUSE_SHARDS", CLICKHOUSE_HOST).split(",")
 LOOKBACK = os.environ.get("LOOKBACK", "24 HOUR")
 
+# Listing 5.1: ClickHouse trace-assembly query
 QUERY = """
     SELECT
         span_id,
