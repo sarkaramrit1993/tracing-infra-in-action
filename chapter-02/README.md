@@ -276,6 +276,21 @@ docker-compose down -v
 
 ---
 
+## Listings
+
+Maps chapter listing numbers to the file implementing them. A listing without a row here has no standalone match in this environment (see notes):
+
+| Listing | File                     | Pattern                                          |
+|---------|--------------------------|---------------------------------------------------|
+| 2.1     | `docker-compose.yml`     | SDK batch configuration environment variables      |
+| 2.3     | `app/main.py`            | Context propagation in a checkout endpoint         |
+| 2.6     | `app/main.py`            | Batch consumer with span links                     |
+| 2.7     | `app/main.py`            | Recording errors with status, attributes, events   |
+| 2.8     | `app/main.py`            | Attribute placement for high-cardinality values    |
+| 2.9     | `app/main.py`            | Automatic instrumentation setup with Flask         |
+
+Not mapped: 2.2 (production Kafka pipeline; `collector/config.yaml` is a simplified local-demo variant, see its header comment), 2.4-2.5 (SQL queries against a trace store with a SQL interface; this environment's backend is Jaeger's in-memory store, not applicable here), 2.10 (abridged excerpt of the same checkout code as 2.3, already covered above), 2.11 (a deliberate anti-pattern the book warns against, not something this demo implements).
+
 ## Next Steps
 
 - **Chapter 3**: Collector deployment patterns (agent tier, gateway tier)

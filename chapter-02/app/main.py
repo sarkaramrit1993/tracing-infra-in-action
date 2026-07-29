@@ -21,7 +21,8 @@ from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import Status, StatusCode, Link
 
-# --- OTel Setup (Chapter 2, lines 489-510) ---
+# --- OTel Setup ---
+# Listing 2.9: Automatic instrumentation setup with Flask
 resource = Resource.create({
     "service.name": "checkout-service",
     "service.version": "1.0.0",
@@ -44,7 +45,8 @@ def health():
     return jsonify({"status": "healthy"})
 
 
-# --- Checkout Endpoint (Chapter 2, lines 170-194) ---
+# --- Checkout Endpoint ---
+# Listing 2.3: Context propagation in a checkout endpoint
 # Demonstrates: nested spans, context propagation, business attributes
 @app.route("/checkout")
 def checkout():
@@ -76,7 +78,8 @@ def checkout():
     return jsonify({"status": "completed", "cart_id": cart_id})
 
 
-# --- User Endpoint (Chapter 2, lines 391-396) ---
+# --- User Endpoint ---
+# Listing 2.8: Attribute placement for high-cardinality values
 # Demonstrates: low-cardinality span naming (user_id in attribute, not span name)
 @app.route("/users/<user_id>")
 def get_user(user_id):
@@ -88,7 +91,8 @@ def get_user(user_id):
     return jsonify({"user_id": user_id, "name": f"User {user_id}"})
 
 
-# --- Error Endpoint (Chapter 2, lines 300-310) ---
+# --- Error Endpoint ---
+# Listing 2.7: Recording errors with status, attributes, and events
 # Demonstrates: error recording with status, attributes, and exception events
 @app.route("/error")
 def error_endpoint():
@@ -103,7 +107,8 @@ def error_endpoint():
             return jsonify({"error": str(e)}), 500
 
 
-# --- Batch Endpoint (Chapter 2, Listing 2.6) ---
+# --- Batch Endpoint ---
+# Listing 2.6: Batch consumer with span links
 # Demonstrates: span links for message queue patterns
 @app.route("/batch")
 def batch_endpoint():
