@@ -1,0 +1,124 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  static:
+    name: static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-randomly pyyaml
+
+      - name: Validate compose files
+        run: |
+          for f in chapter-02/docker-compose.yml \
+                   chapter-03/docker-compose.yml \
+                   chapter-04/docker-compose.yml \
+                   chapter-05/docker-compose.yml; do
+              docker compose -f "$f" config -q
+          done
+          docker compose -f chapter-03/docker-compose.yml \
+                         -f chapter-03/docker-compose.benchmark.yml config -q
+          docker compose -f chapter-03/docker-compose.yml \
+                         -f chapter-03/docker-compose.single-tier.yml config -q
+
+      - name: Parse collector, prometheus and kubernetes configs
+        run: |
+          python - <<'PY'
+          import glob, sys, yaml
+          bad = []
+          paths = sorted(
+              glob.glob("chapter-*/collector/*.yaml")
+              + glob.glob("chapter-*/prometheus.yml")
+              + glob.glob("chapter-03/k8s/*.yaml")
+          )
+          if not paths:
+              sys.exit("no config files matched; the globs are wrong")
+          for path in paths:
+              try:
+                  list(yaml.safe_load_all(open(path)))
+              except yaml.YAMLError as exc:
+                  bad.append(f"{path}: {exc}")
+          if bad:
+              sys.exit("\n".join(bad))
+          print(f"{len(paths)} config files parse")
+          PY
+
+      - name: Parse the Grafana dashboard
+        run: python -c "import json; json.load(open('chapter-03/dashboards/collector-health.json'))"
+
+      - name: Offline unit tests
+        run: |
+          python -m pytest \
+            chapter-03/benchmarks/test_benchmarks.py \
+            chapter-05/app/test_consumer_clickhouse.py \
+            chapter-05/benchmarks/test_atomicity_audit.py \
+            chapter-05/flink/test_assembly_helpers.py \
+            -q
+
+      - name: Verification scripts are syntactically valid
+        run: |
+          for f in chapter-0*/tests/test_stack.sh; do
+              bash -n "$f" && echo "ok $f"
+          done
+
+  stack:
+    # One chapter per runner, so they cannot collide on host ports and each
+    # gets the whole runner's memory. Chapter 5 needs about 6 GB, more than a
+    # typical laptop allocates to Docker, so this is the only place it gets
+    # verified.
+    name: live stack (${{ matrix.chapter }})
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chapter: chapter-02
+            settle: 30
+          - chapter: chapter-03
+            settle: 45
+          - chapter: chapter-04
+            settle: 90
+          - chapter: chapter-05
+            settle: 130
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show available memory
+        run: free -h
+
+      - name: Start the stack
+        working-directory: ${{ matrix.chapter }}
+        run: |
+          docker compose up -d
+          sleep ${{ matrix.settle }}
+          docker compose ps
+
+      - name: Run the verification script
+        working-directory: ${{ matrix.chapter }}
+        run: bash tests/test_stack.sh
+
+      - name: Show logs on failure
+        if: failure()
+        working-directory: ${{ matrix.chapter }}
+        run: docker compose logs --tail 120
+
+      - name: Tear down
+        if: always()
+        working-directory: ${{ matrix.chapter }}
+        run: docker compose down -v
