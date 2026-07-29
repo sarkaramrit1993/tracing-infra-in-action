@@ -26,6 +26,16 @@ open http://localhost:16686
 
 ---
 
+## Verify it works
+
+```bash
+bash tests/test_stack.sh
+```
+
+Asserts that all three services are running, that `/checkout` answers, and that the resulting trace is queryable in Jaeger. Exits non-zero on any failure. Safe to re-run.
+
+---
+
 ## Architecture
 
 ```
