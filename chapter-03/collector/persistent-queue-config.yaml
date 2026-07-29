@@ -1,4 +1,4 @@
-# Listing 3.6: Persistent queue configuration with file storage
+# Listing 3.7: Persistent queue configuration with file storage
 # Disk-backed queue survives collector restarts
 
 receivers:

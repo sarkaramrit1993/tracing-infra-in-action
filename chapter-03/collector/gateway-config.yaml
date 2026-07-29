@@ -1,4 +1,4 @@
-# Listing 3.7: Gateway config with priority-based filtering and Jaeger export
+# Listing 3.4: Gateway config with memory limiter for controlled degradation
 # In production, gateways export to Kafka; here they export to Jaeger for local demo
 
 receivers:
@@ -22,7 +22,6 @@ processors:
       - key: deployment.environment
         value: development
         action: upsert
-  # Listing 3.7: Priority-based span filtering for graceful degradation
   filter/low_priority:
     error_mode: ignore
     traces:

@@ -1,4 +1,4 @@
-# Listing 3.9: DaemonSet manifest for node-level agent deployment
+# Listing 3.10: DaemonSet manifest for node-level agent deployment
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

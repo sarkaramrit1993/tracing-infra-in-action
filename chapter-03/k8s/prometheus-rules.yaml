@@ -1,4 +1,4 @@
-# Listing 3.15: PrometheusRule alerts for collector health
+# Listing 3.16: PrometheusRule alerts for collector health
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

@@ -1,4 +1,4 @@
-# Listing 3.8: Complete resilient agent configuration
+# Listing 3.9: Complete resilient agent configuration
 # Combines memory limits, batching, retries, health checks, and metrics
 
 receivers:

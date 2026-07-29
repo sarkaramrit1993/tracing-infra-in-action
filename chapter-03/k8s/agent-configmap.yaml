@@ -1,4 +1,4 @@
-# Listing 3.10: Agent ConfigMap with memory limiting, node enrichment,
+# Listing 3.11: Agent ConfigMap with memory limiting, node enrichment,
 # and trace-aware forwarding
 apiVersion: v1
 kind: ConfigMap

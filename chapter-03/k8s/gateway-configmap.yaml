@@ -1,4 +1,4 @@
-# Listing 3.12: Gateway ConfigMap with health check filtering,
+# Listing 3.13: Gateway ConfigMap with health check filtering,
 # cluster enrichment, and Kafka export
 apiVersion: v1
 kind: ConfigMap

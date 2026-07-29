@@ -1,4 +1,4 @@
-# Listing 3.11: Gateway Deployment with anti-affinity and headless service
+# Listing 3.12: Gateway Deployment with anti-affinity and headless service
 apiVersion: apps/v1
 kind: Deployment
 metadata:
