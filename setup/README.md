@@ -16,7 +16,7 @@ Settings, Resources before starting it.
 | 2 | ~160 MB | three containers (checkout service, Jaeger, OTel Collector); measured with `docker stats --no-stream` after the stack settled. The stack is up and answering requests in about 20 seconds |
 | 3 | ~245 MB | six containers (agent, two gateways, Jaeger, Prometheus, checkout service); measured the same way as chapter 2. The 8+ GB and 4+ core figure in `BENCHMARKS.md` is for the benchmark suite (`docker-compose.benchmark.yml`), not for the plain `docker compose up` stack |
 | 4 | ~1.9 GB (approximate) | three Kafka brokers; allow 60 to 90 seconds for controller election before the stack settles |
-| 5 | does not fit in 3.8 GB | the Flink taskmanager gets OOM-killed partway through a run on a small allocation. See "Chapter 5 seems to run, then behaves oddly" in `troubleshooting.md` before you start this one |
+| 5 | ~6 GB at the published Flink sizing | the heaviest stack. On a 3.8 GB allocation the Flink taskmanager gets OOM-killed partway through a run, and the stack still looks healthy while it is gone. It does fit in about 2.8 GB if you shrink Flink; both the symptom and that workaround are in `troubleshooting.md` |
 
 ## Apple Silicon
 

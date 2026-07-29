@@ -87,3 +87,35 @@ docker inspect $(docker compose ps -aq flink-taskmanager) --format '{{.State.OOM
 `true` means the taskmanager was killed for memory. Raise Docker Desktop's
 memory limit (Settings, Resources) before running chapter 5 again. The
 chapter's own target is around 6 GB; give it that much or more.
+
+### Running chapter 5 under 4 GB anyway
+
+If you cannot raise the limit, you can shrink Flink instead. The default
+sizing asks for 1600m for the jobmanager and 2048m for the taskmanager, which
+is most of a 4 GB allocation before Kafka, ClickHouse, Jaeger, Prometheus and
+four collectors get anything.
+
+Create `chapter-05/docker-compose.override.yml`, copy the whole
+`FLINK_PROPERTIES` block from `docker-compose.yml` into it for both
+`flink-jobmanager` and `flink-taskmanager`, and change three lines:
+
+```yaml
+        jobmanager.memory.process.size: 700m
+        taskmanager.memory.process.size: 1024m
+        taskmanager.memory.managed.size: 0
+```
+
+Managed memory can go to zero because this job uses the `hashmap` state
+backend, which keeps state on the JVM heap and never touches Flink's managed
+memory pool. Everything else stays as published.
+
+Do not go much below 1024m for the taskmanager. Flink derives its network and
+framework pools as fractions of the total and then applies minimums, so at
+900m the fixed components add up to more than the budget and the taskmanager
+exits with `IllegalConfigurationException` rather than starting. That failure
+is immediate and loud, not an OOM kill, so `docker compose ps -a` shows
+`Exited (1)` and the logs name the sum that overflowed.
+
+The whole stack fits in roughly 2.8 GB with those settings, and the
+verification script passes. Compose picks the override file up automatically;
+delete it to go back to the published sizing.
