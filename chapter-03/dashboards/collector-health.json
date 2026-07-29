@@ -53,12 +53,12 @@
       }
     },
     {
-      "title": "Drop Rate",
+      "title": "Refused Rate",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "targets": [
         {
-          "expr": "rate(otelcol_processor_dropped_spans[5m])",
+          "expr": "rate(otelcol_receiver_refused_spans[5m])",
           "legendFormat": "{{pod}}"
         }
       ],

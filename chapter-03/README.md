@@ -121,7 +121,7 @@ Results land in `benchmarks/results/`. See [BENCHMARKS.md](BENCHMARKS.md) for me
 
 **Test backpressure:**
 1. `python scripts/load-generator.py --scenario backpressure --duration 60 --rate 50`
-2. Watch `otelcol_processor_dropped_spans` at http://localhost:8888/metrics
+2. Watch `otelcol_receiver_refused_spans` at http://localhost:8888/metrics
 
 **Test hot spots:**
 1. `python scripts/load-generator.py --scenario hot-trace --duration 60`
