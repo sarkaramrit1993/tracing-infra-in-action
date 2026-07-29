@@ -19,8 +19,11 @@
 # Assertion 3's grouped query is scoped to trace_ids carrying a "GET
 # /checkout" root span; if that population is empty, the grouping returns no
 # rows and the partial-trace count reads zero having examined nothing. The
-# script checks the population size first and fails loudly if it is empty or
-# far short of the traffic sent, so the atomicity check cannot pass vacuously.
+# script takes that population's count before sending any traffic and again
+# afterward, and requires both an absolute floor and a real increase over the
+# baseline: an absolute floor alone would let leftover checkout trace_ids
+# from an earlier run (the stack was not torn down with `docker compose down
+# -v` in between) satisfy the check even while this run's export is broken.
 #
 # Prereq: `docker compose up -d` has settled. Give it 90 seconds: Kafka has
 # to elect controllers, ClickHouse has to apply its schema, and the Flink
@@ -36,6 +39,10 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 
 CH() { docker compose exec -T clickhouse clickhouse-client "$@"; }
 KTOPICS() { docker compose exec -T kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9093 "$@"; }
+
+CHECKOUT_TRACES_BEFORE=$(CH --query "
+    SELECT count(DISTINCT trace_id) FROM tracing.otel_traces
+    WHERE span_name = 'GET /checkout'")
 
 echo "== generate traffic (120 checkouts) =="
 for _ in $(seq 1 120); do curl -s -o /dev/null http://localhost:8080/checkout; done
@@ -60,16 +67,19 @@ echo "== 3. atomicity: no partial checkout traces in the store =="
 # The grouped query below only examines trace_ids that carry a "GET
 # /checkout" root span. If that population is empty (checkout traffic never
 # reached ClickHouse) the grouping returns no rows, PARTIAL reads 0, and the
-# assertion would pass having checked nothing. Confirm the population is
-# real before trusting an all-clear on it: require at least a quarter of
-# the 120 checkouts sent above to be present as checkout trace_ids.
-CHECKOUT_TRACES=$(CH --query "
+# assertion would pass having checked nothing. An absolute floor alone is
+# not enough: if the stack was not torn down between runs, leftover checkout
+# trace_ids from an earlier good run can clear the floor even while this
+# run's export is broken. Require the count to have grown by a real margin
+# since the baseline taken before traffic was sent, on top of the floor.
+CHECKOUT_TRACES_AFTER=$(CH --query "
     SELECT count(DISTINCT trace_id) FROM tracing.otel_traces
     WHERE span_name = 'GET /checkout'")
-[ "${CHECKOUT_TRACES:-0}" -gt 0 ] || fail "no checkout trace_ids (span_name='GET /checkout') found in tracing.otel_traces; the atomicity check below would pass on an empty set"
+CHECKOUT_TRACES_GROWTH=$((CHECKOUT_TRACES_AFTER - CHECKOUT_TRACES_BEFORE))
 MIN_CHECKOUT_TRACES=30
-[ "$CHECKOUT_TRACES" -ge "$MIN_CHECKOUT_TRACES" ] || fail "only $CHECKOUT_TRACES checkout trace_ids found in the store, expected at least $MIN_CHECKOUT_TRACES of the 120 checkouts sent"
-pass "found $CHECKOUT_TRACES checkout trace_ids to check for partial traces"
+[ "${CHECKOUT_TRACES_AFTER:-0}" -ge "$MIN_CHECKOUT_TRACES" ] || fail "only $CHECKOUT_TRACES_AFTER checkout trace_ids found in the store, expected at least $MIN_CHECKOUT_TRACES of the 120 checkouts sent"
+[ "$CHECKOUT_TRACES_GROWTH" -ge "$MIN_CHECKOUT_TRACES" ] || fail "checkout trace_ids grew by only $CHECKOUT_TRACES_GROWTH (before=$CHECKOUT_TRACES_BEFORE, after=$CHECKOUT_TRACES_AFTER), expected growth of at least $MIN_CHECKOUT_TRACES from the 120 checkouts sent this run"
+pass "checkout trace_ids grew by $CHECKOUT_TRACES_GROWTH (before=$CHECKOUT_TRACES_BEFORE, after=$CHECKOUT_TRACES_AFTER) to check for partial traces"
 
 # Scope to trace_ids that carry the "GET /checkout" root span so the
 # healthcheck's one-span "GET /health" traces (see header) are not
