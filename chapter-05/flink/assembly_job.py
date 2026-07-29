@@ -147,6 +147,7 @@ class SpanTimestampAssigner:
         return _event_time_ms_of(value)
 
 
+# Listing 5.2: KeyedProcessFunction skeleton for keyed trace assembly
 class TraceAssembler(KeyedProcessFunction):
     """Listing 5.2 made concrete in PyFlink.
 
@@ -276,6 +277,7 @@ def build_job():
     raw = env.from_source(
         source, WatermarkStrategy.no_watermarks(), "kafka-otlp-spans")
 
+    # Listing 5.4: Bounded watermark strategy and late-span side-output routing
     watermark = (WatermarkStrategy
                  .for_bounded_out_of_orderness(Duration.of_seconds(OUT_OF_ORDER_SEC))
                  .with_timestamp_assigner(SpanTimestampAssigner()))
