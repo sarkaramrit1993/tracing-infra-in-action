@@ -34,7 +34,8 @@ Each chapter has a `tests/test_stack.sh` that checks that chapter's stack
 against a live run, but what it checks differs by chapter. Chapters 2 and 4
 confirm services are up, a trace is produced, and the trace reaches Jaeger
 (chapter 4 also checks that the trace still lands with one Kafka broker
-down, and does not with two). Chapter 3 confirms the collection tier
+down, and that two brokers down leaves some partitions without a leader
+while checkout keeps returning 200). Chapter 3 confirms the collection tier
 through Prometheus metrics and does not query Jaeger. Chapter 5 confirms
 trace assembly through ClickHouse and Kafka and has no services-up step.
 See [`setup/README.md`](setup/README.md) for memory, ports, and per-chapter

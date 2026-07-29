@@ -3,19 +3,31 @@
 #   1. the otlp_spans topic exists with the expected partitions and RF,
 #   2. a trace round-trips through Kafka to Jaeger,
 #   3. with ONE broker down the trace still lands (RF=2 tolerates it),
-#   4. with TWO brokers down it does not.
+#   4. with TWO brokers down, some partitions lose their leader.
 #
 # Assertion 3/4 is the point of the chapter: curl returns 200 either way, so
-# the signal is whether the trace arrives, never the HTTP status. One broker
-# down is tolerated (RF=2). With two down, new traces stop arriving while the
-# endpoint keeps answering 200; that gap between "request succeeded" and
-# "trace captured" is the lesson. The two stopped brokers also sit in the
-# KRaft controller quorum, and any partition they led is leaderless until a
-# new controller is elected, and the consumer group's coordinator may have
-# been on one of them too, so those are plausible contributing factors, but
-# the exact mechanism has not been isolated to a single cause.
+# the signal is never the HTTP status. One broker down is tolerated (RF=2):
+# every partition still has a live replica, so the trace lands. Two down is
+# a partial outage, not a total one. otlp_spans has 6 partitions at RF=2
+# across 3 brokers, so under standard round-robin assignment every broker
+# already leads a share of the partitions before anything fails. Stopping
+# two of three brokers leaves only the partitions whose replicas both sat on
+# the stopped brokers without a leader; the rest keep a leader on the
+# survivor and keep accepting spans. Checkout keeps answering 200 throughout
+# either way. That silent, partial loss, some fraction of traces simply
+# never arriving while nothing looks wrong at the edge, is the lesson, and
+# it is a harder failure to notice than a clean outage would be.
 #
-# Steps 2 through 4 wait for the trace count to hold steady before taking a
+# On this stack's topology, stopping kafka-2 then kafka-1 leaves kafka-3
+# holding a live leader for 4 of otlp_spans's 6 partitions and none for the
+# other 2. In one manual run against that same layout, 12 of 20 checkouts
+# sent while both brokers were down still produced a trace, matching that
+# 4-of-6 share. Those figures follow from which two brokers get stopped and
+# how the partition replicas happen to be assigned; they are not a constant
+# of the chapter, which is why assertion 4 checks the partition metadata
+# directly instead of counting how many of a handful of checkouts land.
+#
+# Steps 2 and 3 wait for the trace count to hold steady before taking a
 # baseline. Step 2's baseline needs this too: this script's own prior run
 # ends by restarting all three brokers, and the gateway can flood its queued
 # backlog for up to a minute afterward, so a run started in that window would
@@ -32,10 +44,12 @@
 # still queued behind it. Three readings 7 seconds apart (out of phase with
 # the 5-second cadence) make that far less likely.
 #
-# Step 4's negative window (does the trace NOT arrive) is the same length as
-# steps 2 and 3's positive window (does it arrive), not half of it. A
-# shorter negative window would score any delivery that just happens to
-# land in the gap between the two windows as absence.
+# Assertion 4 does not send a checkout at all. With roughly two-thirds of
+# partitions still able to accept spans, whether one request lands is close
+# to a coin flip and cannot tell a working pipeline from a broken one.
+# Counting leaderless partitions on the surviving broker is deterministic:
+# it holds on every run, and it fails the way it should if replication or
+# the partition count ever changes.
 #
 # The trap restores all three brokers on any exit path, so a failure part-way
 # through does not leave the stack crippled. It waits for all three brokers
@@ -158,17 +172,14 @@ curl -s -o /dev/null http://localhost:8080/checkout
 wait_for_growth "$BASE" 30 || fail "trace did not reach Jaeger with one broker down (RF=2 should tolerate this)"
 pass "trace still reached Jaeger with kafka-2 down"
 
-echo "== 4. two brokers down: the trace does NOT land =="
-wait_for_quiet 6 >/dev/null || fail "trace count did not settle before stopping kafka-1"
+echo "== 4. two brokers down: some partitions lose their leader =="
 docker compose stop kafka-1 >/dev/null
 sleep 25
-BASE=$(wait_for_quiet 6) || fail "trace count did not settle after stopping kafka-1 (queue still draining, measurement not trustworthy)"
-CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/checkout)
-[ "$CODE" = "200" ] || echo "note: checkout returned HTTP $CODE (the assertion is about the trace, not this)"
-if wait_for_growth "$BASE" 30; then
-    fail "trace reached Jaeger with two brokers down (expected the pipeline to stall)"
-fi
-pass "trace did not reach Jaeger with two brokers down, while checkout still answered"
+DESC4=$(docker compose exec -T kafka-3 /opt/kafka/bin/kafka-topics.sh \
+    --bootstrap-server kafka-3:9093 --describe --topic otlp_spans)
+LEADERLESS=$(echo "$DESC4" | grep -c "Leader: none")
+[ "${LEADERLESS:-0}" -gt 0 ] || fail "expected at least one of otlp_spans's $PARTS partitions to have no leader with two of three brokers down, found none"
+pass "$LEADERLESS of $PARTS partitions have no leader with two brokers down"
 
 echo
 echo "ALL TESTS PASSED"

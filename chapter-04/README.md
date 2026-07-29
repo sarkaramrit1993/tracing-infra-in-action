@@ -52,22 +52,33 @@ docker compose exec kafka-1 /opt/kafka/bin/kafka-consumer-groups.sh \
 
 ### Failure test
 
-Replication factor 2 tolerates one broker down, and `curl` returns 200 either way, so the real signal is whether the trace still reaches Jaeger, not whether checkout succeeds:
+Replication factor 2 tolerates one broker down, and `curl` returns 200 either way, so the real signal for step 3 is whether the trace still reaches Jaeger, not whether checkout succeeds. Step 4 checks the partition state directly instead:
 
 ```bash
 bash tests/test_stack.sh
 ```
 
-Steps 3 and 4 of the script stop one broker, then two, and assert on whether
-the trace arrives. One broker down is tolerated: replication factor 2 means
-the trace still lands. With two brokers down, new traces stop arriving
-while the endpoint keeps returning 200. Watch Jaeger, not the curl exit
-code: that gap between "request succeeded" and "trace captured" is the
-operational lesson here. The two stopped brokers also sit in the KRaft
-controller quorum, and the consumer group's coordinator may have been on
-one of them, so a leaderless partition or a missing coordinator are
-plausible contributing factors, but the exact mechanism has not been
-isolated. The script restores all three brokers on exit.
+Steps 3 and 4 of the script stop one broker, then two. Step 3 confirms one
+broker down is tolerated: every partition still has a live replica, so the
+trace lands. Step 4 confirms what two down actually does, which is a
+partial outage rather than a total one. `otlp_spans` has 6 partitions at
+RF=2 across 3 brokers, so under standard round-robin assignment the
+surviving broker already leads a share of them before anything fails.
+Stopping two of three brokers leaves only the partitions whose replicas
+both sat on the stopped brokers without a leader; the rest keep a leader on
+the survivor and keep accepting spans. Checkout keeps answering 200
+throughout either way, so a fraction of new traces going silently missing
+while nothing looks wrong at the edge is the actual lesson here, and it is
+a harder failure to notice than a clean outage would be.
+
+Step 4 checks this directly by counting leaderless partitions on the
+surviving broker, rather than sending one checkout and hoping it lands on
+a broken partition. In one manual run against this topology, stopping
+kafka-2 then kafka-1 left 2 of 6 partitions leaderless, and 12 of 20
+checkouts sent while both brokers were down still produced a trace. Those
+figures follow from which two brokers are stopped and how the partition
+replicas happen to be assigned; they are not a fixed rate for the chapter.
+The script restores all three brokers on exit.
 
 ### Dead-letter topic
 
