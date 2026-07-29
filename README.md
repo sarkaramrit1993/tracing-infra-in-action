@@ -27,3 +27,12 @@ docker compose down -v   # tear down when finished
 - Docker + Docker Compose
 - Python 3.12 (for the app and benchmark scripts)
 - Chapter 3 additionally uses [kind](https://kind.sigs.k8s.io/) for the Kubernetes path
+
+## Verifying
+
+Each chapter's `tests/test_stack.sh` checks the stack against a live run:
+services up, a trace produced, and the trace reaching Jaeger (chapter 4 also
+checks that the trace still lands with one Kafka broker down). See
+[`setup/README.md`](setup/README.md) for memory, ports, and per-chapter
+requirements, and [`troubleshooting.md`](troubleshooting.md) for what to do
+when a stack doesn't come up cleanly.
