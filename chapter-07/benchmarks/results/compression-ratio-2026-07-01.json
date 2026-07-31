@@ -1,0 +1,70 @@
+{
+  "benchmark": "compression_ratio",
+  "measured_at_utc": "2026-07-01T03:33:07.044932+00:00",
+  "transport": "clickhouse-driver",
+  "num_spans_loaded": 1000000,
+  "spans_per_trace": 6,
+  "total_rows_measured": 1000000,
+  "columns": [
+    {
+      "column": "trace_id",
+      "stored_bytes": 16857507,
+      "raw_bytes": 33000000,
+      "ratio": 1.96
+    },
+    {
+      "column": "attributes",
+      "stored_bytes": 1819841,
+      "raw_bytes": 21022843,
+      "ratio": 11.55
+    },
+    {
+      "column": "span_id",
+      "stored_bytes": 3650344,
+      "raw_bytes": 17000000,
+      "ratio": 4.66
+    },
+    {
+      "column": "adjusted_count",
+      "stored_bytes": 6641,
+      "raw_bytes": 8000000,
+      "ratio": 1204.64
+    },
+    {
+      "column": "timestamp",
+      "stored_bytes": 5633796,
+      "raw_bytes": 8000000,
+      "ratio": 1.42
+    },
+    {
+      "column": "duration_ns",
+      "stored_bytes": 3508979,
+      "raw_bytes": 8000000,
+      "ratio": 2.28
+    },
+    {
+      "column": "span_name",
+      "stored_bytes": 1227,
+      "raw_bytes": 1002117,
+      "ratio": 816.72
+    },
+    {
+      "column": "service_name",
+      "stored_bytes": 1103,
+      "raw_bytes": 1002071,
+      "ratio": 908.5
+    },
+    {
+      "column": "status_code",
+      "stored_bytes": 20760,
+      "raw_bytes": 1002018,
+      "ratio": 48.27
+    },
+    {
+      "column": "tenant_id",
+      "stored_bytes": 985,
+      "raw_bytes": 1001994,
+      "ratio": 1017.25
+    }
+  ]
+}

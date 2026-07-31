@@ -1,0 +1,53 @@
+# Chapter 7 Collector path, continuous with chapter-05/'s gateway.
+#
+# Receives OTLP from the checkout producer and exports spans to Kafka with
+# partition_traces_by_id: true, the same contract chapter 4 introduced and
+# chapter 5 relies on. The storage-time consumer (app/consumer_clickhouse.py)
+# reads otlp_spans and writes the listing 7.1 wide table. Chapter 7 is about the
+# store, so this is a single-tier collector (no separate agent), but the export
+# contract is identical to chapter-05/collector/gateway-config.yaml.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    send_batch_size: 8192
+    timeout: 1s
+
+exporters:
+  kafka:
+    brokers:
+      - kafka:9093
+    protocol_version: "3.9.0"
+    traces:
+      topic: otlp_spans
+      encoding: otlp_proto
+    partition_traces_by_id: true
+    producer:
+      compression: lz4
+      required_acks: 1
+      max_message_bytes: 1000000
+
+extensions:
+  health_check: {}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [kafka]
+  telemetry:
+    metrics:
+      level: detailed

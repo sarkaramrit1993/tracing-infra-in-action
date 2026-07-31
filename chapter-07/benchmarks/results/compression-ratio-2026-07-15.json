@@ -1,0 +1,64 @@
+{
+  "benchmark": "compression_ratio",
+  "measured_at_utc": "2026-07-15T05:57:27.968968+00:00",
+  "transport": "http",
+  "num_spans_loaded": 200000,
+  "spans_per_trace": 6,
+  "total_rows_measured": 200000,
+  "columns": [
+    {
+      "column": "trace_id",
+      "stored_bytes": 3375024,
+      "raw_bytes": 6600000,
+      "ratio": 1.96
+    },
+    {
+      "column": "attributes",
+      "stored_bytes": 365019,
+      "raw_bytes": 4204609,
+      "ratio": 11.52
+    },
+    {
+      "column": "span_id",
+      "stored_bytes": 656955,
+      "raw_bytes": 3400000,
+      "ratio": 5.18
+    },
+    {
+      "column": "adjusted_count",
+      "stored_bytes": 1350,
+      "raw_bytes": 1600000,
+      "ratio": 1185.19
+    },
+    {
+      "column": "timestamp",
+      "stored_bytes": 1083118,
+      "raw_bytes": 1600000,
+      "ratio": 1.48
+    },
+    {
+      "column": "duration_ns",
+      "stored_bytes": 701825,
+      "raw_bytes": 1600000,
+      "ratio": 2.28
+    },
+    {
+      "column": "span_name",
+      "stored_bytes": 525,
+      "raw_bytes": 200549,
+      "ratio": 382.0
+    },
+    {
+      "column": "service_name",
+      "stored_bytes": 420,
+      "raw_bytes": 200503,
+      "ratio": 477.39
+    },
+    {
+      "column": "status_code",
+      "stored_bytes": 4316,
+      "raw_bytes": 200450,
+      "ratio": 46.44
+    }
+  ]
+}

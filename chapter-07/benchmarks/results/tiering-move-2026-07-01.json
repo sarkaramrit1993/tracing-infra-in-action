@@ -1,0 +1,16 @@
+{
+  "benchmark": "tiering_automation",
+  "measured_at_utc": "2026-07-01T03:20:50.581575+00:00",
+  "transport": "http",
+  "num_spans": 50000,
+  "move_ttl_seconds": 10,
+  "cold_disk": "s3_cold",
+  "parts_by_disk_before": {
+    "default": 1
+  },
+  "parts_by_disk_after": {
+    "s3_cold": 1
+  },
+  "move_latency_seconds": 1.02,
+  "note": "parts_by_disk_after is the snapshot taken the moment the first part reaches the cold disk, which is also where move_latency_seconds stops. A remaining count on 'default' at that instant is expected and does not indicate an incomplete move: parts age and migrate individually."
+}
