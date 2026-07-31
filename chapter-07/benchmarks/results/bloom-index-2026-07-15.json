@@ -1,0 +1,15 @@
+{
+  "benchmark": "bloom_index_pruning",
+  "measured_at_utc": "2026-07-15T05:57:35.073074+00:00",
+  "transport": "http",
+  "probe_trace_id": "a94dffa36e0fd0e1b42e2b10864c2ab5",
+  "granules_without_skip_index": {
+    "selected": 19,
+    "total": 147
+  },
+  "granules_with_bloom_index": {
+    "selected": 4,
+    "total": 19
+  },
+  "granules_pruned": 15
+}

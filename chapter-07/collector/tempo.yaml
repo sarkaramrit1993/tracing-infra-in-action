@@ -1,0 +1,31 @@
+# Grafana Tempo, minimal single-binary config for the block-archetype demo
+# (section 7.3). Tempo writes immutable Parquet-shaped blocks to a local object
+# store (filesystem here, S3/GCS in production), the contrast to ClickHouse's
+# row store. compactor.block_retention is Tempo's expression of the same cold
+# boundary that listing 7.2 expresses as `TTL ... TO VOLUME 'cold'`.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 48h   # the cold boundary, parallel to listing 7.2's 2-day TTL
+
+storage:
+  trace:
+    backend: local         # local filesystem stands in for S3/GCS in the demo
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

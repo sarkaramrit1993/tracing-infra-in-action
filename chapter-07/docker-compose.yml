@@ -1,0 +1,238 @@
+# Chapter 7 (Trace Storage Patterns) companion stack, continuous with chapter-05/.
+#
+# Path:  checkout -> otel-collector (partition_traces_by_id) -> kafka(otlp_spans)
+#        -> consumer-clickhouse -> ClickHouse otel_traces (listing 7.1)
+#
+# Chapter 7 is about the STORE, so the topology is deliberately lighter than
+# chapter 5's: one Kafka broker instead of three, no Flink, no Jaeger. The
+# Collector export contract (partition_traces_by_id + otlp_spans topic) is
+# identical to chapter-05/, so the same span stream lands in the listing 7.1
+# table. ClickHouse is the primary backend. Grafana Tempo is included behind the
+# `block` profile to demonstrate the object-storage block archetype from
+# section 7.3; it stays off by default (docker compose --profile block up).
+#
+# Pinned versions (one tag per image, N1):
+#   apache/kafka                                  4.3.0
+#   otel/opentelemetry-collector-contrib          0.154.0
+#   clickhouse/clickhouse-server                  25.8
+#   grafana/tempo                                 2.9.0   (block profile only)
+#   prom/prometheus                               v3.12.0
+#   minio/minio                                   RELEASE.2025-09-07T16-13-09Z
+#   minio/mc                                      RELEASE.2025-08-13T08-35-41Z
+
+x-kafka-env: &kafka-env
+  KAFKA_NODE_ID: 1
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+  KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+  KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9093
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_NUM_PARTITIONS: 16
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+x-kafka-healthcheck: &kafka-healthcheck
+  test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9093"]
+  interval: 10s
+  timeout: 10s
+  retries: 10
+  start_period: 30s
+
+networks:
+  ch7:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  clickhouse-data:
+  tempo-data:
+  minio-data:
+
+# MinIO root credentials, shared by the server, the bucket bootstrap, and the
+# ClickHouse s3_cold disk in clickhouse/config.d/storage.xml. Demo values only.
+x-minio-env: &minio-env
+  MINIO_ROOT_USER: traceadmin
+  MINIO_ROOT_PASSWORD: traceadmin-secret
+
+services:
+  # --- Application: checkout producer (same trace shape as chapter 5) ---
+  checkout-service:
+    build: ./app
+    networks: [ch7]
+    ports:
+      - "8080:8080"
+    environment:
+      OTEL_SERVICE_NAME: checkout-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_BSP_SCHEDULE_DELAY: "5000"
+    command: ["python", "checkout.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  # --- OTel Collector: OTLP in, partition-by-trace-id, Kafka out ---
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch7]
+    volumes:
+      - ./collector/gateway-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # --- Kafka (single-broker KRaft, no ZooKeeper) ---
+  kafka:
+    image: apache/kafka:4.3.0
+    networks: [ch7]
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-env
+    healthcheck: *kafka-healthcheck
+    restart: unless-stopped
+
+  kafka-init:
+    image: apache/kafka:4.3.0
+    networks: [ch7]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Creating otlp_spans topic..."
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic otlp_spans \
+          --partitions 16 --replication-factor 1 \
+          --config retention.ms=86400000 \
+          --config cleanup.policy=delete \
+          --config min.insync.replicas=1 \
+          --bootstrap-server kafka:9093
+        echo "Topic created."
+
+  # --- MinIO: the S3-compatible object store behind the cold tier (section 7.2) ---
+  # ClickHouse's s3_cold disk (config.d/storage.xml) writes cold parts here as S3
+  # objects, the same API AWS S3, GCS, and Azure Blob expose. The API port stays
+  # on 9000 inside the network; on the host it is published on 9002 so it does not
+  # clash with ClickHouse's native 9000. The console is on 9001.
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    networks: [ch7]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      <<: *minio-env
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9002:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "mc alias set _h http://localhost:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc ready _h"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # --- MinIO bootstrap: create the traces-cold bucket before ClickHouse starts ---
+  # ClickHouse validates the s3_cold disk on boot, so the bucket must exist first.
+  # The retry loop tolerates MinIO still coming up.
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    networks: [ch7]
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      <<: *minio-env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          echo "waiting for minio..."; sleep 2;
+        done
+        mc mb --ignore-existing local/traces-cold
+        echo "bucket traces-cold ready"
+
+  # --- ClickHouse: the listing 7.1 store, primary backend ---
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    networks: [ch7]
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+      - "9363:9363"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./clickhouse/users.d/z-allow-network.xml:/etc/clickhouse-server/users.d/z-allow-network.xml
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Storage-time consumer: Kafka otlp_spans -> ClickHouse otel_traces ---
+  consumer-clickhouse:
+    build: ./app
+    networks: [ch7]
+    command: ["python", "consumer_clickhouse.py"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9093
+      KAFKA_TOPIC: otlp_spans
+      KAFKA_GROUP: trace-storage-clickhouse
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+
+  # --- Prometheus (collector + ClickHouse metrics) ---
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    networks: [ch7]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  # --- Grafana Tempo: the object-storage BLOCK archetype (section 7.3) ---
+  # Off by default. Bring it up with: docker compose --profile block up -d
+  # Demonstrates the contrast with ClickHouse's row archetype: Tempo writes
+  # immutable Parquet-shaped blocks to a local object store rather than rows.
+  tempo:
+    image: grafana/tempo:2.9.0
+    profiles: ["block"]
+    networks: [ch7]
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./collector/tempo.yaml:/etc/tempo/tempo.yaml
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP/query
+      - "4417:4317"   # Tempo OTLP gRPC (mapped off 4317 to avoid collector clash)

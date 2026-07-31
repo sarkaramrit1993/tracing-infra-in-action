@@ -1,0 +1,28 @@
+{
+  "benchmark": "tenant_cardinality_blowup",
+  "measured_at_utc": "2026-07-15T05:57:59.029148+00:00",
+  "transport": "http",
+  "num_spans_per_phase": 1000000,
+  "spans_per_trace": 6,
+  "tenants": 4,
+  "column": "attributes",
+  "baseline": {
+    "stored_bytes": 2792458,
+    "raw_bytes": 31022853,
+    "ratio": 11.11,
+    "active_parts": 1,
+    "rows": 1000000
+  },
+  "blowup": {
+    "stored_bytes": 4428489,
+    "raw_bytes": 35522865,
+    "ratio": 8.02,
+    "active_parts": 1,
+    "rows": 1000000
+  },
+  "delta": {
+    "ratio_drop": 3.09,
+    "stored_bytes_growth_x": 1.59,
+    "stored_bytes_added": 1636031
+  }
+}

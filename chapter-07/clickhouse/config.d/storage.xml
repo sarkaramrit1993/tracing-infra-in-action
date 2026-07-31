@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!-- Chapter 7: storage policy backing listing 7.2's `TO VOLUME 'cold'` clause.
+
+     The 'tiered' policy has two volumes:
+       - default : the standard ClickHouse data disk (hot, SSD in production)
+       - cold    : an OBJECT STORE, backed here by the s3_cold disk below
+
+     The table in init.sql binds to this policy via SETTINGS storage_policy='tiered'.
+     A `TTL ... TO VOLUME 'cold'` rule (listing 7.2) then moves aged parts from the
+     default volume to the cold volume. You can watch the move in
+     system.parts.disk_name flipping from 'default' to 's3_cold'.
+
+     COLD TIER IS REAL S3. The s3_cold disk points at the MinIO service in
+     docker-compose.yml, which speaks the S3 API on http://minio:9000. The demo
+     bucket 'traces-cold' is created by the minio-init container before ClickHouse
+     starts. Parts moved to the cold volume are written as S3 objects into that
+     bucket, exactly as a production deployment writes them to AWS S3, GCS, or
+     Azure Blob. Only the endpoint and credentials below change between providers;
+     listing 7.2's ALTER statements stay byte for byte identical.
+
+     SWAP TO A CLOUD PROVIDER (endpoint + credentials only):
+       AWS S3   : <endpoint>https://your-bucket.s3.us-east-1.amazonaws.com/traces-cold/</endpoint>
+       GCS      : <endpoint>https://storage.googleapis.com/your-bucket/traces-cold/</endpoint>
+                  (GCS S3-compatible XML API, HMAC keys as access/secret)
+       Azure    : use <type>azure_blob_storage</type> with a storage_account_url
+                  and container instead of the s3 block. -->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <s3_cold>
+                <type>s3</type>
+                <endpoint>http://minio:9000/traces-cold/</endpoint>
+                <access_key_id>traceadmin</access_key_id>
+                <secret_access_key>traceadmin-secret</secret_access_key>
+                <region>us-east-1</region>
+                <!-- MinIO and most S3-compatible stores use path-style URLs. -->
+                <support_batch_delete>true</support_batch_delete>
+            </s3_cold>
+        </disks>
+        <policies>
+            <tiered>
+                <volumes>
+                    <default>
+                        <disk>default</disk>
+                    </default>
+                    <cold>
+                        <disk>s3_cold</disk>
+                    </cold>
+                </volumes>
+            </tiered>
+        </policies>
+    </storage_configuration>
+</clickhouse>
