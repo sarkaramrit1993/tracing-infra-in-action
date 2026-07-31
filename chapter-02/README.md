@@ -15,7 +15,7 @@ This environment demonstrates:
 
 ```bash
 # Start all services
-docker-compose up --build
+docker compose up --build
 
 # In another terminal, generate some traces
 curl http://localhost:8080/checkout
@@ -237,19 +237,19 @@ exporters:
 ### "Connection refused" errors
 ```bash
 # Make sure all services are running
-docker-compose ps
+docker compose ps
 
 # Check collector logs
-docker-compose logs otel-collector
+docker compose logs otel-collector
 ```
 
 ### No traces appearing in Jaeger
 ```bash
 # Check if app is exporting
-docker-compose logs checkout-service | grep -i otel
+docker compose logs checkout-service | grep -i otel
 
 # Verify collector is receiving
-docker-compose logs otel-collector | grep -i trace
+docker compose logs otel-collector | grep -i trace
 ```
 
 ### Port conflicts
@@ -265,10 +265,10 @@ lsof -i :16686
 
 ```bash
 # Stop all services
-docker-compose down
+docker compose down
 
 # Remove volumes too
-docker-compose down -v
+docker compose down -v
 ```
 
 ---

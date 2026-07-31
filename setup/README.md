@@ -3,7 +3,7 @@
 ## What you need
 
 - Docker and Docker Compose v2
-- Python 3.10 or later, for the load-generator and benchmark scripts that run outside Docker
+- Python 3.12, for the load-generator and benchmark scripts that run outside Docker. This is the version CI installs, so it is the only one the chapters are verified against
 - kind, for chapter 3's Kubernetes path only
 
 ## Memory and CPU per chapter

@@ -110,18 +110,23 @@ pass "checkout trace_ids grew by $CHECKOUT_TRACES_GROWTH (before=$CHECKOUT_TRACE
 # healthcheck's one-span "GET /health" traces (see header) are not
 # miscounted as partial. A real checkout trace has 7 spans; fewer than that
 # is a partial-trace violation.
+#
+# The max(timestamp) guard excludes traces that are still being written. Under
+# live traffic a checkout can land mid-query, and its spans are legitimately
+# incomplete for that moment. Without the guard the assertion false-fails on
+# timing rather than on the invariant it exists to test.
 PARTIAL=$(CH --query "
     SELECT count() FROM (
-        SELECT trace_id, count() AS n
+        SELECT trace_id, count() AS n, max(timestamp) AS last_span
         FROM tracing.otel_traces
         WHERE trace_id IN (
             SELECT trace_id FROM tracing.otel_traces WHERE span_name = 'GET /checkout'
         )
         GROUP BY trace_id
-        HAVING n < 7
+        HAVING n < 7 AND last_span < now() - INTERVAL 30 SECOND
     )")
-[ "${PARTIAL:-0}" = "0" ] || fail "$PARTIAL checkout trace_ids have fewer than 7 spans (partial traces in store)"
-pass "no partial traces: every checkout trace_id in tracing.otel_traces has 7 spans"
+[ "${PARTIAL:-0}" = "0" ] || fail "$PARTIAL settled checkout trace_ids have fewer than 7 spans (partial traces in store)"
+pass "no partial traces: every settled checkout trace_id in tracing.otel_traces has 7 spans"
 
 echo "== 4. the late-span side output is a dead end, not a feedback loop =="
 KTOPICS --list | grep -q "^spans.late$" || fail "topic spans.late does not exist"

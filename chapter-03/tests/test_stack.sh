@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Chapter 3 stack test. Asserts three things against the LIVE stack:
 #   1. the agent and both gateways are running and scraped,
-#   2. spans accepted by the agent are exported onward,
+#   2. spans accepted across the collector tier are exported onward,
 #   3. trace-aware routing spreads spans across BOTH gateways, the
 #      three-tier claim this chapter makes.
 #
@@ -18,6 +18,13 @@
 # start. It takes a before/after reading around the 50 checkouts below and
 # asserts the delta grew, rather than asserting the raw totals are non-zero
 # (which leftover traffic from any earlier run would satisfy forever).
+#
+# Both sums are deliberately unlabelled, so they cover the agent AND both
+# gateways. One span therefore contributes to the accepted count twice, once
+# at the agent and once at whichever gateway it is routed to. That is why the
+# wording here is "across the collector tier" rather than "at the agent": the
+# delta is a tier-wide throughput check, not a per-hop count, and the absolute
+# numbers it prints are not a span total.
 #
 # Assertion 3 is directional, not a fixed split: it asserts each gateway
 # received a non-zero share, never an exact ratio. The precise distribution
@@ -49,7 +56,7 @@ UP=$(promql 'count(up{job=~"otel-agent|otel-gateway-1|otel-gateway-2"} == 1)')
 [ "$(printf '%.0f' "$UP")" -eq 3 ] || fail "expected exactly 3 of otel-agent/otel-gateway-1/otel-gateway-2 up in Prometheus (got $UP)"
 pass "agent and both gateways are running and scraped"
 
-echo "== 2. spans accepted by the agent are exported onward =="
+echo "== 2. spans accepted across the collector tier are exported onward =="
 ACCEPTED_BEFORE=$(printf '%.0f' "$(promql 'sum(otelcol_receiver_accepted_spans)')")
 SENT_BEFORE=$(printf '%.0f' "$(promql 'sum(otelcol_exporter_sent_spans)')")
 for _ in $(seq 1 50); do curl -s -o /dev/null http://localhost:8080/checkout; done
@@ -62,7 +69,7 @@ ACCEPTED_DELTA=$((ACCEPTED_AFTER - ACCEPTED_BEFORE))
 SENT_DELTA=$((SENT_AFTER - SENT_BEFORE))
 [ "$ACCEPTED_DELTA" -gt 0 ] || fail "no new spans accepted by any receiver during this run (before=$ACCEPTED_BEFORE, after=$ACCEPTED_AFTER)"
 [ "$SENT_DELTA" -gt 0 ] || fail "no new spans exported by any exporter during this run (before=$SENT_BEFORE, after=$SENT_AFTER)"
-pass "spans accepted (+$ACCEPTED_DELTA) and exported (+$SENT_DELTA) during this run"
+pass "spans accepted (+$ACCEPTED_DELTA) and exported (+$SENT_DELTA) tier-wide during this run"
 
 echo "== 3. both gateways received spans (trace-aware routing spreads load) =="
 G1=$(promql 'sum(otelcol_receiver_accepted_spans{job="otel-gateway-1"})')
