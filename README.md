@@ -10,6 +10,7 @@ self-contained stack for one chapter, with its own `README.md` and a
 | `chapter-03/` | Collection tiers | Three-tier collection, agent/gateway/consumer Collector configs, Kubernetes manifests, benchmarks |
 | `chapter-04/` | Ingestion and buffering | OpenTelemetry gateway + 3-broker Kafka (KRaft) + Jaeger, partitioning benchmarks |
 | `chapter-05/` | Trace assembly | Kafka + Flink assembly job + ClickHouse + Jaeger, store-then-stitch vs stream-time benchmarks |
+| `chapter-07/` | Trace storage | ClickHouse wide-table store + Kafka + Grafana Tempo on MinIO object storage, compression, tiering and tenant-isolation benchmarks |
 
 ## Running a chapter
 
@@ -38,6 +39,9 @@ down, and that two brokers down leaves some partitions without a leader
 while checkout keeps returning 200). Chapter 3 confirms the collection tier
 through Prometheus metrics and does not query Jaeger. Chapter 5 confirms
 trace assembly through ClickHouse and Kafka and has no services-up step.
+Chapter 7 confirms the store rather than the ingest path: that the listing 7.1
+schema exists, that a trace round-trips by ID, and that the row policy keeps
+one tenant from reading another's spans.
 See [`setup/README.md`](setup/README.md) for memory, ports, and per-chapter
 requirements, and [`troubleshooting.md`](troubleshooting.md) for what to do
 when a stack doesn't come up cleanly.
