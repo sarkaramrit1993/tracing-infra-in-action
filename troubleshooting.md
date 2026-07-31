@@ -80,8 +80,14 @@ If chapter 5 looks healthy but the numbers don't add up, check for an OOM
 kill directly:
 
 ```bash
+cd chapter-05
 docker compose ps -a
-docker inspect $(docker compose ps -aq flink-taskmanager) --format '{{.State.OOMKilled}}'
+cid=$(docker compose ps -aq flink-taskmanager)
+if [ -n "$cid" ]; then
+    docker inspect "$cid" --format '{{.State.OOMKilled}}'
+else
+    echo "no flink-taskmanager container: it was removed, or never started"
+fi
 ```
 
 `true` means the taskmanager was killed for memory. Raise Docker Desktop's
