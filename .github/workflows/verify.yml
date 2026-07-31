@@ -28,7 +28,8 @@ jobs:
           for f in chapter-02/docker-compose.yml \
                    chapter-03/docker-compose.yml \
                    chapter-04/docker-compose.yml \
-                   chapter-05/docker-compose.yml; do
+                   chapter-05/docker-compose.yml \
+                   chapter-07/docker-compose.yml; do
               docker compose -f "$f" config -q
           done
           docker compose -f chapter-03/docker-compose.yml \
@@ -111,6 +112,11 @@ jobs:
             settle: 90
           - chapter: chapter-05
             settle: 130
+          # Chapter 7 brings up object storage as well as Kafka and ClickHouse,
+          # and MinIO's bucket init has to finish before Tempo writes a block,
+          # so it settles longer than chapter 5 despite running no Flink.
+          - chapter: chapter-07
+            settle: 150
     steps:
       - uses: actions/checkout@v4
 
