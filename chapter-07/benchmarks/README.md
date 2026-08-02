@@ -9,18 +9,18 @@ production scale on a laptop, and none of them prints a number it did not measur
 
 ## Setup
 
-Bring the stack up first, then run the scripts from this directory:
+Bring the stack up first. Wait for ClickHouse to report healthy in
+`docker compose ps`, then run the scripts from this directory:
 
 ```bash
 cd ..
 docker compose up -d
-# wait for ClickHouse to report healthy
 docker compose ps
 cd benchmarks
-python compression_ratio.py
-python bloom_index_pruning.py
-python tiering_automation.py
-python tenant_cardinality_blowup.py
+python3 compression_ratio.py
+python3 bloom_index_pruning.py
+python3 tiering_automation.py
+python3 tenant_cardinality_blowup.py
 ```
 
 The scripts talk to ClickHouse over the native protocol when `clickhouse-driver`
@@ -71,8 +71,15 @@ Inserts a small recent batch on the hot volume, ages it a few seconds, sets a
 short `TO VOLUME 'cold'` boundary and materializes it, then polls `system.parts`
 until an active part's `disk_name` flips to `s3_cold` (the MinIO-backed S3 disk).
 The reported latency is the wall-clock time from the ALTER to the part landing on
-S3, so it includes the object upload, not only the metadata change. It restores
-the listing 7.2 boundary (two days to cold, fifteen days delete) before exiting.
+S3, so it includes the object upload, not only the metadata change.
+
+Before it measures anything it puts the table into a known state: it restores the
+listing 7.2 boundary (two days to cold, fifteen days delete) and moves any part
+that is already on the cold disk back to the hot volume. So it works on a fresh
+table and on one you have already walked through, where every part sits on S3
+and there would otherwise be nothing left to move. The restore also runs in a
+`finally` block, so an error or a Ctrl-C cannot strand the short boundary on the
+table.
 
 ## tenant_cardinality_blowup.py
 

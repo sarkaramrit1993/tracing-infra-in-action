@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# Result files you generate by running the benchmarks. The dated reference
+# results committed here are already tracked, so this pattern leaves them alone.
+results/*.json
