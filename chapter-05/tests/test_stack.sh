@@ -46,7 +46,17 @@ cd "$(dirname "$0")/.."
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-CH() { docker compose exec -T clickhouse clickhouse-client "$@"; }
+# clickhouse-client reads stdin for INSERT data, and `docker compose exec -T`
+# hands it the caller's stdin. From a terminal that never reaches EOF, so an
+# INSERT would block forever. Feed it /dev/null when stdin is a terminal, and
+# otherwise pass the caller's stdin through so `CH --multiquery < file` works.
+CH() {
+  if [ -t 0 ]; then
+    docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
+  else
+    docker compose exec -T clickhouse clickhouse-client "$@"
+  fi
+}
 KTOPICS() { docker compose exec -T kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9093 "$@"; }
 
 CHECKOUT_TRACES_BEFORE=$(CH --query "
