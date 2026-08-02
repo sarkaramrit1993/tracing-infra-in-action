@@ -4,16 +4,25 @@ Why the walkthrough in [README.md](README.md) is built the way it is. None of
 this is needed to run the stack. Read a section when a step surprises you, or
 when you want to know what the demo is doing underneath.
 
-## The `ch()` helper and stdin
+## Why there are two helpers, `ch` and `ch_file`
 
-The helper is defined at the top of "Verify it works".
+Both are defined at the top of "Verify it works".
 
-The terminal check is not decoration. `clickhouse-client` reads stdin for INSERT
-data even when the row is already inline in `VALUES`, and `docker compose exec -T`
-hands it whatever stdin you have. At a terminal that never reaches EOF, so an
-INSERT would sit there forever. Feeding it `/dev/null` fixes that, but only when
-you have not redirected stdin yourself, because later steps pipe a `.sql` file
-in with `ch --multiquery < file`.
+`clickhouse-client` reads stdin for INSERT data even when the row is already
+inline in `VALUES`, and `docker compose exec -T` hands it whatever stdin you
+have. If that stdin stays open and never reaches EOF, the INSERT sits there
+forever with nothing printed. That is why `ch` always redirects `/dev/null`: a
+query it runs can never end up waiting on your keyboard.
+
+But steps 4 and 6 need the opposite. They feed a whole `.sql` file to
+`--multiquery`, which means stdin has to carry the file. One helper cannot do
+both, and guessing from the shape of stdin gets it wrong somewhere. An earlier
+version guessed with `[ -t 0 ]`, which worked at a terminal and hung anywhere
+stdin was an open pipe. So the file case gets its own name, `ch_file`, and it is
+the only thing in the walkthrough that puts anything on stdin.
+
+The same split is in `tests/test_stack.sh` and `tests/test_tenancy.sh` as `CH`
+and `CH_FILE`, for the same reason.
 
 ## Why step 2 filters on `GET /checkout`
 
