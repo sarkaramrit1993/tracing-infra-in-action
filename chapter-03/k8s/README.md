@@ -63,7 +63,7 @@ Port-forward the sample app and run the load generator:
 
 ```bash
 kubectl port-forward -n default svc/checkout-service 8080:8080
-python scripts/load-generator.py --scenario steady --duration 60
+python3 scripts/load-generator.py --scenario steady --duration 60
 ```
 
 Scenarios: `steady`, `spike`, `backpressure`, `multi-tenant`, `hot-trace`, `failover`.

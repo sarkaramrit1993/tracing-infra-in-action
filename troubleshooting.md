@@ -5,11 +5,12 @@
 It usually is not. Kafka has to elect controllers (chapters 4 and 5),
 ClickHouse has to apply its schema (chapter 5), and Prometheus needs a couple
 of scrape cycles before it reports targets as up (chapters 3, 4, 5). Give it
-60 to 90 seconds and watch progress rather than guessing:
+60 to 90 seconds and watch progress rather than guessing. The second command
+is for chapter 5 only:
 
 ```bash
 docker compose ps
-docker compose logs -f flink-job-submit   # chapter 5 only
+docker compose logs -f flink-job-submit
 ```
 
 ## A verification script fails on its first assertion
@@ -35,11 +36,12 @@ chapter 5, stale ClickHouse data into the next run.
 
 Expected in some cases, and it is the point of chapter 4's failure test. The
 SDK batches spans before export, so allow up to 60 seconds. If nothing
-arrives after that, check the collector logs for export errors:
+arrives after that, check the collector logs for export errors. The first
+command is for chapter 2, the second for chapters 3, 4, 5:
 
 ```bash
-docker compose logs otel-collector | grep -i error   # chapter 2
-docker compose logs otel-agent | grep -i error        # chapters 3, 4, 5
+docker compose logs otel-collector | grep -i error
+docker compose logs otel-agent | grep -i error
 ```
 
 ## Chapter 3 benchmarks give inconsistent numbers between runs

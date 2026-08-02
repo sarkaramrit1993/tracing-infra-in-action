@@ -143,8 +143,10 @@ root span Flask auto-instrumentation opens for the request itself.
 
 ### 2. Prometheus targets are healthy (proves the metrics surface)
 
+`open` is macOS; on Linux use `xdg-open`.
+
 ```bash
-open http://localhost:9090/targets    # macOS; use xdg-open on Linux
+open http://localhost:9090/targets
 ```
 
 All targets (otel-agent, otel-gateway, otel-consumer, otel-stream-consumer,
@@ -253,8 +255,10 @@ echo "trace_id=$TID"
 Then run the scatter-gather query from the host:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r app/requirements.txt
-CLICKHOUSE_HOST=localhost python app/scatter_gather_query.py "$TID"
+CLICKHOUSE_HOST=localhost python3 app/scatter_gather_query.py "$TID"
 ```
 
 Expected output: a tail-latency-bounded fan-out (one shard in the dev
@@ -304,12 +308,21 @@ or whole traces absent. A partial trace is silent data loss and fails the audit.
 It demonstrates how you would detect a partial-trace violation; wiring it to the
 live `traces.assembled` topic is left as an exercise.
 
+Run it four ways. Three pass and one fails, and the failure is the point:
+
+| Run | Expected |
+|---|---|
+| no failure mode | PASS (clean run) |
+| `FAILURE_MODE=producer-crash` | PASS (whole-trace drops) |
+| `FAILURE_MODE=drop-whole-trace` | PASS (controlled degradation) |
+| `FAILURE_MODE=buffer-overflow` | FAIL (random-span eviction) |
+
 ```bash
 cd benchmarks
-python atomicity_audit.py                                # PASS (clean run)
-FAILURE_MODE=producer-crash    python atomicity_audit.py # PASS (whole-trace drops)
-FAILURE_MODE=drop-whole-trace  python atomicity_audit.py # PASS (controlled degradation)
-FAILURE_MODE=buffer-overflow   python atomicity_audit.py # FAIL (random-span eviction)
+python3 atomicity_audit.py
+FAILURE_MODE=producer-crash    python3 atomicity_audit.py
+FAILURE_MODE=drop-whole-trace  python3 atomicity_audit.py
+FAILURE_MODE=buffer-overflow   python3 atomicity_audit.py
 ```
 
 The audit fails on `buffer-overflow` because that mode evicts random spans
@@ -320,11 +333,12 @@ traces preserves the imperative even under controlled degradation.
 ### 10. Failure test: a broker drops
 
 Stop one Kafka broker and confirm the producer keeps working and the Flink
-job keeps assembling. Replication factor 2 tolerates one node down.
+job keeps assembling. Replication factor 2 tolerates one node down, and the
+gateway holds a buffer, so the checkout call still succeeds.
 
 ```bash
 docker compose stop kafka-2
-curl http://localhost:8080/checkout    # still succeeds, gateway holds buffer
+curl http://localhost:8080/checkout
 docker compose start kafka-2
 ```
 

@@ -35,17 +35,27 @@ This starts:
 
 ## Verify it works
 
+First, generate a trace:
+
 ```bash
-# 1. Generate a trace
 curl http://localhost:8080/checkout
+```
 
-# 2. View it in Jaeger UI
-open http://localhost:16686     # macOS; on Linux use xdg-open
+Then view it in the Jaeger UI. `open` is macOS; on Linux use `xdg-open`.
 
-# 3. Watch metrics in Prometheus
+```bash
+open http://localhost:16686
+```
+
+Then watch metrics in Prometheus:
+
+```bash
 open http://localhost:9090
+```
 
-# 4. Check consumer lag (should be near-zero under light load)
+Finally, check consumer lag. It should be near-zero under light load.
+
+```bash
 docker compose exec kafka-1 /opt/kafka/bin/kafka-consumer-groups.sh \
     --bootstrap-server kafka-1:9093 --describe --group trace-storage
 ```
@@ -65,12 +75,12 @@ the broker on exit.
 ### Losing two brokers, by hand
 
 The two-broker case is worth seeing, but it does not make a good automated
-check, so run it yourself:
+check, so run it yourself. Watch Jaeger between the stop and the start: some
+checkouts produce a trace, some do not.
 
 ```bash
 docker compose stop kafka-2 kafka-1
-curl -s http://localhost:8080/checkout      # still 200
-# watch Jaeger: some checkouts produce a trace, some do not
+curl -s http://localhost:8080/checkout
 docker compose start kafka-1 kafka-2
 ```
 
@@ -121,6 +131,8 @@ docker run --rm ch4-bench
 
 ```bash
 cd benchmarks
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python3 bench_serialization.py
 ```
