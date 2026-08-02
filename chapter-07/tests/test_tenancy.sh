@@ -19,7 +19,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CH() { docker compose exec -T clickhouse clickhouse-client "$@"; }
+# clickhouse-client reads stdin for INSERT data even when the row is inline in
+# VALUES, and `docker compose exec -T` hands it the caller's stdin. From a
+# terminal that never reaches EOF, so an INSERT would block forever. Feed it
+# /dev/null when stdin is a terminal, and otherwise pass the caller's stdin
+# straight through, so `CH --multiquery < file.sql` still works.
+CH() {
+  if [ -t 0 ]; then
+    docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
+  else
+    docker compose exec -T clickhouse clickhouse-client "$@"
+  fi
+}
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -42,6 +53,12 @@ echo "== 2. ingest gap: the row policy does not gate INSERT =="
 # with someone else's tenant_id. The row policy only rewrites SELECT, so nothing
 # stops the write. This is the section 7.5.2 trap.
 POISON="deadbeefdeadbeefdeadbeefdeadbeef"
+
+# reset: an interrupted earlier run can leave its poison row behind, which would
+# make the exact count below read 2 and report a leak that did not happen.
+CH --query "ALTER TABLE tracing.otel_traces DELETE WHERE trace_id = '$POISON'" \
+   --mutations_sync 1
+
 CH --query "INSERT INTO tracing.otel_traces \
   (timestamp, trace_id, tenant_id, span_id, service_name, span_name, status_code, duration_ns, attributes) \
   VALUES (now64(9), '$POISON', 'tenant_b', 'deadbeef', 'checkout-service', 'validate_cart', 'STATUS_CODE_OK', 1000000, {'injected':'true'})"
@@ -62,6 +79,12 @@ STILL=$(CH --user tenant_b --query \
   "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$POISON'")
 [ "$STILL" = "0" ] || fail "cleanup left $STILL injected rows behind"
 pass "injected row removed; demo is repeatable"
+
+# The policy is TO ALL, so leaving it behind would filter the default admin to
+# zero rows for everything the reader does next (walkthrough, benchmarks).
+echo "== 4. cleanup: drop the row policy =="
+CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
+echo "dropped row policy tenant_filter; admin reads are unfiltered again"
 
 echo
 echo "The lesson from section 7.5.2: the row policy secures reads, not writes."

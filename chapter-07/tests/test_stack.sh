@@ -16,7 +16,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CH() { docker compose exec -T clickhouse clickhouse-client "$@"; }
+# clickhouse-client reads stdin for INSERT data even when the row is inline in
+# VALUES, and `docker compose exec -T` hands it the caller's stdin. From a
+# terminal that never reaches EOF, so an INSERT would block forever. Feed it
+# /dev/null when stdin is a terminal, and otherwise pass the caller's stdin
+# straight through, so `CH --multiquery < file.sql` still works.
+CH() {
+  if [ -t 0 ]; then
+    docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
+  else
+    docker compose exec -T clickhouse clickhouse-client "$@"
+  fi
+}
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -55,6 +66,12 @@ B_SEES_A=$(CH --user tenant_b --query \
   "SELECT count() FROM tracing.otel_traces WHERE tenant_id = 'tenant_a'")
 [ "$B_SEES_A" = "0" ] || fail "tenant_b saw $B_SEES_A tenant_a rows (row policy leaked)"
 pass "row policy isolates tenants (a sees a, a sees 0 of b, b sees 0 of a)"
+
+# The policy is TO ALL, so leaving it behind would filter the default admin to
+# zero rows for everything the reader does next (walkthrough, benchmarks).
+echo "== cleanup: drop the row policy =="
+CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
+echo "dropped row policy tenant_filter; admin reads are unfiltered again"
 
 echo
 echo "ALL TESTS PASSED"
