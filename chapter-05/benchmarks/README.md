@@ -7,9 +7,13 @@ imperative from section 5.3.2.
 
 ## Setup
 
+`pyarrow` is only needed for the `store_then_stitch.py` parquet backend.
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r ../app/requirements.txt
-pip install pyarrow  # only needed for store_then_stitch.py parquet backend
+pip install pyarrow
 ```
 
 Results land in `results/` (gitignored).
@@ -27,9 +31,13 @@ prints the protobuf-proxy baseline (a tighter denominator) so you can see both.
 The shape of the curve, not the exact number, is the point of Figure 5.2.
 
 ```bash
-python store_then_stitch.py
-# or against the live ClickHouse:
-BACKEND=clickhouse CLICKHOUSE_HOST=localhost python store_then_stitch.py
+python3 store_then_stitch.py
+```
+
+Or run it against the live ClickHouse:
+
+```bash
+BACKEND=clickhouse CLICKHOUSE_HOST=localhost python3 store_then_stitch.py
 ```
 
 The `clickhouse` backend inserts rows over the network and lets the server own
@@ -50,8 +58,8 @@ section 5.1.2: at 5,000 traces/sec, 30s `decision_wait`, 8 spans/trace,
 in-memory representation runs about 4x that.
 
 ```bash
-python stream_time.py
-TRACES_PER_SEC=1000 DECISION_WAIT_S=10 python stream_time.py
+python3 stream_time.py
+TRACES_PER_SEC=1000 DECISION_WAIT_S=10 python3 stream_time.py
 ```
 
 Because the clock is synthetic, the run is instant and deterministic; there is
@@ -70,10 +78,10 @@ imperative). It demonstrates the detection logic you would run against real
 assembled traces.
 
 ```bash
-python atomicity_audit.py                              # clean run, expect PASS
-FAILURE_MODE=producer-crash python atomicity_audit.py  # expect PASS
-FAILURE_MODE=buffer-overflow python atomicity_audit.py # expect FAIL
-FAILURE_MODE=drop-whole-trace python atomicity_audit.py # expect PASS
+python3 atomicity_audit.py
+FAILURE_MODE=producer-crash python3 atomicity_audit.py
+FAILURE_MODE=buffer-overflow python3 atomicity_audit.py
+FAILURE_MODE=drop-whole-trace python3 atomicity_audit.py
 ```
 
 The exit code is non-zero when partial traces are detected. To make it a real

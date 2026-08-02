@@ -19,8 +19,13 @@ Each chapter is independent:
 ```bash
 cd chapter-04
 docker compose up -d
-# follow that chapter's README for the verification walkthrough
-docker compose down -v   # tear down when finished
+```
+
+Follow that chapter's README for the verification walkthrough, then tear the
+stack down when you're finished:
+
+```bash
+docker compose down -v
 ```
 
 ## Requirements

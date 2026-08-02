@@ -42,7 +42,7 @@ docker compose -f docker-compose.single-tier.yml up --build
 ### Generate traffic
 
 ```bash
-python scripts/load-generator.py --scenario steady --duration 60 --rate 10
+python3 scripts/load-generator.py --scenario steady --duration 60 --rate 10
 ```
 
 Scenarios: `steady`, `spike`, `backpressure`, `multi-tenant`, `hot-trace`, `failover`.
@@ -130,18 +130,18 @@ Results land in `benchmarks/results/`. See [BENCHMARKS.md](BENCHMARKS.md) for me
 
 **Verify trace-aware routing:**
 1. Start multi-tier compose
-2. `python scripts/load-generator.py --scenario steady --duration 30`
+2. `python3 scripts/load-generator.py --scenario steady --duration 30`
 3. Open Jaeger UI -- all spans from one trace should hit the same gateway
 
 **Test backpressure:**
-1. `python scripts/load-generator.py --scenario backpressure --duration 60 --rate 50`
+1. `python3 scripts/load-generator.py --scenario backpressure --duration 60 --rate 50`
 2. Watch `otelcol_receiver_refused_spans` at http://localhost:8888/metrics
 
 **Test hot spots:**
-1. `python scripts/load-generator.py --scenario hot-trace --duration 60`
+1. `python3 scripts/load-generator.py --scenario hot-trace --duration 60`
 2. Compare gateway-1 and gateway-2 metrics for load skew
 
 **Test multi-tenant routing:**
 1. Swap agent config to `tenant-routing-config.yaml`
-2. `python scripts/load-generator.py --scenario multi-tenant --duration 60`
+2. `python3 scripts/load-generator.py --scenario multi-tenant --duration 60`
 3. Watch spans route to different gateways by tenant

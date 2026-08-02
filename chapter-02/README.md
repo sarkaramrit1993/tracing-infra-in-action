@@ -13,14 +13,21 @@ This environment demonstrates:
 
 ## Quick Start
 
+Start all services:
+
 ```bash
-# Start all services
 docker compose up --build
+```
 
-# In another terminal, generate some traces
+In another terminal, generate some traces:
+
+```bash
 curl http://localhost:8080/checkout
+```
 
-# View traces
+View the traces:
+
+```bash
 open http://localhost:16686
 ```
 
@@ -146,20 +153,33 @@ curl http://localhost:8080/orders/ORD-12345
 
 ## Load Generator
 
-Generate realistic traffic to populate Jaeger with traces:
+Generate realistic traffic to populate Jaeger with traces.
+
+If you're running outside Docker, install the dependencies into a virtual
+environment first:
 
 ```bash
-# Install dependencies (if running outside Docker)
+python3 -m venv .venv
+source .venv/bin/activate
 pip install requests
+```
 
-# Run with defaults (60 seconds, medium load)
-python scripts/load-generator.py
+Run with defaults (60 seconds, medium load):
 
-# Custom duration and rate
-python scripts/load-generator.py --duration 120 --rate high
+```bash
+python3 scripts/load-generator.py
+```
 
-# Gentle load for demos
-python scripts/load-generator.py --duration 30 --rate low
+Custom duration and rate:
+
+```bash
+python3 scripts/load-generator.py --duration 120 --rate high
+```
+
+Gentle load for demos:
+
+```bash
+python3 scripts/load-generator.py --duration 30 --rate low
 ```
 
 **Rate options:**
@@ -235,26 +255,35 @@ exporters:
 ## Common Issues
 
 ### "Connection refused" errors
-```bash
-# Make sure all services are running
-docker compose ps
+Make sure all services are running:
 
-# Check collector logs
+```bash
+docker compose ps
+```
+
+Check the collector logs:
+
+```bash
 docker compose logs otel-collector
 ```
 
 ### No traces appearing in Jaeger
-```bash
-# Check if app is exporting
-docker compose logs checkout-service | grep -i otel
+Check if the app is exporting:
 
-# Verify collector is receiving
+```bash
+docker compose logs checkout-service | grep -i otel
+```
+
+Verify the collector is receiving:
+
+```bash
 docker compose logs otel-collector | grep -i trace
 ```
 
 ### Port conflicts
+Check what's using the ports:
+
 ```bash
-# Check what's using the ports
 lsof -i :8080
 lsof -i :16686
 ```
@@ -263,11 +292,15 @@ lsof -i :16686
 
 ## Cleanup
 
-```bash
-# Stop all services
-docker compose down
+Stop all services:
 
-# Remove volumes too
+```bash
+docker compose down
+```
+
+Remove the volumes too:
+
+```bash
 docker compose down -v
 ```
 

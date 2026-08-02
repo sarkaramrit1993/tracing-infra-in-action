@@ -6,6 +6,28 @@
 - Python 3.12, for the load-generator and benchmark scripts that run outside Docker. This is the version CI installs, so it is the only one the chapters are verified against
 - kind, for chapter 3's Kubernetes path only
 
+## Python environment
+
+Several chapters run scripts outside Docker. Install their dependencies into a
+virtual environment rather than the system Python. Recent Debian, Ubuntu,
+Fedora and Homebrew installs refuse a system-wide `pip install` outright with
+`error: externally-managed-environment`, and a venv is what CI uses for every
+chapter anyway.
+
+From the chapter directory:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows, activate with `.venv\Scripts\activate` instead. Once the
+environment is active, `python` and `pip` point into it, so the install
+commands in each chapter work as written. Run `deactivate` when you're done.
+
+Stock macOS has no `python` or `pip` on the PATH, only `python3`, which is why
+the chapters create the environment with `python3 -m venv`.
+
 ## Memory and CPU per chapter
 
 Chapter 5 is the one to plan for. Raise Docker Desktop's memory limit under
@@ -45,10 +67,13 @@ with `docker compose down -v` before starting another.
 
 ## Verifying a chapter
 
+The `sleep` covers chapter 4's Kafka controller election, which takes 60 to 90
+seconds:
+
 ```bash
 cd chapter-04
 docker compose up -d
-sleep 90                  # chapter 4 needs 60-90s for Kafka controller election
+sleep 90
 bash tests/test_stack.sh
 docker compose down -v
 ```
