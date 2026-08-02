@@ -17,17 +17,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # clickhouse-client reads stdin for INSERT data even when the row is inline in
-# VALUES, and `docker compose exec -T` hands it the caller's stdin. From a
-# terminal that never reaches EOF, so an INSERT would block forever. Feed it
-# /dev/null when stdin is a terminal, and otherwise pass the caller's stdin
-# straight through, so `CH --multiquery < file.sql` still works.
-CH() {
-  if [ -t 0 ]; then
-    docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
-  else
-    docker compose exec -T clickhouse clickhouse-client "$@"
-  fi
-}
+# VALUES, and `docker compose exec -T` hands it the caller's stdin. If that stdin
+# stays open without reaching EOF, the INSERT blocks forever. So CH always feeds
+# /dev/null, and CH_FILE is the single path that feeds stdin a .sql file.
+CH()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
+CH_FILE() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -49,7 +43,7 @@ GOT=$(CH --query "SELECT span_name FROM tracing.otel_traces WHERE trace_id = '$T
 pass "trace round-trip: inserted and read back by trace_id"
 
 echo "== apply tenancy.sql (row policy + tenant users) =="
-CH --multiquery < clickhouse/tenancy.sql
+CH_FILE clickhouse/tenancy.sql
 pass "tenancy.sql applied (listing 7.4)"
 
 echo "== 3. row policy blocks cross-tenant reads =="

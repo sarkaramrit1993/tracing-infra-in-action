@@ -128,19 +128,17 @@ Run the admin steps (1-5) **before** you apply the row policy in step 6. That
 policy filters the `default` admin login too, so once it is in place the earlier
 queries return zero rows.
 
-A convenient alias for the steps below:
+Two convenient aliases for the steps below. `ch` runs a query, `ch_file` applies
+a `.sql` file:
 
 ```bash
-ch() {
-  if [ -t 0 ]; then
-    docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
-  else
-    docker compose exec -T clickhouse clickhouse-client "$@"
-  fi
-}
+ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
+ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-The terminal check keeps INSERTs from hanging. See [NOTES.md](NOTES.md).
+`ch` hands ClickHouse an empty stdin, which is what stops a query from sitting
+there waiting for input. `ch_file` is the only one that feeds stdin, and it
+feeds it a file. See [NOTES.md](NOTES.md).
 
 ### 1. The listing 7.1 table exists
 
@@ -202,7 +200,7 @@ Apply the listing 7.2 policy. `TO VOLUME 'cold'` sends aged parts to the
 S3-backed `cold` volume, which is MinIO in this stack:
 
 ```bash
-ch --multiquery < clickhouse/tiering.sql
+ch_file clickhouse/tiering.sql
 ch --query "SELECT move_ttl_info.expression, move_ttl_info.max \
             FROM system.parts WHERE database='tracing' AND active LIMIT 1 \
             FORMAT Vertical"
@@ -233,7 +231,7 @@ on the table until you do, and it pushes every new part to S3 seconds after the
 part lands:
 
 ```bash
-ch --multiquery < clickhouse/tiering.sql
+ch_file clickhouse/tiering.sql
 ```
 
 ### 5. DROP PARTITION is instant (metadata-time retention)
@@ -254,11 +252,12 @@ The drop returns in milliseconds regardless of how many rows the day held.
 
 ### 6. Row policy blocks cross-tenant reads (listing 7.4)
 
-Apply listing 7.4. It adds `tenant_id`, leads the sort key with it, creates the
-`tenant_filter` row policy, and seeds one row each for `tenant_a` and `tenant_b`:
+Apply listing 7.4. It adds a `tenant_id` column, creates the `tenant_filter` row
+policy and the two tenant users, and seeds one row each for `tenant_a` and
+`tenant_b`:
 
 ```bash
-ch --multiquery < clickhouse/tenancy.sql
+ch_file clickhouse/tenancy.sql
 ```
 
 Now connect as each tenant:
