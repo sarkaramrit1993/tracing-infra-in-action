@@ -38,7 +38,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from chclient import CH
+from chclient import CH, StackNotRunning
 
 NUM_SPANS = int(os.environ.get("NUM_SPANS", "1000000"))
 SPANS_PER_TRACE = int(os.environ.get("SPANS_PER_TRACE", "6"))
@@ -229,4 +229,9 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except StackNotRunning as exc:
+        # The guidance is the whole message; a traceback through chclient
+        # only buries it.
+        raise SystemExit(str(exc))

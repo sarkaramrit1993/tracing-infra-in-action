@@ -127,9 +127,13 @@ clock even starts. Then generate traffic:
 ```bash
 for i in $(seq 1 300); do curl -s http://localhost:8080/checkout > /dev/null; done &
 echo "traffic loop PID: $!"
+sleep 10
 ```
 
-Each `/checkout` call produces a seven-span trace, all under the `checkout-service` resource.
+Each `/checkout` call produces a seven-span trace, all under the
+`checkout-service` resource. The exporter batches on a five-second timer, so the
+first traces take a few seconds to reach ClickHouse, which is what the `sleep` is
+for. The loop keeps running in the background while you work through the steps.
 
 ---
 
@@ -157,7 +161,7 @@ feeds it a file. See [NOTES.md](NOTES.md).
 ch --query "SHOW CREATE TABLE tracing.otel_traces FORMAT TSVRaw"
 ```
 
-You should see the exact columns, codecs (`Delta, ZSTD(1)`, `T64, ZSTD(1)`,
+You should see the exact columns, codecs (`Delta(8), ZSTD(1)`, `T64, ZSTD(1)`,
 `ZSTD(3)`), the `bloom_filter` index on `trace_id`, `PARTITION BY
 toYYYYMMDD(timestamp)`, and `ORDER BY (service_name, span_name,
 toStartOfHour(timestamp), trace_id)`.
@@ -170,7 +174,7 @@ get a real checkout trace and not a healthcheck one.
 ```bash
 TID=$(ch --query "SELECT trace_id FROM tracing.otel_traces \
         WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
-echo "trace_id=$TID"
+echo "trace_id=${TID:-(nothing yet, give it a few more seconds and run this again)}"
 ch --query "SELECT service_name, span_name, duration_ns \
             FROM tracing.otel_traces WHERE trace_id = '$TID'"
 ```
@@ -220,13 +224,10 @@ ch --query "SELECT move_ttl_info.expression, move_ttl_info.max \
 ```
 
 The rule fires on parts older than two days, and nothing on a fresh demo is that
-old, so parts stay on `default`. To force a move now, lower the boundary to a few
-seconds and move a partition by hand:
+old, so parts stay on `default`. You do not have to wait for the rule to move a
+partition. Move one by hand:
 
 ```bash
-ch --query "ALTER TABLE tracing.otel_traces MODIFY TTL \
-              toDateTime(timestamp) + INTERVAL 5 SECOND TO VOLUME 'cold', \
-              toDateTime(timestamp) + INTERVAL 15 DAY DELETE"
 PART=$(ch --query "SELECT partition FROM system.parts \
         WHERE database='tracing' AND active ORDER BY partition LIMIT 1")
 ch --query "ALTER TABLE tracing.otel_traces MOVE PARTITION '$PART' TO VOLUME 'cold'"
@@ -239,13 +240,10 @@ as S3 objects in MinIO. Browse the bucket at the MinIO console on
 http://localhost:9001 (user `traceadmin`, password `traceadmin-secret`, bucket
 `traces-cold`) to see the objects ClickHouse wrote.
 
-Restore the real boundary before you go on. The 5-second rule you just set stays
-on the table until you do, and it pushes every new part to S3 seconds after the
-part lands:
-
-```bash
-ch_file clickhouse/tiering.sql
-```
+`MOVE PARTITION` is an explicit move and does not touch listing 7.2's rule, so
+the table still carries the two-day boundary and there is nothing to put back.
+To watch the rule itself fire against properly aged data, run
+`benchmarks/tiering_automation.py`.
 
 ### 5. DROP PARTITION is instant (metadata-time retention)
 
@@ -365,6 +363,10 @@ Tempo.
 docker compose down -v
 docker compose --profile block down -v
 ```
+
+With Tempo running, the first line says `Network chapter-07_ch7 Resource is
+still in use` and exits 0. Tempo is still attached to it. The second line
+removes Tempo and the network together.
 
 ## Notes on running the book's listings
 

@@ -59,10 +59,18 @@ the MinIO object store. That is the same API AWS S3, GCS, and Azure Blob expose.
 Only the endpoint and the credentials change between them.
 
 The rule fires on parts older than two days, and on a fresh demo nothing is two
-days old yet, so parts stay on `default` until you lower the boundary.
+days old yet, so parts stay on `default` and step 4 moves one by hand instead.
 
 Step 4 selects a real partition id into `$PART` first and then moves it
 explicitly, because `MOVE PARTITION` takes a literal id and not a subquery.
+
+An earlier version of step 4 lowered the move boundary to five seconds first, to
+make the part eligible. That made every part eligible at once, which wakes
+ClickHouse's background mover, and the manual `MOVE PARTITION` then raced it and
+failed intermittently with `PART_IS_TEMPORARILY_LOCKED`. `MOVE PARTITION` is an
+explicit move that does not need the part to be TTL-eligible, so the boundary
+change was never doing any work. Dropping it removes the race and leaves listing
+7.2's real rule on the table, which is one less thing to put back.
 
 ## Why `DROP PARTITION` is instant
 

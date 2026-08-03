@@ -35,7 +35,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from chclient import CH
+from chclient import CH, StackNotRunning
 
 NUM_SPANS = int(os.environ.get("NUM_SPANS", "50000"))
 POLL_TIMEOUT_S = int(os.environ.get("POLL_TIMEOUT_S", "180"))
@@ -336,4 +336,9 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except StackNotRunning as exc:
+        # The guidance is the whole message; a traceback through chclient
+        # only buries it.
+        raise SystemExit(str(exc))
