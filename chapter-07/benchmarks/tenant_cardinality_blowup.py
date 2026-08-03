@@ -25,13 +25,16 @@ and active part count from system.columns and system.parts after each load, then
 reports the delta: how far the ratio collapses and how much the shared column
 grows once the noisy tenant arrives. The size of that delta is a property of this
 seed (row count, tenant share, id width), not a universal number, so the script
-measures both populations and prints them rather than asserting a fixed ratio.
+asserts the direction of the mechanism, that the ratio falls and the column
+grows, and prints the magnitude rather than asserting it.
 
-The scratch table is dropped on exit, so otel_traces is never touched.
+Both loads run from a fixed timestamp anchor, so two runs at the same settings
+report the same bytes. The scratch table is dropped on exit, so otel_traces is
+never touched.
 
 Run (stack must be up):
-  python tenant_cardinality_blowup.py
-  NUM_SPANS=500000 TENANTS=4 python tenant_cardinality_blowup.py
+  python3 tenant_cardinality_blowup.py
+  NUM_SPANS=500000 TENANTS=4 python3 tenant_cardinality_blowup.py
 """
 import os
 import json
@@ -44,6 +47,14 @@ NUM_SPANS = int(os.environ.get("NUM_SPANS", "1000000"))
 SPANS_PER_TRACE = int(os.environ.get("SPANS_PER_TRACE", "6"))
 TENANTS = int(os.environ.get("TENANTS", "4"))
 SCRATCH = "tracing.attr_cardinality_scratch"
+
+# Fixed clock for both loads. Generating from now64(9) moved the reported bytes
+# three ways: the Delta codec's base value shifted between runs, a load that
+# straddled an hour boundary reordered rows inside every sort-key group, and a
+# load that straddled UTC midnight split into two partitions that OPTIMIZE FINAL
+# cannot merge. One anchor pins all three, and it also keeps the two phases
+# comparable, since only the attributes expression differs between them.
+TS_ANCHOR = "2026-01-01 00:00:00"
 
 SERVICES = ("checkout-service", "inventory-service", "payment-service",
             "fraud-service", "notification-service")
@@ -85,7 +96,7 @@ def _create_scratch(ch):
 # The columns that never change between the two loads. Only the attributes Map
 # differs, so the delta isolates the noisy-tenant effect on that one column.
 _COMMON_SELECT = f"""
-      now64(9) - toIntervalMillisecond({{n}} - number),
+      toDateTime64('{TS_ANCHOR}', 9) + toIntervalMillisecond(number),
       lower(hex(MD5(toString(intDiv(number, {SPANS_PER_TRACE}))))),
       lower(hex(reinterpretAsFixedString(toUInt64(number)))),
       {{services}}[(number % {len(SERVICES)}) + 1],
@@ -97,7 +108,7 @@ _COMMON_SELECT = f"""
 
 def _load(ch, attributes_expr):
     services, spans = _sql_array(SERVICES), _sql_array(SPAN_NAMES)
-    select = _COMMON_SELECT.format(n=NUM_SPANS, services=services, spans=spans)
+    select = _COMMON_SELECT.format(services=services, spans=spans)
     ch.execute(f"""
         INSERT INTO {SCRATCH}
           (timestamp, trace_id, span_id, service_name, span_name,
@@ -168,33 +179,58 @@ def _phase(ch, label, attributes_expr):
     return m
 
 
+def _assert_direction(baseline, blowup):
+    """The mechanism, not its size.
+
+    How far the ratio falls depends on the seed, so asserting a magnitude would
+    be asserting the fixture. What section 7.5.2 claims, and what has to hold on
+    any seed, is the direction: unique-per-span values in the shared Map cost
+    compression and cost bytes.
+    """
+    if blowup["ratio"] >= baseline["ratio"]:
+        raise SystemExit(
+            f"[cardinality] the noisy tenant did not cost compression: "
+            f"attributes went {baseline['ratio']:.2f}x -> {blowup['ratio']:.2f}x")
+    if blowup["stored_bytes"] <= baseline["stored_bytes"]:
+        raise SystemExit(
+            f"[cardinality] the noisy tenant did not cost bytes: the shared "
+            f"column went {baseline['stored_bytes']:,} -> "
+            f"{blowup['stored_bytes']:,} bytes")
+
+
 def run():
     ch = CH()
     print(f"[cardinality] transport={ch.transport} num_spans={NUM_SPANS:,} "
-          f"tenants={TENANTS} (noisy tenant is 1 in {TENANTS} spans)")
+          f"tenants={TENANTS} (noisy tenant is 1 in {TENANTS} spans) "
+          f"anchor={TS_ANCHOR}Z")
     _create_scratch(ch)
 
-    print(f"[cardinality] attributes column, same {NUM_SPANS:,} rows each phase")
-    print(f"{'phase':<10}{'stored':>16}{'raw':>18}{'ratio':>10}{'parts':>8}")
-    baseline = _phase(ch, "baseline", _BASELINE_ATTRS)
-    blowup = _phase(ch, "blowup", _BLOWUP_ATTRS)
+    try:
+        print(f"[cardinality] attributes column, same {NUM_SPANS:,} rows each phase")
+        print(f"{'phase':<10}{'stored':>16}{'raw':>18}{'ratio':>10}{'parts':>8}")
+        baseline = _phase(ch, "baseline", _BASELINE_ATTRS)
+        blowup = _phase(ch, "blowup", _BLOWUP_ATTRS)
 
-    ratio_drop = round(baseline["ratio"] - blowup["ratio"], 2)
-    growth_x = round(blowup["stored_bytes"] / baseline["stored_bytes"], 2) \
-        if baseline["stored_bytes"] else None
-    added = blowup["stored_bytes"] - baseline["stored_bytes"]
-    print(f"[cardinality] attributes ratio fell {baseline['ratio']:.2f}x -> "
-          f"{blowup['ratio']:.2f}x (drop {ratio_drop}), stored grew "
-          f"{growth_x}x (+{added:,} bytes) once one tenant injected unique ids")
-    print("[cardinality] the drop and growth are properties of this seed, not a "
-          "universal ratio")
+        ratio_drop = round(baseline["ratio"] - blowup["ratio"], 2)
+        growth_x = round(blowup["stored_bytes"] / baseline["stored_bytes"], 2) \
+            if baseline["stored_bytes"] else None
+        added = blowup["stored_bytes"] - baseline["stored_bytes"]
+        print(f"[cardinality] attributes ratio fell {baseline['ratio']:.2f}x -> "
+              f"{blowup['ratio']:.2f}x (drop {ratio_drop}), stored grew "
+              f"{growth_x}x (+{added:,} bytes) once one tenant injected unique ids")
+        print("[cardinality] the drop and growth are properties of this seed, not "
+              "a universal ratio")
 
-    ch.execute(f"DROP TABLE IF EXISTS {SCRATCH}")
+        _assert_direction(baseline, blowup)
+        print("[cardinality] PASS: the shared column lost compression and gained "
+              "bytes from one tenant's unique ids")
+    finally:
+        ch.execute(f"DROP TABLE IF EXISTS {SCRATCH}")
 
     stamp = datetime.now(timezone.utc)
     out_dir = Path(__file__).parent / "results"
     out_dir.mkdir(exist_ok=True)
-    out = out_dir / f"tenant-cardinality-{stamp.strftime('%Y-%m-%d')}.json"
+    out = out_dir / f"tenant-cardinality-{stamp.strftime('%Y-%m-%dT%H%M%S')}.json"
     out.write_text(json.dumps({
         "benchmark": "tenant_cardinality_blowup",
         "measured_at_utc": stamp.isoformat(),

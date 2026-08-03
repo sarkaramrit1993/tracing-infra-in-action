@@ -1,0 +1,66 @@
+{
+  "benchmark": "compression_ratio",
+  "measured_at_utc": "2026-08-03T04:55:17.918605+00:00",
+  "transport": "http",
+  "num_spans_loaded": 200000,
+  "spans_per_trace": 6,
+  "total_rows_measured": 200000,
+  "timestamp_anchor_utc": "2026-01-01 00:00:00",
+  "columns": [
+    {
+      "column": "trace_id",
+      "stored_bytes": 3375024,
+      "raw_bytes": 6600000,
+      "ratio": 1.96
+    },
+    {
+      "column": "attributes",
+      "stored_bytes": 365019,
+      "raw_bytes": 4204609,
+      "ratio": 11.52
+    },
+    {
+      "column": "span_id",
+      "stored_bytes": 656955,
+      "raw_bytes": 3400000,
+      "ratio": 5.18
+    },
+    {
+      "column": "adjusted_count",
+      "stored_bytes": 67272,
+      "raw_bytes": 1600000,
+      "ratio": 23.78
+    },
+    {
+      "column": "timestamp",
+      "stored_bytes": 1083112,
+      "raw_bytes": 1600000,
+      "ratio": 1.48
+    },
+    {
+      "column": "duration_ns",
+      "stored_bytes": 701825,
+      "raw_bytes": 1600000,
+      "ratio": 2.28
+    },
+    {
+      "column": "span_name",
+      "stored_bytes": 525,
+      "raw_bytes": 200549,
+      "ratio": 382.0
+    },
+    {
+      "column": "service_name",
+      "stored_bytes": 420,
+      "raw_bytes": 200503,
+      "ratio": 477.39
+    },
+    {
+      "column": "status_code",
+      "stored_bytes": 4316,
+      "raw_bytes": 200450,
+      "ratio": 46.44
+    }
+  ],
+  "note": "Measured on a scratch copy of the listing 7.1 schema, same columns and codecs, loaded from a fixed row generator and a fixed timestamp anchor, so two runs at the same row count report the same bytes. The copy carries no TTL: on the real table listing 7.2 would write fixed-anchor rows straight to the cold volume, and the numbers would describe S3-resident parts. Every column here is written by the generator, so none of the ratios is the compressibility of a column left at its default."
+}

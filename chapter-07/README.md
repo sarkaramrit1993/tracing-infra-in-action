@@ -24,10 +24,10 @@ or Azure Blob, and ClickHouse's `s3_cold` disk (in `clickhouse/config.d/storage.
 writes aged parts to it as S3 objects. Listing 7.2's `TO VOLUME 'cold'` moves data
 onto that disk, which you can watch and verify against the bucket.
 
-[NOTES.md](NOTES.md) holds the why behind the steps below: how the `ch()` helper
-handles stdin, why a fresh demo reports no compression numbers, how the cold
-volume resolves, and what the book's listings assume. Read it when a step
-surprises you.
+[NOTES.md](NOTES.md) holds the why behind the steps below: why there are two
+shell helpers and how they handle stdin, why a fresh demo reports no compression
+numbers, how the cold volume resolves, and what the book's listings assume. Read
+it when a step surprises you.
 
 ## Listings
 
@@ -100,9 +100,9 @@ chapter-07/
 ├── benchmarks/
 │   ├── README.md               # how to run the four storage benchmarks
 │   ├── chclient.py             # shared ClickHouse client (native driver or HTTP)
-│   ├── compression_ratio.py    # per-column compression on the listing 7.1 table
+│   ├── compression_ratio.py    # per-column compression for the listing 7.1 schema
 │   ├── bloom_index_pruning.py  # EXPLAIN granule pruning by the bloom skip index
-│   ├── tiering_automation.py   # TTL move to the S3 cold tier, timed
+│   ├── tiering_automation.py   # TTL move to the S3 cold tier, hot vs cold read cost
 │   ├── tenant_cardinality_blowup.py  # noisy-tenant attribute cardinality (section 7.5.2)
 │   └── results/                # measured JSON from real runs
 └── tests/
@@ -195,9 +195,10 @@ expected, and [NOTES.md](NOTES.md) says why. The real per-column numbers come
 from `benchmarks/compression_ratio.py`.
 
 In those numbers the low-cardinality columns (`service_name`, `span_name`,
-`status_code`) compress by one to three orders of magnitude, columns holding a
-single repeated value compress further still, and `trace_id` shows the ~2x floor
-that Table 7.2 calls out. For whole-part totals use `system.parts`:
+`status_code`) compress by one to three orders of magnitude, `adjusted_count` by
+about twenty times because one sampling weight repeats across a trace's spans,
+and `trace_id` shows the ~2x floor that Table 7.2 calls out. For whole-part
+totals use `system.parts`:
 
 ```bash
 ch --query "SELECT partition, \
@@ -331,21 +332,21 @@ bash tests/test_tenancy.sh
 ## Storage benchmarks
 
 Four measured exercises against the live stack: per-column compression, bloom
-skip-index granule pruning, a timed TTL move to the S3 cold tier, and a
-noisy-tenant attribute-cardinality blowup (section 7.5.2). See
-`benchmarks/README.md`. Measured results land in `benchmarks/results/`.
+skip-index granule pruning, a TTL move to the S3 cold tier and what the same
+query costs once its data is out there, and a noisy-tenant attribute-cardinality
+blowup (section 7.5.2). See `benchmarks/README.md`. Measured results land in
+`benchmarks/results/`.
 
-Two things first. If you worked through step 6, or a test run stopped part way,
-the listing 7.4 row policy is still in place and every benchmark below will
-report an empty table. Drop it:
+One thing first. If you worked through step 6, or a test run stopped part way,
+the listing 7.4 row policy is still in place, and `tiering_automation.py` reads
+`otel_traces` and will find it empty. Drop it:
 
 ```bash
 ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
 ```
 
-And `compression_ratio.py` runs `TRUNCATE TABLE tracing.otel_traces` before it
-loads its own rows, so it wipes whatever the walkthrough left behind. Set
-`KEEP_EXISTING=1` to measure the table as it stands instead.
+The other three scripts build and drop their own scratch copy of the listing 7.1
+schema, so they leave `otel_traces` and whatever the walkthrough put in it alone.
 
 ```bash
 cd benchmarks

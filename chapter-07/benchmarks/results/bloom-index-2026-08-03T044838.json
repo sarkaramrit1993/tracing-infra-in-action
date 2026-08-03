@@ -1,0 +1,22 @@
+{
+  "benchmark": "bloom_index_pruning",
+  "measured_at_utc": "2026-08-03T04:48:38.036071+00:00",
+  "transport": "http",
+  "num_spans": 1000000,
+  "spans_per_trace": 6,
+  "probe_count": 5,
+  "granules_total": 123,
+  "granules_without_skip_index": {
+    "median": 123,
+    "min": 123,
+    "max": 123
+  },
+  "granules_with_bloom_index": {
+    "median": 6,
+    "min": 6,
+    "max": 7
+  },
+  "granules_pruned_median": 117,
+  "granule_fraction_read_median": 0.0488,
+  "note": "Measured on a scratch copy of the listing 7.1 schema built from a fixed row generator and a fixed timestamp anchor, so two runs on the same ClickHouse version return the same counts. The spread across the probes is real: how many granules survive depends on where a given trace's spans land. What changes the numbers is the row count, the index granularity, or a ClickHouse version that plans differently."
+}

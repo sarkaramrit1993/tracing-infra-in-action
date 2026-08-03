@@ -7,7 +7,7 @@ fails when the two disagree, which is what happens when listings renumber
 between drafts.
 
 Usage:
-    python scripts/check_listing_anchors.py
+    python3 scripts/check_listing_anchors.py
 """
 import re
 import sys
