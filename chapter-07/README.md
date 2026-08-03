@@ -16,8 +16,10 @@ checkout -> otel-collector (partition_traces_by_id) -> kafka(otlp_spans)
 ```
 
 ClickHouse is the primary backend. Grafana Tempo is included behind a `block`
-profile to demonstrate the object-storage block archetype from section 7.3; it
-stays off by default.
+profile as the section 7.3 block archetype to read against it. It stays off by
+default, it receives no traces in this stack, and its own storage here is a
+container filesystem rather than MinIO. The section near the end says what it is
+for and what it is not.
 
 The cold tier is real object storage. A MinIO service stands in for AWS S3, GCS,
 or Azure Blob, and ClickHouse's `s3_cold` disk (in `clickhouse/config.d/storage.xml`)
@@ -65,7 +67,7 @@ different activate path on Windows.
 | OTel Collector contrib | `otel/opentelemetry-collector-contrib:0.154.0` | OTLP in, partition-by-trace-id, Kafka out |
 | Apache Kafka | `apache/kafka:4.3.0` (KRaft) | replayable span buffer feeding the store |
 | Prometheus | `prom/prometheus:v3.12.0` | collector + ClickHouse metrics |
-| Grafana Tempo | `grafana/tempo:2.9.0` (`block` profile) | object-storage block archetype (section 7.3) |
+| Grafana Tempo | `grafana/tempo:2.9.0` (`block` profile) | block archetype for the section 7.3 contrast, config only, receives no traces |
 | MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | S3-compatible object store behind the cold tier |
 | MinIO client | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | one-shot bucket bootstrap (`traces-cold`) |
 | Python | `python:3.12-slim` + OTel SDK 1.42.1 | checkout producer + consumer |
@@ -291,9 +293,30 @@ If you only do one, do tenancy. It is the one with a trap in it.
 docker compose --profile block up -d tempo
 ```
 
-Tempo writes immutable Parquet-shaped blocks to an object store rather than
-rows. It is the section 7.3 contrast to the ClickHouse row store, and it needs no
-setup beyond the line above.
+**It will hold no traces, and that is expected.** The Collector in this stack has
+one exporter, Kafka, so nothing is routed to Tempo. `/api/search` returns an
+empty list and `/var/tempo/blocks` stays empty. Tempo is here to be read, not
+queried.
+
+What it is for is the section 7.3 contrast, and that lives in the config rather
+than in any query. Tempo writes immutable Parquet-shaped blocks and expresses its
+cold boundary as a retention period on whole blocks:
+
+```bash
+grep -A2 'compactor:' collector/tempo.yaml
+grep -B2 -A6 'TTL' clickhouse/tiering.sql
+```
+
+One deletes blocks after a period. The other moves and then deletes rows by a TTL
+expression evaluated per part. That difference, not a screenshot of a UI, is the
+archetype contrast the section draws.
+
+Two things this stack does not do, in case the names mislead you. Tempo's backend
+here is `backend: local` on a container filesystem, not the MinIO object store;
+MinIO backs ClickHouse's `s3_cold` disk instead. And there is no Grafana, so
+Tempo has no UI. Pointing the Collector at Tempo as a second exporter, and
+putting a Grafana in front of it, is a reasonable thing to go and do, but it is
+not wired up here.
 
 ---
 

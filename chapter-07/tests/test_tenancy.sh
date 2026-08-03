@@ -76,9 +76,14 @@ pass "injected row removed; demo is repeatable"
 
 # The policy is TO ALL, so leaving it behind would filter the default admin to
 # zero rows for everything the reader does next (walkthrough, benchmarks).
-echo "== 4. cleanup: drop the row policy =="
+echo "== 4. cleanup: undo everything tenancy.sql created =="
 CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-echo "dropped row policy tenant_filter; admin reads are unfiltered again"
+# The users outlive the policy otherwise, and without it they are passwordless
+# logins holding SELECT on all of tracing. The column goes too, so the table is
+# back to listing 7.1's nine.
+CH --query "DROP USER IF EXISTS tenant_a, tenant_b"
+CH --query "ALTER TABLE tracing.otel_traces DROP COLUMN IF EXISTS tenant_id"
+echo "dropped the policy, the tenant users and the tenant_id column"
 
 echo
 echo "The lesson from section 7.5.2: the row policy secures reads, not writes."

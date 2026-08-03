@@ -63,9 +63,14 @@ pass "row policy isolates tenants (a sees a, a sees 0 of b, b sees 0 of a)"
 
 # The policy is TO ALL, so leaving it behind would filter the default admin to
 # zero rows for everything the reader does next (walkthrough, benchmarks).
-echo "== cleanup: drop the row policy =="
+echo "== cleanup: undo everything tenancy.sql created =="
 CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-echo "dropped row policy tenant_filter; admin reads are unfiltered again"
+# The users outlive the policy otherwise, and without it they are passwordless
+# logins holding SELECT on all of tracing. The column goes too, so the table is
+# back to listing 7.1's nine.
+CH --query "DROP USER IF EXISTS tenant_a, tenant_b"
+CH --query "ALTER TABLE tracing.otel_traces DROP COLUMN IF EXISTS tenant_id"
+echo "dropped the policy, the tenant users and the tenant_id column"
 
 echo
 echo "ALL TESTS PASSED"
