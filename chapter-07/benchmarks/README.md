@@ -17,11 +17,17 @@ cd ..
 docker compose up -d
 docker compose ps
 cd benchmarks
-python3 compression_ratio.py
+NUM_SPANS=200000 python3 compression_ratio.py
 python3 bloom_index_pruning.py
 python3 tiering_automation.py
 python3 tenant_cardinality_blowup.py
 ```
+
+The `NUM_SPANS` on the first line is the size the compression table in
+`RESULTS.md` was measured at, so that run reproduces it. The other three use
+their own defaults, which is a million rows each for the bloom and cardinality
+scripts and fifty thousand for tiering. Rows are generated inside ClickHouse,
+so the large ones still finish in seconds.
 
 The scripts talk to ClickHouse over the native protocol when `clickhouse-driver`
 is importable, and otherwise fall back to the HTTP interface on port 8123 using
