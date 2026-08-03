@@ -109,7 +109,7 @@ themselves, so it is always your partition and never a guess:
 ```bash
 PART=$(ch --query "
 SELECT DISTINCT toYYYYMMDD(timestamp) FROM tracing.otel_traces
-WHERE service_name = 'tiering-demo'")
+WHERE service_name = 'tiering-demo' ORDER BY 1 DESC LIMIT 1")
 echo "partition $PART"
 ch --query "
 SELECT service_name, count() FROM tracing.otel_traces
@@ -257,7 +257,10 @@ SELECT count(), uniqExact(trace_id), round(avg(duration_ns) / 1000000.0, 2) AS a
 FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
 ```
 
-Same answers, and on this laptop roughly half the time, 0.006s against 0.012s.
+Same answers, and faster. Over eight interleaved rounds here the hot side ran
+0.004s to 0.006s and the cold side 0.007s to 0.009s, so about 1.5x. The two
+ranges are close enough that a single pair either way can look like 2x or like
+nothing.
 One pair of readings is not a measurement, so take several of each before you
 believe the size of the gap. Read it as a floor and not a forecast either. This
 cold tier is MinIO on the same Docker network, the friendliest object store one
@@ -271,8 +274,13 @@ stage a batch dated a week back by changing `toIntervalDay(1)` to
 
 ```
 20260727   s3_cold   50000
+20260802   default   50000
 20260803   default   629
 ```
+
+The week-old batch is the `s3_cold` line. `20260802` is the partition you staged
+earlier, still hot, and today's is your live traffic. This is also why the `PART`
+query above takes the newest `tiering-demo` partition rather than all of them.
 
 The part never touched the hot volume, and nobody asked for a move. ClickHouse
 picks an insert's destination from the move TTL at write time rather than
@@ -304,7 +312,7 @@ for i in $(seq 1 60); do
 done
 ```
 
-Give it a minute. It took about 55 seconds here, and a single check five seconds
+Give it a minute. Two runs here took 11 seconds and about 55, and a single check five seconds
 after the ALTER will make you think nothing happened. The move-selecting task
 sleeps five seconds when it is busy and backs off toward sixty when the server
 has been quiet, so that delay is a fact about the scheduler and not about

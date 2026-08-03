@@ -76,7 +76,7 @@ Measured: 2026-08-03
 
 ## Hot-to-cold tiering
 
-Source: `tiering-move-2026-08-03T044923.json`
+Source: `tiering-move-2026-08-03T213128.json`
 Measured: 2026-08-03
 
 | Metric | Value |
@@ -86,16 +86,16 @@ Measured: 2026-08-03
 | cold_disk | s3_cold |
 | parts_moved | 1 |
 | rows_moved | 50000 |
-| bytes_moved | 349096 |
+| bytes_moved | 348677 |
 | s3_objects_for_moved_parts | 15 |
 | same_answer_after_move | True |
 | query_repeats | 10 |
-| hot_query_ms.median | 5.99 |
-| hot_query_ms.min | 5.43 |
-| hot_query_ms.max | 7.01 |
-| cold_query_ms.median | 10.31 |
-| cold_query_ms.min | 9.87 |
-| cold_query_ms.max | 13.62 |
-| cold_over_hot | 1.72 |
+| hot_query_ms.median | 5.01 |
+| hot_query_ms.min | 4.66 |
+| hot_query_ms.max | 13.69 |
+| cold_query_ms.median | 9.19 |
+| cold_query_ms.min | 8.49 |
+| cold_query_ms.max | 10.87 |
+| cold_over_hot | 1.83 |
 
-> Both tiers hold the same generated batch, so the latency gap is the storage path and nothing else. The absolute milliseconds include the client round trip and are specific to this laptop; the ratio is the number to read. It is a floor, not a forecast: the cold tier here is MinIO on the same Docker network, and a real S3 endpoint across a network is slower than that. Nothing here reports how long the move itself took, because that is the background scheduler's backoff, not a property of the tier.
+> Both tiers hold the same generated batch, so the latency gap is the storage path and nothing else. The absolute milliseconds include the client round trip and are specific to this laptop; the ratio is the number to read. Read it as a range and not a constant: repeated runs on one machine have landed anywhere from 1.58x to 1.92x, so the single figure above is one draw from that spread. It is a floor, not a forecast: the cold tier here is MinIO on the same Docker network, and a real S3 endpoint across a network is slower than that. Nothing here reports how long the move itself took, because that is the background scheduler's backoff, not a property of the tier.

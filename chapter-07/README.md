@@ -158,6 +158,15 @@ ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "
 there waiting for input. `ch_file` is the only one that feeds stdin, and it
 feeds it a file. See [NOTES.md](NOTES.md).
 
+If you have already worked through `exercises/tenancy.md`, drop its row policy
+before reading anything here. That policy is `TO ALL`, so it applies to the
+`default` admin too, and every query below would come back empty with nothing to
+say why. The exercise drops it when it finishes, but not if you stopped part way:
+
+```bash
+ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
+```
+
 First, the table the whole chapter is about:
 
 ```bash
@@ -213,7 +222,14 @@ page. Yours print in full.
 
 Seven rows per `>`, and the root span's 179ms covers the six children that follow
 it. `fraud.score` in the third trace came back `STATUS_CODE_ERROR`, which is the
-kind of thing you came here to find.
+kind of thing you came here to find. The producer fails about one checkout in
+twenty, so three traces usually come back clean. To go and find one:
+
+```bash
+ch --query "
+SELECT trace_id, span_name, status_code FROM tracing.otel_traces
+WHERE status_code = 'STATUS_CODE_ERROR' ORDER BY timestamp DESC LIMIT 5"
+```
 
 Those rows arrived independently, at different times, possibly out of order, and
 nothing assembled them until this query sorted by `trace_id` and `timestamp`.
@@ -240,7 +256,7 @@ without scanning the random `trace_id` column:
 TID=$(ch --query "
 SELECT trace_id FROM tracing.otel_traces
 WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
-echo "trace_id=${TID:-(nothing yet, give it a few more seconds and run this again)}"
+echo "trace_id=${TID:-(none found: either the first traces have not landed yet, or a row policy is still filtering you, see above)}"
 ch --query "
 SELECT service_name, span_name, duration_ns
 FROM tracing.otel_traces WHERE trace_id = '$TID'"
@@ -331,10 +347,12 @@ Three of them build and drop their own scratch copy of the listing 7.1 schema,
 and `tiering_automation.py` owns its rows in `otel_traces` by service name and
 restores the TTL in a `finally`, so all four give the same answer whatever ran
 before them. If a tenancy run was interrupted and left the row policy behind, the
-benchmarks will read an empty table. Drop it:
+benchmarks will read an empty table. Drop it, in full here since you may not have
+the `ch` helper defined in this shell:
 
 ```bash
-ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
+docker compose exec -T clickhouse clickhouse-client \
+  --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces" < /dev/null
 ```
 
 ## Tear down
