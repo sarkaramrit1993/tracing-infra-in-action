@@ -24,10 +24,13 @@ or Azure Blob, and ClickHouse's `s3_cold` disk (in `clickhouse/config.d/storage.
 writes aged parts to it as S3 objects. Listing 7.2's `TO VOLUME 'cold'` moves data
 onto that disk, which you can watch and verify against the bucket.
 
-[NOTES.md](NOTES.md) holds the why behind the steps below: why there are two
-shell helpers and how they handle stdin, why a fresh demo reports no compression
-numbers, how the cold volume resolves, and what the book's listings assume. Read
-it when a step surprises you.
+Bring the stack up, look at some traces, then pick whichever of the three
+exercises in `exercises/` you feel like. They are independent on purpose.
+
+[NOTES.md](NOTES.md) holds the why behind all of it: why there are two shell
+helpers and how they handle stdin, why the compression exercise builds its own
+tables, how the cold volume resolves, and what the book's listings assume. Read
+it when something surprises you.
 
 ## Listings
 
@@ -44,12 +47,12 @@ it when a step surprises you.
 - About 3 GB of memory given to Docker, and about 4 GB of free disk for images
   and volumes. On macOS and Windows that is Docker Desktop's setting under
   Settings, Resources, not free host RAM
-- A POSIX shell with `curl`. On Windows, run the walkthrough inside WSL2
+- A POSIX shell with `curl`. On Windows, run the exercises inside WSL2
 - Python 3 on the host, for `tests/test_static.py` and the four
   `benchmarks/*.py` scripts. CI verifies on 3.12
 
 The stack binds host ports 8080, 4317, 4318, 8123, 8888, 9000, 9001, 9002,
-9090 and 9363, plus 3200 and 4417 if you start Tempo in step 7. Tear down any
+9090 and 9363, plus 3200 and 4417 if you start Tempo. Tear down any
 other chapter's stack first. [`setup/README.md`](../setup/README.md) has the
 virtualenv step, including the extra package Debian and Ubuntu need and the
 different activate path on Windows.
@@ -76,8 +79,12 @@ chapter-07/
 ├── docker-compose.yml          # ClickHouse + Collector + Kafka + consumer (+Tempo profile)
 ├── prometheus.yml
 ├── README.md
-├── NOTES.md                    # why the walkthrough works the way it does
+├── NOTES.md                    # why everything here works the way it does
 ├── RESULTS.md                  # the measured numbers, rendered from benchmarks/results/
+├── exercises/
+│   ├── compression.md          # what listing 7.1's column types are worth
+│   ├── tiering.md              # where a part goes when it gets old (listing 7.2)
+│   └── tenancy.md              # what a row policy stops, and what it does not (listing 7.4)
 ├── app/
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -88,9 +95,9 @@ chapter-07/
 │   └── tempo.yaml              # block-archetype backend (block profile)
 ├── clickhouse/
 │   ├── init.sql                # listing 7.1 + adjusted_count column (auto-applied on first boot)
-│   ├── tiering.sql             # listing 7.2 (apply by hand in the walkthrough)
+│   ├── tiering.sql             # listing 7.2 (applied by exercises/tiering.md)
 │   ├── compression.sql         # listing 7.3 (per-column compression query)
-│   ├── tenancy.sql             # listing 7.4 (apply by hand in the walkthrough)
+│   ├── tenancy.sql             # listing 7.4 (applied by exercises/tenancy.md)
 │   ├── config.d/
 │   │   ├── storage.xml         # 'tiered' policy + S3-backed 'cold' volume (MinIO) for listing 7.2
 │   │   ├── network.xml
@@ -133,18 +140,14 @@ sleep 10
 Each `/checkout` call produces a seven-span trace, all under the
 `checkout-service` resource. The exporter batches on a five-second timer, so the
 first traces take a few seconds to reach ClickHouse, which is what the `sleep` is
-for. The loop keeps running in the background while you work through the steps.
+for. The loop keeps running in the background while you work.
 
 ---
 
-## Verify it works
+## Look at your trace data
 
-Run the admin steps (1-5) **before** you apply the row policy in step 6. That
-policy filters the `default` admin login too, so once it is in place the earlier
-queries return zero rows.
-
-Two convenient aliases for the steps below. `ch` runs a query, `ch_file` applies
-a `.sql` file:
+Two helpers for everything below. `ch` runs a query, `ch_file` applies a `.sql`
+file:
 
 ```bash
 ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
@@ -155,7 +158,7 @@ ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "
 there waiting for input. `ch_file` is the only one that feeds stdin, and it
 feeds it a file. See [NOTES.md](NOTES.md).
 
-### 1. The listing 7.1 table exists
+First, the table the whole chapter is about:
 
 ```bash
 ch --query "SHOW CREATE TABLE tracing.otel_traces FORMAT TSVRaw"
@@ -166,137 +169,115 @@ You should see the exact columns, codecs (`Delta(8), ZSTD(1)`, `T64, ZSTD(1)`,
 toYYYYMMDD(timestamp)`, and `ORDER BY (service_name, span_name,
 toStartOfHour(timestamp), trace_id)`.
 
-### 2. A trace round-trips (point lookup by trace_id)
-
-Pick a trace_id, then look it up. The filter on `GET /checkout` is there so you
-get a real checkout trace and not a healthcheck one.
+Now the traces themselves. Nine columns of a wide table do not look much like a
+trace, so this pulls three recent checkout traces and prints a `>` where each new
+one begins:
 
 ```bash
-TID=$(ch --query "SELECT trace_id FROM tracing.otel_traces \
-        WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
+ch --query "
+SELECT
+  if(trace_id != lag(trace_id) OVER (ORDER BY trace_id, timestamp), '>', ' ') AS t,
+  trace_id,
+  toString(timestamp) AS ts,
+  rpad(service_name, 17) AS svc,
+  rpad(span_name, 18) AS span,
+  concat(toString(round(duration_ns / 1000000.0, 3)), 'ms') AS took,
+  adjusted_count AS weight,
+  status_code
+FROM tracing.otel_traces
+WHERE trace_id IN (
+  SELECT trace_id FROM tracing.otel_traces
+  WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 3)
+ORDER BY trace_id, timestamp"
+```
+
+The `trace_id` and the date half of the timestamp are trimmed below to fit the
+page. Yours print in full.
+
+```
+>  0e833918...  18:39:37.168943260  checkout-service  GET /checkout      179.073ms  1  STATUS_CODE_UNSET
+   0e833918...  18:39:37.169339802  checkout-service  validate_cart       21.138ms  1  STATUS_CODE_UNSET
+   0e833918...  18:39:37.190615135  checkout-service  inventory.reserve   30.966ms  1  STATUS_CODE_UNSET
+   0e833918...  18:39:37.221734468  checkout-service  payment.charge      92.398ms  1  STATUS_CODE_UNSET
+   0e833918...  18:39:37.273568593  checkout-service  fraud.score          40.49ms  1  STATUS_CODE_UNSET
+   0e833918...  18:39:37.314260093  checkout-service  order.create        22.409ms  1  STATUS_CODE_UNSET
+   0e833918...  18:39:37.336787635  checkout-service  notification.send   10.802ms  1  STATUS_CODE_UNSET
+>  657e8154...  18:39:36.972527468  checkout-service  GET /checkout      176.629ms  1  STATUS_CODE_UNSET
+   657e8154...  18:39:36.972937718  checkout-service  validate_cart       20.232ms  1  STATUS_CODE_UNSET
+   ...
+>  9ffffaae...  18:39:37.368596885  checkout-service  GET /checkout      181.856ms  1  STATUS_CODE_UNSET
+   ...
+   9ffffaae...  18:39:37.475302760  checkout-service  fraud.score          41.92ms  1  STATUS_CODE_ERROR
+   ...
+```
+
+Seven rows per `>`, and the root span's 179ms covers the six children that follow
+it. `fraud.score` in the third trace came back `STATUS_CODE_ERROR`, which is the
+kind of thing you came here to find.
+
+Those rows arrived independently, at different times, possibly out of order, and
+nothing assembled them until this query sorted by `trace_id` and `timestamp`.
+That is the store-then-stitch contract: spans land as rows, a trace is something
+you reconstruct on read.
+
+`weight` is `adjusted_count`, the sample-rate reciprocal from section 7.4.4.
+Everything here is unsampled, so it reads 1. Drop the `LIMIT 3` subquery and you
+get the whole table, healthcheck traces included, one span each.
+
+Two more worth having. Where the bytes are:
+
+```bash
+ch --query "
+SELECT partition, formatReadableSize(sum(bytes_on_disk)) AS on_disk,
+       sum(rows) AS rows, count() AS parts, any(disk_name) AS disk
+FROM system.parts WHERE database = 'tracing' AND active GROUP BY partition"
+```
+
+And a point lookup, which is the bloom skip index answering a membership question
+without scanning the random `trace_id` column:
+
+```bash
+TID=$(ch --query "
+SELECT trace_id FROM tracing.otel_traces
+WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
 echo "trace_id=${TID:-(nothing yet, give it a few more seconds and run this again)}"
-ch --query "SELECT service_name, span_name, duration_ns \
-            FROM tracing.otel_traces WHERE trace_id = '$TID'"
+ch --query "
+SELECT service_name, span_name, duration_ns
+FROM tracing.otel_traces WHERE trace_id = '$TID'"
 ```
-
-You get back the spans of that one trace, assembled at query time. That is the
-store-then-stitch contract: spans land independently, assembly is deferred.
-
-### 3. Compression: compressed vs uncompressed bytes
-
-```bash
-ch --query "SELECT name, \
-       formatReadableSize(sum(data_compressed_bytes))   AS compressed, \
-       formatReadableSize(sum(data_uncompressed_bytes)) AS uncompressed, \
-       round(sum(data_uncompressed_bytes)/sum(data_compressed_bytes),1) AS ratio \
-   FROM system.columns \
-   WHERE database='tracing' AND table='otel_traces' \
-   GROUP BY name ORDER BY sum(data_uncompressed_bytes) DESC"
-```
-
-On a fresh demo this prints `0.00 B` and `nan` for every column. That is
-expected, and [NOTES.md](NOTES.md) says why. The real per-column numbers come
-from `benchmarks/compression_ratio.py`.
-
-In those numbers the low-cardinality columns (`service_name`, `span_name`,
-`status_code`) compress by one to three orders of magnitude, `adjusted_count` by
-about twenty times because one sampling weight repeats across a trace's spans,
-and `trace_id` shows the ~2x floor that Table 7.2 calls out. For whole-part
-totals use `system.parts`:
-
-```bash
-ch --query "SELECT partition, \
-       formatReadableSize(sum(bytes_on_disk)) AS on_disk, \
-       sum(rows) AS rows, count() AS parts, any(disk_name) AS disk \
-   FROM system.parts WHERE database='tracing' AND active GROUP BY partition"
-```
-
-### 4. Tiering: hot-to-cold (listing 7.2)
-
-Apply the listing 7.2 policy. `TO VOLUME 'cold'` sends aged parts to the
-S3-backed `cold` volume, which is MinIO in this stack:
-
-```bash
-ch_file clickhouse/tiering.sql
-ch --query "SELECT move_ttl_info.expression, move_ttl_info.max \
-            FROM system.parts WHERE database='tracing' AND active LIMIT 1 \
-            FORMAT Vertical"
-```
-
-The rule fires on parts older than two days, and nothing on a fresh demo is that
-old, so parts stay on `default`. You do not have to wait for the rule to move a
-partition. Move one by hand:
-
-```bash
-PART=$(ch --query "SELECT partition FROM system.parts \
-        WHERE database='tracing' AND active ORDER BY partition LIMIT 1")
-ch --query "ALTER TABLE tracing.otel_traces MOVE PARTITION '$PART' TO VOLUME 'cold'"
-ch --query "SELECT partition, disk_name FROM system.parts \
-            WHERE database='tracing' AND active"
-```
-
-Watch `disk_name` flip from `default` to `s3_cold`. The moved part is now stored
-as S3 objects in MinIO. Browse the bucket at the MinIO console on
-http://localhost:9001 (user `traceadmin`, password `traceadmin-secret`, bucket
-`traces-cold`) to see the objects ClickHouse wrote.
-
-`MOVE PARTITION` is an explicit move and does not touch listing 7.2's rule, so
-the table still carries the two-day boundary and there is nothing to put back.
-To watch the rule itself fire against properly aged data, run
-`benchmarks/tiering_automation.py`.
-
-### 5. DROP PARTITION is instant (metadata-time retention)
-
-Each day is its own partition (`toYYYYMMDD`). On a demo you brought up today
-there is only one, so this drops every row and leaves the table empty. Nothing
-after this step needs the traffic you generated:
-
-```bash
-PART=$(ch --query "SELECT partition FROM system.parts \
-        WHERE database='tracing' AND active ORDER BY partition LIMIT 1")
-echo "dropping partition $PART"
-time ch --query "ALTER TABLE tracing.otel_traces DROP PARTITION '$PART'"
-ch --query "SELECT count() FROM tracing.otel_traces"
-```
-
-The drop returns in milliseconds regardless of how many rows the day held.
-
-### 6. Row policy blocks cross-tenant reads (listing 7.4)
-
-Apply listing 7.4. It adds a `tenant_id` column, creates the `tenant_filter` row
-policy and the two tenant users, and seeds one row each for `tenant_a` and
-`tenant_b`:
-
-```bash
-ch_file clickhouse/tenancy.sql
-```
-
-Now connect as each tenant:
-
-```bash
-docker compose exec -T clickhouse clickhouse-client --user tenant_a \
-  --query "SELECT tenant_id, count() FROM tracing.otel_traces GROUP BY tenant_id"
-docker compose exec -T clickhouse clickhouse-client --user tenant_a \
-  --query "SELECT count() FROM tracing.otel_traces WHERE tenant_id = 'tenant_b'"
-```
-
-The first query returns only `tenant_a`; the second returns `0`. A tenant cannot
-read another tenant's spans even by asking.
-
-> After step 6 the `default` admin login is also filtered by the `TO ALL`
-> policy and will see zero rows. To drop the policy and return to admin-wide
-> visibility: `ch --query "DROP ROW POLICY tenant_filter ON tracing.otel_traces"`.
 
 ---
 
-### 7. (Optional) The block archetype: Grafana Tempo
+## The three exercises
+
+Three separate things live in this chapter, and none of them needs the other two.
+So they are three separate files. Open whichever one you want, in any order, on
+its own. Each puts the table into the state it needs, makes its own data, and
+clears up after itself, so none of them assumes you ran another first and none of
+them leaves a mess for the next.
+
+| Exercise | Listing | The question |
+|---|---|---|
+| [exercises/compression.md](exercises/compression.md) | 7.1, 7.3 | `LowCardinality` and a codec per column change no answers. What do they buy? |
+| [exercises/tiering.md](exercises/tiering.md) | 7.2 | Aged parts move `TO VOLUME 'cold'`. Where do they actually go, and is the data still there? |
+| [exercises/tenancy.md](exercises/tenancy.md) | 7.4 | A row policy stops one tenant reading another's spans. What does it not stop? |
+
+Each ends with a **Try this** section: a few one-line edits with a visible
+consequence. Those are where the chapter's claims stop being claims. Working
+through an exercise takes a couple of minutes; poking at it is the part worth
+your time.
+
+If you only do one, do tenancy. It is the one with a trap in it.
+
+## Optional: the block archetype (Grafana Tempo)
 
 ```bash
 docker compose --profile block up -d tempo
 ```
 
 Tempo writes immutable Parquet-shaped blocks to an object store rather than
-rows. It is the section 7.3 contrast to the ClickHouse row store.
+rows. It is the section 7.3 contrast to the ClickHouse row store, and it needs no
+setup beyond the line above.
 
 ---
 
@@ -327,6 +308,9 @@ row policy gates reads but not writes, so an ingest path must validate tenant_id
 bash tests/test_tenancy.sh
 ```
 
+Both live scripts drop the row policy on the way in and on the way out, so they
+run in either order and leave the admin login unfiltered.
+
 ## Storage benchmarks
 
 Four measured exercises against the live stack: per-column compression, bloom
@@ -335,23 +319,22 @@ query costs once its data is out there, and a noisy-tenant attribute-cardinality
 blowup (section 7.5.2). See `benchmarks/README.md`. Measured results land in
 `benchmarks/results/`.
 
-One thing first. If you worked through step 6, or a test run stopped part way,
-the listing 7.4 row policy is still in place, and `tiering_automation.py` reads
-`otel_traces` and will find it empty. Drop it:
-
-```bash
-ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-```
-
-The other three scripts build and drop their own scratch copy of the listing 7.1
-schema, so they leave `otel_traces` and whatever the walkthrough put in it alone.
-
 ```bash
 cd benchmarks
 NUM_SPANS=200000 python3 compression_ratio.py
 python3 bloom_index_pruning.py
 python3 tiering_automation.py
 python3 tenant_cardinality_blowup.py
+```
+
+Three of them build and drop their own scratch copy of the listing 7.1 schema,
+and `tiering_automation.py` owns its rows in `otel_traces` by service name and
+restores the TTL in a `finally`, so all four give the same answer whatever ran
+before them. If a tenancy run was interrupted and left the row policy behind, the
+benchmarks will read an empty table. Drop it:
+
+```bash
+ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
 ```
 
 ## Tear down
