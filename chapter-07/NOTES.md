@@ -1,12 +1,13 @@
 # Notes
 
-Why the walkthrough in [README.md](README.md) is built the way it is. None of
-this is needed to run the stack. Read a section when a step surprises you, or
-when you want to know what the demo is doing underneath.
+Why [README.md](README.md) and the three files in `exercises/` are built the way
+they are. None of this is needed to run the stack. Read a section when something
+surprises you, or when you want to know what the demo is doing underneath.
 
 ## Why there are two helpers, `ch` and `ch_file`
 
-Both are defined at the top of "Verify it works".
+Both are defined at the top of README's "Look at your trace data", and again at
+the top of each exercise so that each one stands alone.
 
 `clickhouse-client` reads stdin for INSERT data even when the row is already
 inline in `VALUES`, and `docker compose exec -T` hands it whatever stdin you
@@ -14,19 +15,20 @@ have. If that stdin stays open and never reaches EOF, the INSERT sits there
 forever with nothing printed. That is why `ch` always redirects `/dev/null`: a
 query it runs can never end up waiting on your keyboard.
 
-But steps 4 and 6 need the opposite. They feed a whole `.sql` file to
-`--multiquery`, which means stdin has to carry the file. One helper cannot do
-both, and guessing from the shape of stdin gets it wrong somewhere. An earlier
-version guessed with `[ -t 0 ]`, which worked at a terminal and hung anywhere
-stdin was an open pipe. So the file case gets its own name, `ch_file`, and it is
-the only thing in the walkthrough that puts anything on stdin.
+But applying `tiering.sql` and `tenancy.sql` needs the opposite. They feed a
+whole `.sql` file to `--multiquery`, which means stdin has to carry the file. One
+helper cannot do both, and guessing from the shape of stdin gets it wrong
+somewhere. An earlier version guessed with `[ -t 0 ]`, which worked at a terminal
+and hung anywhere stdin was an open pipe. So the file case gets its own name,
+`ch_file`, and it is the only thing here that puts anything on stdin.
 
 The same split is in `tests/test_stack.sh` and `tests/test_tenancy.sh` as `CH`
 and `CH_FILE`, for the same reason.
 
-## Why step 2 filters on `GET /checkout`
+## Why the point lookup filters on `GET /checkout`
 
-Step 2 is "A trace round-trips (point lookup by trace_id)".
+README's "Look at your trace data" picks a `trace_id` before it looks one up, and
+it filters that pick on `GET /checkout`.
 
 The container healthcheck writes a one-span `GET /health` trace every 10 seconds,
 and those outnumber the checkout traces once the traffic loop finishes. Without
@@ -36,35 +38,57 @@ seven-span checkout trace.
 The lookup itself is answered by the bloom-filter skip index, which resolves the
 membership question without scanning the random `trace_id` column.
 
-## Why step 3 shows `0.00 B` on a fresh demo
+## Why the compression exercise builds its own tables
 
-Step 3 is "Compression: compressed vs uncompressed bytes".
+[exercises/compression.md](exercises/compression.md) does not measure
+`otel_traces`. Two reasons, and both would bite anyone who pointed
+`clickhouse/compression.sql` at the live table instead.
 
-Per-column byte accounting only exists for parts in Wide format.
-`min_bytes_for_wide_part` defaults to 10 MiB and the demo writes well under one,
-so every part is Compact and `system.columns` has nothing to report. The real
-per-column numbers come from `benchmarks/compression_ratio.py`, which loads
-enough rows to cross that boundary.
+The first is Compact parts. Per-column byte accounting only exists for parts in
+Wide format. `min_bytes_for_wide_part` defaults to 10 MiB and a fresh demo writes
+well under one, so every part is Compact, `system.columns` has nothing to report,
+and listing 7.3 comes back `0.00 B` and `nan` down every row. The exercise loads
+200,000 rows, which crosses that boundary. `benchmarks/compression_ratio.py`
+loads more and fails loudly rather than publishing a table of `nan`.
 
-`system.parts` still reports whole-part totals, which is why step 3 ends with a
-second query against it.
+The second is the clock. Byte counts only repeat between runs if the generated
+timestamps are fixed: a moving anchor shifts the Delta codec's base value, a run
+that straddles an hour boundary reorders rows inside every sort-key group, and a
+run that straddles UTC midnight splits the load across two partitions
+`OPTIMIZE FINAL` cannot merge. But a fixed past anchor cannot live in
+`otel_traces` once listing 7.2 is on it, because ClickHouse reserves space by the
+TTL rules at insert time. Rows past the two-day boundary would be written
+straight to the S3 cold disk and never land hot, and rows past fifteen days would
+be dropped on the first merge. The measurement would then describe S3-resident
+parts, or nothing.
+
+So the scratch tables carry listing 7.1's columns, codecs, sort key, partitioning
+and skip index with no TTL and no storage policy, and they are dropped at the
+end. `bloom_index_pruning.py` and `tenant_cardinality_blowup.py` do the same
+thing for the same reasons.
+
+`system.parts` still reports whole-part totals whatever the part format, which is
+why the exercise ends with a query against it.
 
 ## How `TO VOLUME 'cold'` resolves
 
-Step 4 is "Tiering: hot-to-cold (listing 7.2)".
+This is what [exercises/tiering.md](exercises/tiering.md) is built on.
 
 `TO VOLUME 'cold'` resolves against the `cold` volume defined in
 `config.d/storage.xml`, whose disk is the S3-backed `s3_cold` disk pointing at
 the MinIO object store. That is the same API AWS S3, GCS, and Azure Blob expose.
 Only the endpoint and the credentials change between them.
 
-The rule fires on parts older than two days, and on a fresh demo nothing is two
-days old yet, so parts stay on `default` and step 4 moves one by hand instead.
+The rule fires on parts older than two days. The exercise stages rows dated
+yesterday, which is inside that boundary on purpose, so they land hot and there
+is a move to watch. It then moves the partition by hand.
 
-Step 4 selects a real partition id into `$PART` first and then moves it
-explicitly, because `MOVE PARTITION` takes a literal id and not a subquery.
+It selects a real partition id into `$PART` first and then moves it explicitly,
+because `MOVE PARTITION` takes a literal id and not a subquery. Deriving that id
+from the exercise's own rows, rather than from `ORDER BY partition LIMIT 1`, is
+what keeps the move and the later drop off the live traffic in today's partition.
 
-An earlier version of step 4 lowered the move boundary to five seconds first, to
+An earlier version lowered the move boundary to five seconds first, to
 make the part eligible. That made every part eligible at once, which wakes
 ClickHouse's background mover, and the manual `MOVE PARTITION` then raced it and
 failed intermittently with `PART_IS_TEMPORARILY_LOCKED`. `MOVE PARTITION` is an
@@ -74,32 +98,39 @@ change was never doing any work. Dropping it removes the race and leaves listing
 
 ## Why `DROP PARTITION` is instant
 
-Step 5 is "DROP PARTITION is instant (metadata-time retention)".
+The last thing [exercises/tiering.md](exercises/tiering.md) does.
 
 Dropping a partition is a metadata operation, not a row-by-row tombstone delete.
 That is why the time it takes does not depend on how many rows the day held, and
-it is the Cassandra-tombstone contrast from the chapter opener.
+it is the Cassandra-tombstone contrast from the chapter opener. It also does not
+depend on which disk held the part, so dropping a partition that has already
+moved to S3 costs the same as dropping one that never left.
 
-## Why the row policy comes last
+## Why the row policy has to be dropped again
 
-Step 6 is "Row policy blocks cross-tenant reads (listing 7.4)".
+[exercises/tenancy.md](exercises/tenancy.md) ends by dropping what it created,
+and that is not tidiness.
 
 The listing 7.4 policy is `TO ALL`, so it applies to the `default` admin login
 too. That username is not a tenant_id, so once the policy exists the admin sees
-zero rows and every earlier query looks broken. That is why steps 1 to 5 run
-first, and that ordering is the point of section 7.5.2's trap: the policy gates
-every read.
+zero rows. Leave it in place and every count, every benchmark and both other
+exercises read an empty table, with nothing in the output to say why. The
+exercise drops the policy at the end for that reason, and drops it again at the
+start so it works from whatever state you were in.
 
-It works by rewriting `tenant_id = currentUser()` onto every SELECT, so a tenant
-cannot read another tenant's spans even by asking for them directly.
+That behaviour is not a wart, it is section 7.5.2's point: the policy gates every
+read, admin included. It works by rewriting `tenant_id = currentUser()` onto
+every SELECT, so a tenant cannot read another tenant's spans even by asking for
+them directly.
 
 Reads are all it gates. The policy does **not** gate `INSERT` or `DROP PARTITION`,
 so a real ingest path has to validate `tenant_id` against the authenticated
-principal itself. `tests/test_tenancy.sh` proves that gap.
+principal itself. `tests/test_tenancy.sh` proves that gap, and both live test
+scripts drop the policy on the way in and the way out for the same reason.
 
 ## Tempo's cold boundary
 
-Step 7 is "(Optional) The block archetype: Grafana Tempo".
+The optional `block` profile in README.
 
 Tempo's object store is the local filesystem in this stack and S3 or GCS in
 production. It expresses the cold boundary as `compactor.block_retention` rather
@@ -118,8 +149,8 @@ behaves unexpectedly, these are why:
    supplies the SETTINGS line for you.
 2. **Listing 7.2's `DROP PARTITION '20260601'`** targets a literal past date. On
    a fresh demo no such partition exists, so it no-ops (a silent success that is
-   itself the metadata-retention point). The walkthrough shows how to drop a
-   partition that actually holds data.
+   itself the metadata-retention point). `exercises/tiering.md` stages a
+   partition and drops one that actually holds data.
 3. **Listing 7.4's `MODIFY ORDER BY (tenant_id, ...)` cannot run on an existing
    table.** ClickHouse requires the primary key to stay a prefix of the sorting
    key, and `MODIFY ORDER BY` only accepts columns introduced in the same
