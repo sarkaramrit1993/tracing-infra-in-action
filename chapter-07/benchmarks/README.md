@@ -41,11 +41,15 @@ scratch table, and the tiering script owns its rows in `otel_traces` by service
 name, so all four give the same answer whatever ran before them.
 
 The scripts talk to ClickHouse over the native protocol when `clickhouse-driver`
-is importable, and otherwise fall back to the HTTP interface on port 8123 using
-only the standard library, so no extra install is required. Connection settings
-come from the environment (`CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`,
-`CLICKHOUSE_HTTP_PORT`, `CLICKHOUSE_DB`); the defaults match the published ports
-in `docker-compose.yml`.
+is importable, and otherwise fall back to the HTTP interface using only the
+standard library, so no extra install is required. They find the server by asking
+compose which address this project published for it, which is how they reach this
+chapter's ClickHouse and not some other stack that happens to hold port 8123. If
+that lookup fails, the stack being down being the usual reason, they print what to
+do and stop rather than guess at localhost. Setting `CLICKHOUSE_HOST`,
+`CLICKHOUSE_PORT` or `CLICKHOUSE_HTTP_PORT` skips the lookup and sends them
+wherever you say; `CLICKHOUSE_DB`, `CLICKHOUSE_USER` and `CLICKHOUSE_PASSWORD`
+work as before.
 
 Results land in `results/` as timestamped JSON, one file per run named down to
 the second, so two runs on the same day both survive. Those files are the
