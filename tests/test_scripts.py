@@ -61,12 +61,18 @@ def test_every_note_field_is_reproduced():
     assert generic_note in _render_entry_section("store_then_stitch", generic_data, "x.json")
 
     # Real coverage: starts asserting on actual data automatically once a
-    # committed file carries a note.
+    # committed file carries a note. Scoped to the runs the renderer selects,
+    # because it renders the newest file per benchmark and a superseded run's
+    # note has nowhere to land. Globbing every file instead asserted that no
+    # benchmark may ever be measured twice.
+    from render_results import load_results
+
     out = render_chapter("07") + render_chapter("05")
-    for path in ROOT.glob("chapter-*/benchmarks/results/*.json"):
-        note = json.loads(path.read_text()).get("note")
-        if note:
-            assert note in out, f"note from {path.name} is missing from the output"
+    for entries in load_results().values():
+        for _name, data, filename in entries:
+            note = data.get("note")
+            if note:
+                assert note in out, f"note from {filename} is missing from the output"
 
 
 def test_check_mode_passes_on_clean_tree():
