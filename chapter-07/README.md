@@ -40,9 +40,19 @@ surprises you.
 
 ## Prerequisites
 
-- Docker and Docker Compose
-- Around 3 GB of free RAM for the default stack
-- Python 3.10+ only if you want to run `tests/test_static.py` offline
+- Docker and Docker Compose v2
+- About 3 GB of memory given to Docker, and about 4 GB of free disk for images
+  and volumes. On macOS and Windows that is Docker Desktop's setting under
+  Settings, Resources, not free host RAM
+- A POSIX shell with `curl`. On Windows, run the walkthrough inside WSL2
+- Python 3 on the host, for `tests/test_static.py` and the four
+  `benchmarks/*.py` scripts. CI verifies on 3.12
+
+The stack binds host ports 8080, 4317, 4318, 8123, 8888, 9000, 9001, 9002,
+9090 and 9363, plus 3200 and 4417 if you start Tempo in step 7. Tear down any
+other chapter's stack first. [`setup/README.md`](../setup/README.md) has the
+virtualenv step, including the extra package Debian and Ubuntu need and the
+different activate path on Windows.
 
 ## Version manifest (one tag per image, N1)
 
@@ -110,8 +120,9 @@ docker compose ps
 ```
 
 Give it about 45 seconds: Kafka elects its controller, the `otlp_spans` topic
-lands, ClickHouse applies `init.sql`, and the consumer connects. Then generate
-traffic:
+lands, ClickHouse applies `init.sql`, and the consumer connects. The first run
+also pulls seven images and builds the app image, so it takes longer before that
+clock even starts. Then generate traffic:
 
 ```bash
 for i in $(seq 1 300); do curl -s http://localhost:8080/checkout > /dev/null; done &
@@ -184,8 +195,9 @@ expected, and [NOTES.md](NOTES.md) says why. The real per-column numbers come
 from `benchmarks/compression_ratio.py`.
 
 In those numbers the low-cardinality columns (`service_name`, `span_name`,
-`status_code`) show the largest ratios, and `trace_id` shows the ~2x floor that
-Table 7.2 calls out. For whole-part totals use `system.parts`:
+`status_code`) compress by one to three orders of magnitude, columns holding a
+single repeated value compress further still, and `trace_id` shows the ~2x floor
+that Table 7.2 calls out. For whole-part totals use `system.parts`:
 
 ```bash
 ch --query "SELECT partition, \
