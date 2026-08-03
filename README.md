@@ -10,7 +10,7 @@ self-contained stack for one chapter, with its own `README.md` and a
 | `chapter-03/` | Collection tiers | Three-tier collection, agent/gateway/consumer Collector configs, Kubernetes manifests, benchmarks |
 | `chapter-04/` | Ingestion and buffering | OpenTelemetry gateway + 3-broker Kafka (KRaft) + Jaeger, partitioning benchmarks |
 | `chapter-05/` | Trace assembly | Kafka + Flink assembly job + ClickHouse + Jaeger, store-then-stitch vs stream-time benchmarks |
-| `chapter-07/` | Trace storage | ClickHouse wide-table store + Kafka + Grafana Tempo on MinIO object storage, compression, tiering and tenant-isolation benchmarks |
+| `chapter-07/` | Trace storage | ClickHouse wide-table store + Kafka, with a MinIO-backed cold tier; compression, tiering and tenant-isolation exercises and benchmarks |
 
 ## Running a chapter
 
