@@ -308,12 +308,10 @@ for i in $(seq 1 60); do
 done
 ```
 
-Give it a minute. Two runs here took 11 seconds and about 55, and a single check five seconds
-after the ALTER will make you think nothing happened. The move-selecting task
-sleeps five seconds when it is busy and backs off toward sixty when the server
-has been quiet, so that delay is a fact about the scheduler and not about
-storage. `tiering_automation.py` waits up to three minutes for the same reason,
-and publishes no number measured from it.
+Give it a minute. Two runs here took 11 seconds and about 55, and a single check
+five seconds after the ALTER will make you think nothing happened. That delay is
+the scheduler and not the storage; [NOTES.md](../NOTES.md) has why it swings so
+far.
 
 Two warnings. Do not mix this with a manual `MOVE PARTITION`, because the
 background mover will race you and the ALTER fails with
