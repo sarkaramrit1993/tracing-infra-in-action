@@ -86,9 +86,28 @@ jobs:
             chapter-05/benchmarks/test_atomicity_audit.py \
             -q
 
+      - name: Chapter 7 offline tests
+        run: |
+          python -m venv /tmp/venv-ch07
+          /tmp/venv-ch07/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch07/bin/pip install --quiet -r chapter-07/tests/requirements.txt
+          /tmp/venv-ch07/bin/python chapter-07/tests/test_static.py
+
+      # These three gate the published record rather than the stack, and every
+      # one of them has caught something: a listing table pointing at a file
+      # that no longer carried its anchor, a RESULTS.md rendered from a local
+      # run git had never seen, and a caveat that never reached the table it
+      # belonged to. They need no chapter dependencies.
+      - name: Repository gates
+        run: |
+          python -m pip install --quiet pytest
+          python scripts/check_listing_anchors.py
+          python scripts/render_results.py --check
+          python -m pytest tests/test_scripts.py -q
+
       - name: Verification scripts are syntactically valid
         run: |
-          for f in chapter-0*/tests/test_stack.sh; do
+          for f in chapter-0*/tests/*.sh; do
               bash -n "$f" && echo "ok $f"
           done
 
