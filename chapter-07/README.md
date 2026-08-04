@@ -58,7 +58,7 @@ it when something surprises you.
   extra package Debian and Ubuntu need and the different activate path on
   Windows
 
-Tear down any other chapter's stack first. This stack binds eleven host ports,
+Tear down any other chapter's stack first. This stack binds twelve host ports,
 listed under [Reference](#reference) at the bottom of this file.
 
 ## Bring it up
