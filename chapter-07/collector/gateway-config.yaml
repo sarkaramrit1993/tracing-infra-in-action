@@ -6,6 +6,11 @@
 # reads otlp_spans and writes the listing 7.1 wide table. Chapter 7 is about the
 # store, so this is a single-tier collector (no separate agent), but the export
 # contract is identical to chapter-05/collector/gateway-config.yaml.
+#
+# The traces pipeline fans the same span stream out to both storage archetypes
+# of section 7.3: Kafka (and from there ClickHouse, the wide-column row store)
+# and Tempo (the block store). One workload, one trace, two layouts, both
+# landing in the same MinIO object storage.
 receivers:
   otlp:
     protocols:
@@ -38,6 +43,14 @@ exporters:
       required_acks: 1
       max_message_bytes: 1000000
 
+  # The block-archetype leg of the fan-out. Tempo's OTLP receiver is on 4317
+  # inside the network (published on 4417 so it does not clash with this
+  # Collector's own 4317 on the host).
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
 extensions:
   health_check: {}
 
@@ -47,7 +60,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [kafka]
+      exporters: [kafka, otlp/tempo]
   telemetry:
     metrics:
       level: detailed

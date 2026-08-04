@@ -128,14 +128,26 @@ so a real ingest path has to validate `tenant_id` against the authenticated
 principal itself. `tests/test_tenancy.sh` proves that gap, and both live test
 scripts drop the policy on the way in and the way out for the same reason.
 
-## Tempo's cold boundary
+## Tempo's cold boundary, and why the config looks different from the book's
 
-The optional `block` profile in README.
+Tempo writes its blocks to the same MinIO that backs ClickHouse's `s3_cold`
+disk, in the `tempo-blocks` bucket. Both archetypes therefore sit on one object
+store, and the contrast section 7.3 draws is the unit of storage rather than the
+medium: a part of a column against an opaque Parquet block.
 
-Tempo's object store is the local filesystem in this stack and S3 or GCS in
-production. It expresses the cold boundary as `compactor.block_retention` rather
-than `TTL ... TO VOLUME`, which is the difference section 7.3 draws against the
-ClickHouse row store.
+It expresses the cold boundary as a block retention period rather than
+`TTL ... TO VOLUME`. Whole blocks expire; ClickHouse evaluates a TTL expression
+per part and moves before it deletes. Same two days, different unit of work.
+
+The config sits at a different path than a 2.x example would. Tempo 3.0's
+Project Rhythm re-architecture (section 7.4.4) removed the `ingester` and
+`compactor` sections outright: feeding 3.0 a 2.x config fails at startup with
+`field ingester not found in type app.Config`. Block building moved to
+`live_store` and retention to `backend_scheduler.provider.compaction.compaction`.
+
+Monolithic mode still needs no Kafka. The Kafka-backed ingest path 7.4.4
+describes is what microservices mode does, and this stack runs the single
+binary, so Tempo receives OTLP straight from the Collector's second exporter.
 
 ## Running the book's listings verbatim
 

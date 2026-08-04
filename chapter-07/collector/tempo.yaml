@@ -1,8 +1,14 @@
-# Grafana Tempo, minimal single-binary config for the block-archetype demo
-# (section 7.3). Tempo writes immutable Parquet-shaped blocks to a local object
-# store (filesystem here, S3/GCS in production), the contrast to ClickHouse's
-# row store. compactor.block_retention is Tempo's expression of the same cold
-# boundary that listing 7.2 expresses as `TTL ... TO VOLUME 'cold'`.
+# Grafana Tempo, monolithic config for the block archetype (section 7.3).
+#
+# Tempo writes immutable Parquet-shaped blocks to the same MinIO object store
+# that backs ClickHouse's s3_cold disk, so both archetypes in this stack land
+# in object storage and the contrast is the layout, not the medium: a wide
+# column store you scan with SQL against opaque blocks you look up by id.
+#
+# Tempo 3.0 (Project Rhythm, section 7.4.4) removed the `ingester` and
+# `compactor` sections. Block building moved to `live_store` and retention to
+# `backend_scheduler`. Monolithic mode runs both in-process and needs no Kafka;
+# the Kafka-backed ingest path 7.4.4 describes is a microservices-mode option.
 stream_over_http_enabled: true
 
 server:
@@ -15,17 +21,28 @@ distributor:
         grpc:
           endpoint: 0.0.0.0:4317
 
-ingester:
-  max_block_duration: 5m
+live_store:
+  # Was ingester.max_block_duration before 3.0. Deliberately short so a block
+  # is cut and flushed to the bucket while you are still watching.
+  max_block_duration: 30s
 
-compactor:
-  compaction:
-    block_retention: 48h   # the cold boundary, parallel to listing 7.2's 2-day TTL
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        # Tempo's cold boundary: whole blocks expire. Listing 7.2 expresses the
+        # same boundary as a per-part TTL. Same two days, different unit of work.
+        block_retention: 48h
 
 storage:
   trace:
-    backend: local         # local filesystem stands in for S3/GCS in the demo
+    backend: s3
     wal:
       path: /var/tempo/wal
-    local:
-      path: /var/tempo/blocks
+    s3:
+      endpoint: minio:9000
+      bucket: tempo-blocks
+      access_key: traceadmin
+      secret_key: traceadmin-secret
+      insecure: true          # plain HTTP inside the compose network
+      forcepathstyle: true    # MinIO serves path-style, not virtual-host-style

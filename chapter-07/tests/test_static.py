@@ -56,6 +56,45 @@ def test_gateway_partitions_by_trace_id():
     assert kafka["traces"]["topic"] == "otlp_spans"
 
 
+def test_gateway_fans_out_to_both_archetypes():
+    """Section 7.3 claims one span stream reaches both stores. An exporter that
+    is defined but left out of the pipeline reaches nothing and says nothing,
+    so assert the pipeline list, not just the exporter block."""
+    cfg = yaml.safe_load(_read("collector/gateway-config.yaml"))
+    exporters = cfg["service"]["pipelines"]["traces"]["exporters"]
+    assert "kafka" in exporters, "row archetype (Kafka -> ClickHouse) not wired"
+    assert "otlp/tempo" in exporters, "block archetype (Tempo) not wired"
+    assert cfg["exporters"]["otlp/tempo"]["endpoint"] == "tempo:4317"
+
+
+def test_tempo_writes_blocks_to_the_same_minio():
+    """'Both writing to the same object storage' is only true if Tempo's backend
+    is the MinIO service, not a container filesystem."""
+    cfg = yaml.safe_load(_read("collector/tempo.yaml"))
+    trace = cfg["storage"]["trace"]
+    assert trace["backend"] == "s3", "Tempo is not on object storage"
+    assert trace["s3"]["endpoint"] == "minio:9000"
+    assert trace["s3"]["bucket"] == "tempo-blocks"
+
+
+def test_tempo_service_is_on_by_default_and_bucket_exists():
+    """Tempo behind a profile is off by default, which makes the fan-out a lie.
+    And its bucket has to be created or Tempo fails to start."""
+    doc = yaml.safe_load(_read("docker-compose.yml"))
+    tempo = doc["services"]["tempo"]
+    assert "profiles" not in tempo, "Tempo behind a profile is off by default"
+    assert _read("docker-compose.yml").count("local/tempo-blocks") == 1, \
+        "minio-init does not create the tempo-blocks bucket"
+
+
+def test_tempo_config_has_no_pre_3_0_sections():
+    """Tempo 3.0 removed these outright; leaving them in fails at startup with
+    'field ingester not found in type app.Config'."""
+    cfg = yaml.safe_load(_read("collector/tempo.yaml"))
+    for gone in ("ingester", "compactor"):
+        assert gone not in cfg, f"'{gone}' was removed in Tempo 3.0"
+
+
 def test_listing_7_1_schema_exact():
     sql = _read("clickhouse/init.sql")
     # exact column + codec lines from listing 7.1
