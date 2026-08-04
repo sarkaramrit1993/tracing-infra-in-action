@@ -22,14 +22,11 @@ Two scratch tables in the `tracing` database:
 - `compress_plain` holds the same nine columns as plain types with no `CODEC`
   clause at all, so ClickHouse falls back to its default LZ4.
 
-Scratch tables rather than `otel_traces`, for two reasons. A demo that has been
-up for an hour holds a few hundred rows, which ClickHouse keeps in a Compact
-part, and a Compact part accounts for every column together. Run listing 7.3
-against it and `system.columns` reports `0.00 B` and `nan` down the whole
-result. The second reason is the clock: these tables need a fixed timestamp so
-two runs report the same bytes, and a fixed past timestamp cannot live in
-`otel_traces` once listing 7.2's TTL is on it. `benchmarks/compression_ratio.py`
-makes the same two choices for the same reasons.
+Scratch tables rather than `otel_traces`, for two reasons. A live demo table is
+too small for listing 7.3's per-column accounting to report anything, and these
+tables need a fixed past timestamp that listing 7.2's TTL will not let into
+`otel_traces`. [NOTES.md](../NOTES.md), "Why the compression exercise builds its
+own tables", has both in full.
 
 Build them:
 
