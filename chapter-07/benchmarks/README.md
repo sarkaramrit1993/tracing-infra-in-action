@@ -76,7 +76,8 @@ space by the TTL rules at insert time, so listing 7.2 writes already-aged rows
 straight onto the S3 cold disk, and its fifteen-day rule drops them on the first
 merge. The fixture therefore carries listing 7.1's columns, codecs, sort key,
 partitioning and skip index with no TTL and no storage policy, and it is dropped
-on exit. To run listing 7.3 against the live table instead, apply
+on exit. To run listing 7.3 against the live table instead, and get `0.00 B` and
+`nan` for your trouble until that table holds roughly 10 MiB, apply
 `clickhouse/compression.sql` by hand.
 
 Every column in the fixture is written by the generator, `adjusted_count`
