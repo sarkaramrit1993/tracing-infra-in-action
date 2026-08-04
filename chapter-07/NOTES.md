@@ -65,11 +65,13 @@ membership question without scanning the random `trace_id` column.
 `clickhouse/compression.sql` at the live table instead.
 
 The first is Compact parts. Per-column byte accounting only exists for parts in
-Wide format. `min_bytes_for_wide_part` defaults to 10 MiB and a fresh demo writes
-well under one, so every part is Compact, `system.columns` has nothing to report,
-and listing 7.3 comes back `0.00 B` and `nan` down every row. The exercise loads
-200,000 rows, which crosses that boundary. `benchmarks/compression_ratio.py`
-loads more and fails loudly rather than publishing a table of `nan`.
+Wide format. `min_bytes_for_wide_part` defaults to 10 MiB and a demo that has
+been up for an hour holds a few hundred rows, well under one MiB, so every part
+is Compact, a Compact part accounts for all its columns together,
+`system.columns` has nothing to report, and listing 7.3 comes back `0.00 B` and
+`nan` down every row. The exercise loads 200,000 rows, which crosses that
+boundary. `benchmarks/compression_ratio.py` loads more and fails loudly rather
+than publishing a table of `nan`.
 
 The second is the clock. Byte counts only repeat between runs if the generated
 timestamps are fixed: a moving anchor shifts the Delta codec's base value, a run
