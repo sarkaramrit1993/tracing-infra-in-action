@@ -97,6 +97,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      # service_started, not service_healthy, because the Tempo image cannot
+      # host a healthcheck. See the note on the tempo service below.
       tempo:
         condition: service_started
 
@@ -230,6 +232,15 @@ services:
   # The second leg of the Collector's fan-out. Same spans as ClickHouse gets,
   # stored as immutable Parquet-shaped blocks in MinIO rather than as rows, so
   # the row-versus-block contrast is two live stores over one workload.
+  #
+  # No healthcheck, and not by preference. Tempo serves a readiness endpoint on
+  # 3200/ready, but a compose healthcheck runs INSIDE the container and the
+  # image ships one binary, /tempo, with no shell, no wget and no curl, so there
+  # is nothing in there that can call it. Every other service here has a
+  # healthcheck because its image has busybox or wget. What covers Tempo instead
+  # is step 4 of tests/test_stack.sh, which asks 3200 from the host for a trace
+  # the checkout service just produced. That is a stronger check than readiness:
+  # a Tempo that answers /ready but drops spans still fails it.
   tempo:
     image: grafana/tempo:3.0.2
     networks: [ch7]

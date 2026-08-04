@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Chapter 7 stack test. Asserts three things against the LIVE stack:
+# Chapter 7 stack test. Asserts four things against the LIVE stack:
 #   1. the listing 7.1 table exists,
 #   2. a trace round-trips (insert -> point lookup by trace_id),
-#   3. the row policy blocks cross-tenant reads (tenant_a cannot see tenant_b).
+#   3. the row policy blocks cross-tenant reads (tenant_a cannot see tenant_b),
+#   4. a span the checkout service really emitted comes back out of Tempo.
 #
 # Ordering matters and mirrors the README walkthrough: the admin round-trip in
 # step 2 runs BEFORE the listing 7.4 row policy, because that policy is TO ALL
 # and filters the default admin login to zero rows. Step 3 then applies the
 # policy and checks isolation as the tenant users. The script drops any existing
 # policy up front so it is safe to re-run from any prior state.
+#
+# Step 4 is split in two: the request that produces the span is fired right
+# after step 2, and the assertion runs last, so the batch timers between the app
+# and Tempo elapse while the tenancy checks are working rather than in a sleep.
 #
 # Prereq: `docker compose up -d` has settled.
 #
@@ -25,6 +30,40 @@ CH_FILE() { docker compose exec -T clickhouse clickhouse-client --multiquery < "
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
+# Step 4 talks to the two published HTTP ports rather than going through
+# `docker compose exec`, because that is what a reader does and what the
+# Collector's Tempo exporter is actually reachable on.
+TEMPO_URL="http://localhost:3200"
+CHECKOUT_URL="http://localhost:8080/checkout"
+
+# One checkout request, carrying a trace id this script chose. The W3C
+# traceparent header makes the id an input rather than something to go hunting
+# for afterwards, and the 01 flag marks the trace sampled so the SDK keeps it.
+emit_live_trace() {
+  curl -sf -o /dev/null -H "traceparent: 00-$1-1111222233334444-01" "$CHECKOUT_URL" \
+    || fail "checkout service did not answer on $CHECKOUT_URL"
+}
+
+# The span crosses two batch timers before Tempo can answer for it: the SDK's
+# (OTEL_BSP_SCHEDULE_DELAY, 5s) and the Collector's (batch timeout, 1s). Polling
+# waits those out instead of racing them, and gives up loudly instead of hanging.
+# A 404 means Tempo has no such trace, which is what a broken fan-out looks like.
+wait_for_tempo_trace() {
+  local tid="$1" deadline=$((SECONDS + 90)) code="" body=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    body=$(curl -s -w '\n%{http_code}' "$TEMPO_URL/api/traces/$tid" || true)
+    code="${body##*$'\n'}"
+    if [ "$code" = "200" ] \
+       && printf '%s' "$body" | grep -q '"stringValue":"checkout-service"' \
+       && printf '%s' "$body" | grep -q '"name":"validate_cart"'; then
+      return 0
+    fi
+    sleep 3
+  done
+  echo "last answer from $TEMPO_URL/api/traces/$tid was HTTP ${code:-none}" >&2
+  fail "no checkout span for trace $tid reached Tempo in 90s (fan-out to Tempo is broken)"
+}
+
 echo "== 1. table exists =="
 EXISTS=$(CH --query "EXISTS TABLE tracing.otel_traces")
 [ "$EXISTS" = "1" ] || fail "tracing.otel_traces does not exist"
@@ -34,13 +73,22 @@ echo "== reset: drop the row policy so the admin round-trip sees its own write =
 CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
 
 echo "== 2. trace round-trips (insert + point lookup by trace_id) =="
-TID="ffff0000ffff0000ffff0000ffff0000"
+# One id per run, used twice: once for the synthetic row below, once for the
+# live checkout request that step 4 chases into Tempo. It has to be fresh each
+# run. Both stores keep what they are given, so a fixed id would let a second
+# run find the first run's trace in Tempo and pass with the fan-out already
+# dead, and would let the leftover live spans confuse the lookup below.
+TID=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
 CH --query "INSERT INTO tracing.otel_traces \
   (timestamp, trace_id, span_id, service_name, span_name, status_code, duration_ns, attributes) \
   VALUES (now64(9), '$TID', 'ffff1111', 'checkout-service', 'validate_cart', 'STATUS_CODE_OK', 21000000, {'k':'v'})"
 GOT=$(CH --query "SELECT span_name FROM tracing.otel_traces WHERE trace_id = '$TID' LIMIT 1")
 [ "$GOT" = "validate_cart" ] || fail "point lookup by trace_id returned '$GOT'"
 pass "trace round-trip: inserted and read back by trace_id"
+
+echo "== fire one live trace, asserted against Tempo in step 4 =="
+emit_live_trace "$TID"
+echo "sent trace $TID into checkout -> collector -> tempo"
 
 echo "== apply tenancy.sql (row policy + tenant users) =="
 CH_FILE clickhouse/tenancy.sql
@@ -71,6 +119,13 @@ CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
 CH --query "DROP USER IF EXISTS tenant_a, tenant_b"
 CH --query "ALTER TABLE tracing.otel_traces DROP COLUMN IF EXISTS tenant_id"
 echo "dropped the policy, the tenant users and the tenant_id column"
+
+echo "== 4. a real span reaches Tempo (the Collector's other export) =="
+# ClickHouse got this trace over Kafka. Tempo got the same spans over the other
+# leg of the Collector's fan-out. Asking Tempo for the id is the only check in
+# this repo that proves that leg carries spans; the rest read the config.
+wait_for_tempo_trace "$TID"
+pass "trace $TID read back from Tempo by id (section 7.3 block archetype)"
 
 echo
 echo "ALL TESTS PASSED"
