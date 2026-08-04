@@ -118,6 +118,13 @@ explicit move that does not need the part to be TTL-eligible, so the boundary
 change was never doing any work. Dropping it removes the race and leaves listing
 7.2's real rule on the table, which is one less thing to put back.
 
+An insert picks its destination from the move TTL at write time. Rows already
+past the boundary are written straight to the cold disk and no part is ever
+relocated afterwards, because nothing has to be. So backfilling a month of
+history into a tiered table writes a month of history to object storage, at
+object-storage write rates, whether or not you expected that. It is also why the
+compression exercise keeps its fixed past timestamps out of `otel_traces`.
+
 Counting the objects behind the move is scoped to the parts that are live right
 now for a reason. ClickHouse deletes a replaced part's blobs lazily,
 `old_parts_lifetime` after the replacement, which is eight minutes by default. A
