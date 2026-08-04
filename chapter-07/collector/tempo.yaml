@@ -5,10 +5,20 @@
 # in object storage and the contrast is the layout, not the medium: a wide
 # column store you scan with SQL against opaque blocks you look up by id.
 #
+# SUPPORTED VERSION: Tempo 2.9 or newer. The stack pins 3.0.2 and every number
+# in RESULTS.md and the exercises came off that. 2.9.4 also runs this file: it
+# parses, starts, ingests from the Collector and answers /api/traces. Anything
+# at 2.8 or older refuses to start, with
+#   failed parsing config: ... field live_store not found in type app.Config
+# and the fix is to upgrade, not to edit this file back.
+#
 # Tempo 3.0 (Project Rhythm, section 7.4.4) removed the `ingester` and
 # `compactor` sections. Block building moved to `live_store` and retention to
-# `backend_scheduler`. Monolithic mode runs both in-process and needs no Kafka;
-# the Kafka-backed ingest path 7.4.4 describes is a microservices-mode option.
+# `backend_scheduler`, and 2.9 already accepted both of those, which is why the
+# floor is 2.9 rather than 3.0. Going the other way is a hard break: a config
+# still spelling `ingester` fails on 3.0 with the same shape of error.
+# Monolithic mode runs both in-process and needs no Kafka; the Kafka-backed
+# ingest path 7.4.4 describes is a microservices-mode option.
 stream_over_http_enabled: true
 
 server:
