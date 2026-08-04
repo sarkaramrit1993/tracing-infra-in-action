@@ -100,15 +100,6 @@ ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "
 there waiting for input. `ch_file` is the only one that feeds stdin, and it
 feeds it a file. See [NOTES.md](NOTES.md).
 
-If you have already worked through `exercises/tenancy.md`, drop its row policy
-before reading anything here. That policy is `TO ALL`, so it applies to the
-`default` admin too, and every query below would come back empty with nothing to
-say why. The exercise drops it when it finishes, but not if you stopped part way:
-
-```bash
-ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-```
-
 First, the table the whole chapter is about:
 
 ```bash
@@ -198,7 +189,7 @@ without scanning the random `trace_id` column:
 TID=$(ch --query "
 SELECT trace_id FROM tracing.otel_traces
 WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
-echo "trace_id=${TID:-(none found: either the first traces have not landed yet, or a row policy is still filtering you, see above)}"
+echo "trace_id=${TID:-(none found: the first traces have not landed yet, give the batch exporter another few seconds)}"
 ch --query "
 SELECT service_name, span_name, round(duration_ns / 1e6, 1) AS ms
 FROM tracing.otel_traces WHERE trace_id = '$TID'"
@@ -310,7 +301,8 @@ python3 tests/test_static.py
 ```
 
 Live (stack must be up): table exists, a trace round-trips, and the row policy
-blocks cross-tenant reads.
+blocks cross-tenant reads while leaving the operator login able to read the
+whole table.
 
 ```bash
 bash tests/test_stack.sh
@@ -323,8 +315,8 @@ row policy gates reads but not writes, so an ingest path must validate tenant_id
 bash tests/test_tenancy.sh
 ```
 
-Both live scripts drop the row policy on the way in and on the way out, so they
-run in either order and leave the admin login unfiltered.
+Either order works. Listing 7.4 exempts the operator login from its own policy,
+so neither script has to clear the other's way.
 
 ## Storage benchmarks
 
@@ -345,14 +337,8 @@ python3 tenant_cardinality_blowup.py
 Three of them build and drop their own scratch copy of the listing 7.1 schema,
 and `tiering_automation.py` owns its rows in `otel_traces` by service name and
 restores the TTL in a `finally`, so all four give the same answer whatever ran
-before them. If a tenancy run was interrupted and left the row policy behind, the
-benchmarks will read an empty table. Drop it, in full here since you may not have
-the `ch` helper defined in this shell:
-
-```bash
-docker compose exec -T clickhouse clickhouse-client \
-  --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces" < /dev/null
-```
+before them, including a tenancy run that stopped part way and left the row
+policy behind.
 
 ## Tear down
 

@@ -16,24 +16,14 @@ that holds billions of spans should not mean touching billions of rows. Listing
 
 ## The starting state
 
-Three things to set up.
+Two things to set up.
 
 ```bash
 ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-First, no row policy. The tenancy exercise builds a `TO ALL` policy that filters
-the `default` admin to zero rows, and it drops it again when it finishes. If that
-run was interrupted the policy is still there, and everything below would read an
-empty table and move a partition it cannot name.
-
-```bash
-ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-ch --query "DROP ROW POLICY IF EXISTS audit_read ON tracing.otel_traces"
-```
-
-Second, listing 7.2's rule has to be on the table. `init.sql` only ships the
+First, listing 7.2's rule has to be on the table. `init.sql` only ships the
 fifteen-day delete, so applying `tiering.sql` is what adds the two-day move.
 
 ```bash
@@ -46,7 +36,7 @@ FORMAT Vertical" | grep -i ttl
 
 You should see `toIntervalDay(2) TO VOLUME 'cold'` and `toIntervalDay(15)`.
 
-Third, this exercise needs rows of its own. It owns everything under
+Second, this exercise needs rows of its own. It owns everything under
 `service_name = 'tiering-demo'`, which is how it finds and removes its own data
 without going near the spans the collector wrote. Clear anything a previous run
 left:

@@ -149,27 +149,55 @@ it is the Cassandra-tombstone contrast from the chapter opener. It also does not
 depend on which disk held the part, so dropping a partition that has already
 moved to S3 costs the same as dropping one that never left.
 
-## Why the row policy has to be dropped again
+## Why the exempt list names `default`
 
-[exercises/tenancy.md](exercises/tenancy.md) ends by dropping what it created,
-and that is not tidiness.
+Listing 7.4 ends `TO ALL EXCEPT admin, ingest`, and annotation #D says why: a
+bare `TO ALL` would include your operators and your ingest user, who would then
+read an empty table. Their logins are not tenant ids, so the predicate matches
+nothing for them.
 
-The listing 7.4 policy is `TO ALL`, so it applies to the `default` admin login
-too. That username is not a tenant_id, so once the policy exists the admin sees
-zero rows. Leave it in place and every count, every benchmark and both other
-exercises read an empty table, with nothing in the output to say why. The
-exercise drops the policy at the end for that reason, and drops it again at the
-start so it works from whatever state you were in.
+`clickhouse/tenancy.sql` writes `TO ALL EXCEPT default` instead. This stack has
+exactly one privileged login and it is both the operator and the writer. Roles
+named `admin` and `ingest` cannot stand in for the book's names either: the
+`default` user is declared in `users.d/z-allow-network.xml`, and granting a role
+to a user held in XML storage fails with `ACCESS_STORAGE_READONLY` (verified on
+25.8). Swap `default` for your own operator and writer logins and the line is
+the book's.
 
-That behaviour is not a wart, it is section 7.5.2's point: the policy gates every
-read, admin included. It works by rewriting `tenant_id = currentUser()` onto
-every SELECT, so a tenant cannot read another tenant's spans even by asking for
-them directly.
+The exemption is the reason nothing else here has to work around the policy. The
+walkthrough, the benchmarks and the other two exercises all connect as `default`
+and read the whole table whether or not the policy is in place. Both live test
+scripts still drop what they created at the end, but that is hygiene now: the
+tenant logins are passwordless and hold SELECT, and dropping the `tenant_id`
+column puts the table back to listing 7.1's nine.
 
-Reads are all it gates. The policy does **not** gate `INSERT` or `DROP PARTITION`,
-so a real ingest path has to validate `tenant_id` against the authenticated
-principal itself. `tests/test_tenancy.sh` proves that gap, and both live test
-scripts drop the policy on the way in and the way out for the same reason.
+## Why tenants can read the tenant map
+
+The listing 7.4 predicate is a subquery: `tenant_id IN (SELECT tenant_id FROM
+tenant_users WHERE user_name = currentUser())`. ClickHouse evaluates a row
+policy expression with the querying user's own grants, so a login that cannot
+read `tenant_users` cannot run any SELECT against `otel_traces` at all. It gets
+`Not enough privileges ... SELECT(tenant_id, user_name) ON tracing.tenant_users`
+rather than an empty result.
+
+`tenancy.sql` therefore grants the two tenant logins SELECT on the map, which
+means each of them can read the whole map and learn the other's name. That is a
+demo compromise, not the shape to copy. Production keeps the map out of the
+tenants' reach: a dictionary they query through `dictGet`, or a separate
+database they hold no grant on.
+
+The indirection is still the point. The map is what makes annotation #C true:
+`acme_reader` is a login and `tenant_a` is a customer, and admitting a second
+person at Acme is an INSERT into `tenant_users` rather than a new tenant id or
+an edit to the policy.
+
+## What the row policy does not gate
+
+Reads are all of it. The policy rewrites SELECT. It does **not** gate `INSERT`,
+`ALTER ... DELETE` or `DROP PARTITION`, so a real ingest path has to validate
+`tenant_id` against the authenticated principal itself and never trust the value
+that arrived on the wire. `tests/test_tenancy.sh` proves that gap by writing a
+mislabeled row as a trusted writer and reading it back as the wrong tenant.
 
 ## Tempo's cold boundary, and why the config looks different from the book's
 
@@ -217,7 +245,11 @@ behaves unexpectedly, these are why:
    column and applies the row policy (the isolation boundary) without running the
    ALTER ClickHouse rejects. The sort-key prefix is a read-locality optimization,
    not the security mechanism.
-4. **Listing 7.4's `currentUser()`** returns the connected SQL username, which is
-   why the demo names its two users `tenant_a` / `tenant_b`. A real deployment
-   maps an authenticated principal to a tenant claim rather than naming the SQL
-   user after the tenant; the row-policy mechanics are identical.
+4. **Listing 7.4's `TO ALL EXCEPT admin, ingest`** names an operator and a
+   writer this stack does not have separately. `tenancy.sql` exempts `default`,
+   which is both, because ClickHouse will not grant a role to a user declared in
+   XML. See "Why the exempt list names `default`" above.
+5. **Listing 7.4's `tenant_users`** has to exist and has to be readable by the
+   tenant logins, because the policy predicate runs with the querying user's
+   grants. `tenancy.sql` creates it, seeds it and grants it. See "Why tenants
+   can read the tenant map" above.

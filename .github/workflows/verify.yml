@@ -153,10 +153,9 @@ jobs:
         working-directory: ${{ matrix.chapter }}
         run: bash tests/test_stack.sh
 
-      # Chapter 7 is the only chapter with a second live script. It has to run
-      # after test_stack.sh, not before: it leaves the listing 7.4 row policy in
-      # place while it works, and that policy is TO ALL, so it would filter the
-      # admin login every other assertion depends on.
+      # Chapter 7 is the only chapter with a second live script. Either order
+      # works: listing 7.4 exempts the operator login from its own policy, so
+      # neither script leaves the other reading an empty table.
       - name: Run the tenancy test
         if: matrix.chapter == 'chapter-07'
         working-directory: ${{ matrix.chapter }}
