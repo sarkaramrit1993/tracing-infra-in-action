@@ -53,75 +53,13 @@ it when something surprises you.
   Settings, Resources, not free host RAM
 - A POSIX shell with `curl`. On Windows, run the exercises inside WSL2
 - Python 3 on the host, for `tests/test_static.py` and the four
-  `benchmarks/*.py` scripts. CI verifies on 3.12
+  `benchmarks/*.py` scripts. CI verifies on 3.12.
+  [`setup/README.md`](../setup/README.md) has the virtualenv step, including the
+  extra package Debian and Ubuntu need and the different activate path on
+  Windows
 
-The stack binds host ports 3200, 4317, 4318, 4417, 8080, 8123, 8888, 9000,
-9001, 9002, 9090 and 9363. Tear down any
-other chapter's stack first. [`setup/README.md`](../setup/README.md) has the
-virtualenv step, including the extra package Debian and Ubuntu need and the
-different activate path on Windows.
-
-## Version manifest (one tag per image, N1)
-
-| Component | Version | Role |
-|---|---|---|
-| ClickHouse | `clickhouse/clickhouse-server:25.8` (LTS) | primary trace store (listing 7.1) |
-| OTel Collector contrib | `otel/opentelemetry-collector-contrib:0.154.0` | OTLP in, partition-by-trace-id, Kafka out |
-| Apache Kafka | `apache/kafka:4.3.0` (KRaft) | replayable span buffer feeding the store |
-| Prometheus | `prom/prometheus:v3.12.0` | collector + ClickHouse metrics |
-| Grafana Tempo | `grafana/tempo:3.0.2` | block archetype for the section 7.3 contrast, fed by the Collector, blocks in MinIO |
-| MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | S3-compatible object store behind the cold tier |
-| MinIO client | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | one-shot bucket bootstrap (`traces-cold`) |
-| Python | `python:3.12-slim` + OTel SDK 1.42.1 | checkout producer + consumer |
-
-These match `chapter-05/` (Collector >= 0.151.0).
-
-## File tree
-
-```
-chapter-07/
-├── docker-compose.yml          # ClickHouse + Collector + Kafka + consumer + Tempo
-├── prometheus.yml
-├── README.md
-├── NOTES.md                    # why everything here works the way it does
-├── RESULTS.md                  # the measured numbers, rendered from benchmarks/results/
-├── exercises/
-│   ├── compression.md          # what listing 7.1's column types are worth
-│   ├── tiering.md              # where a part goes when it gets old (listing 7.2)
-│   └── tenancy.md              # what a row policy stops, and what it does not (listing 7.4)
-├── app/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── checkout.py             # same producer as chapter-05/
-│   └── consumer_clickhouse.py  # OTLP -> listing 7.1 columns -> ClickHouse
-├── collector/
-│   ├── gateway-config.yaml     # OTLP in, partition_traces_by_id, Kafka out
-│   └── tempo.yaml              # block-archetype backend, blocks to MinIO
-├── clickhouse/
-│   ├── init.sql                # listing 7.1 + adjusted_count column (auto-applied on first boot)
-│   ├── tiering.sql             # listing 7.2 (applied by exercises/tiering.md)
-│   ├── compression.sql         # listing 7.3 (per-column compression query)
-│   ├── tenancy.sql             # listing 7.4 (applied by exercises/tenancy.md)
-│   ├── config.d/
-│   │   ├── storage.xml         # 'tiered' policy + S3-backed 'cold' volume (MinIO) for listing 7.2
-│   │   ├── network.xml
-│   │   └── prometheus.xml
-│   └── users.d/
-│       └── z-allow-network.xml
-├── benchmarks/
-│   ├── README.md               # how to run the four storage benchmarks
-│   ├── chclient.py             # shared ClickHouse client (native driver or HTTP)
-│   ├── compression_ratio.py    # per-column compression for the listing 7.1 schema
-│   ├── bloom_index_pruning.py  # EXPLAIN granule pruning by the bloom skip index
-│   ├── tiering_automation.py   # TTL move to the S3 cold tier, hot vs cold read cost
-│   ├── tenant_cardinality_blowup.py  # noisy-tenant attribute cardinality (section 7.5.2)
-│   └── results/                # measured JSON from real runs
-└── tests/
-    ├── requirements.txt        # PyYAML, the only install test_static.py needs
-    ├── test_static.py          # offline: YAML/SQL/XML well-formedness, version pins
-    ├── test_stack.sh           # live: table exists, round-trip, row-policy isolation
-    └── test_tenancy.sh         # live: the section 7.5.2 ingest-gap trap (adversarial)
-```
+Tear down any other chapter's stack first. This stack binds eleven host ports,
+listed under [Reference](#reference) at the bottom of this file.
 
 ## Bring it up
 
@@ -294,6 +232,11 @@ If you only do one, do tenancy. It is the one with a trap in it.
 Tempo comes up with the rest of the stack. The Collector's traces pipeline has
 two exporters, Kafka and Tempo, so the same spans reach both stores.
 
+`collector/tempo.yaml` needs Tempo 2.9 or newer. The stack pins 3.0.2 and that
+is what everything below was run against; 2.9.4 also works with this file. On
+2.8 or older Tempo refuses to start, because the `live_store` section did not
+exist yet, and the fix is to upgrade rather than to edit the config back.
+
 Take a trace id from ClickHouse and ask both stores about it. The row store
 answers by scanning columns; the block store answers by looking the id up in a
 block:
@@ -426,3 +369,74 @@ The book's listings are kept terse. A few need a server-side prerequisite or a
 specific run order that this code supplies. If you run one verbatim and it
 behaves unexpectedly, see "Running the book's listings verbatim" in
 [NOTES.md](NOTES.md).
+
+## Reference
+
+Nothing below is needed to run anything above it.
+
+### Ports
+
+The stack binds host ports 3200, 4317, 4318, 4417, 8080, 8123, 8888, 9000,
+9001, 9002, 9090 and 9363.
+
+### Version manifest (one tag per image, N1)
+
+| Component | Version | Role |
+|---|---|---|
+| ClickHouse | `clickhouse/clickhouse-server:25.8` (LTS) | primary trace store (listing 7.1) |
+| OTel Collector contrib | `otel/opentelemetry-collector-contrib:0.154.0` | OTLP in, partition-by-trace-id, Kafka out |
+| Apache Kafka | `apache/kafka:4.3.0` (KRaft) | replayable span buffer feeding the store |
+| Prometheus | `prom/prometheus:v3.12.0` | collector + ClickHouse metrics |
+| Grafana Tempo | `grafana/tempo:3.0.2` | block archetype for the section 7.3 contrast, fed by the Collector, blocks in MinIO |
+| MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | S3-compatible object store behind the cold tier |
+| MinIO client | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | one-shot bucket bootstrap (`traces-cold`) |
+| Python | `python:3.12-slim` + OTel SDK 1.42.1 | checkout producer + consumer |
+
+These match `chapter-05/` (Collector >= 0.151.0).
+
+### File tree
+
+```
+chapter-07/
+├── docker-compose.yml          # ClickHouse + Collector + Kafka + consumer + Tempo
+├── prometheus.yml
+├── README.md
+├── NOTES.md                    # why everything here works the way it does
+├── RESULTS.md                  # the measured numbers, rendered from benchmarks/results/
+├── exercises/
+│   ├── compression.md          # what listing 7.1's column types are worth
+│   ├── tiering.md              # where a part goes when it gets old (listing 7.2)
+│   └── tenancy.md              # what a row policy stops, and what it does not (listing 7.4)
+├── app/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── checkout.py             # same producer as chapter-05/
+│   └── consumer_clickhouse.py  # OTLP -> listing 7.1 columns -> ClickHouse
+├── collector/
+│   ├── gateway-config.yaml     # OTLP in, partition_traces_by_id, Kafka out
+│   └── tempo.yaml              # block-archetype backend, blocks to MinIO
+├── clickhouse/
+│   ├── init.sql                # listing 7.1 + adjusted_count column (auto-applied on first boot)
+│   ├── tiering.sql             # listing 7.2 (applied by exercises/tiering.md)
+│   ├── compression.sql         # listing 7.3 (per-column compression query)
+│   ├── tenancy.sql             # listing 7.4 (applied by exercises/tenancy.md)
+│   ├── config.d/
+│   │   ├── storage.xml         # 'tiered' policy + S3-backed 'cold' volume (MinIO) for listing 7.2
+│   │   ├── network.xml
+│   │   └── prometheus.xml
+│   └── users.d/
+│       └── z-allow-network.xml
+├── benchmarks/
+│   ├── README.md               # how to run the four storage benchmarks
+│   ├── chclient.py             # shared ClickHouse client (native driver or HTTP)
+│   ├── compression_ratio.py    # per-column compression for the listing 7.1 schema
+│   ├── bloom_index_pruning.py  # EXPLAIN granule pruning by the bloom skip index
+│   ├── tiering_automation.py   # TTL move to the S3 cold tier, hot vs cold read cost
+│   ├── tenant_cardinality_blowup.py  # noisy-tenant attribute cardinality (section 7.5.2)
+│   └── results/                # measured JSON from real runs
+└── tests/
+    ├── requirements.txt        # PyYAML, the only install test_static.py needs
+    ├── test_static.py          # offline: YAML/SQL/XML well-formedness, version pins
+    ├── test_stack.sh           # live: table exists, round-trip, row-policy isolation
+    └── test_tenancy.sh         # live: the section 7.5.2 ingest-gap trap (adversarial)
+```
