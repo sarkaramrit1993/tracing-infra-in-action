@@ -118,6 +118,13 @@ explicit move that does not need the part to be TTL-eligible, so the boundary
 change was never doing any work. Dropping it removes the race and leaves listing
 7.2's real rule on the table, which is one less thing to put back.
 
+When the rule does the moving, rather than a hand-written `MOVE PARTITION`, the
+wait before `disk_name` changes is the scheduler and not the storage. The
+move-selecting task sleeps five seconds while it has work and backs off toward
+sixty once the server has been quiet, so the same ALTER can land in eleven
+seconds or take the better part of a minute. `tiering_automation.py` waits up to
+three minutes for that reason, and publishes no number measured from it.
+
 An insert picks its destination from the move TTL at write time. Rows already
 past the boundary are written straight to the cold disk and no part is ever
 relocated afterwards, because nothing has to be. So backfilling a month of
