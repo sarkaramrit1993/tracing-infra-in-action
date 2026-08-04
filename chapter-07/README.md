@@ -15,16 +15,18 @@ checkout -> otel-collector (partition_traces_by_id) -> kafka(otlp_spans)
          -> consumer-clickhouse -> ClickHouse otel_traces  (listing 7.1)
 ```
 
-ClickHouse is the primary backend. Grafana Tempo is included behind a `block`
-profile as the section 7.3 block archetype to read against it. It stays off by
-default, it receives no traces in this stack, and its own storage here is a
-container filesystem rather than MinIO. The section near the end says what it is
-for and what it is not.
+ClickHouse is the primary backend, and the Collector fans the same span stream
+to a second one: Grafana Tempo, the block archetype of section 7.3. Both run by
+default, so every trace the checkout service produces is stored twice, once as
+rows you scan with SQL and once as an immutable block you look up by id. The
+section near the end shows the same trace answered both ways.
 
-The cold tier is real object storage. A MinIO service stands in for AWS S3, GCS,
-or Azure Blob, and ClickHouse's `s3_cold` disk (in `clickhouse/config.d/storage.xml`)
-writes aged parts to it as S3 objects. Listing 7.2's `TO VOLUME 'cold'` moves data
-onto that disk, which you can watch and verify against the bucket.
+Both archetypes write to the same object storage. A MinIO service stands in for
+AWS S3, GCS, or Azure Blob. ClickHouse's `s3_cold` disk (in
+`clickhouse/config.d/storage.xml`) writes aged parts to the `traces-cold` bucket
+as S3 objects, and Tempo writes its Parquet blocks to `tempo-blocks` in the same
+MinIO. Listing 7.2's `TO VOLUME 'cold'` moves data onto that disk, which you can
+watch and verify against the bucket.
 
 Bring the stack up, look at some traces, then pick whichever of the three
 exercises in `exercises/` you feel like. They are independent on purpose.
@@ -53,8 +55,8 @@ it when something surprises you.
 - Python 3 on the host, for `tests/test_static.py` and the four
   `benchmarks/*.py` scripts. CI verifies on 3.12
 
-The stack binds host ports 8080, 4317, 4318, 8123, 8888, 9000, 9001, 9002,
-9090 and 9363, plus 3200 and 4417 if you start Tempo. Tear down any
+The stack binds host ports 3200, 4317, 4318, 4417, 8080, 8123, 8888, 9000,
+9001, 9002, 9090 and 9363. Tear down any
 other chapter's stack first. [`setup/README.md`](../setup/README.md) has the
 virtualenv step, including the extra package Debian and Ubuntu need and the
 different activate path on Windows.
@@ -67,7 +69,7 @@ different activate path on Windows.
 | OTel Collector contrib | `otel/opentelemetry-collector-contrib:0.154.0` | OTLP in, partition-by-trace-id, Kafka out |
 | Apache Kafka | `apache/kafka:4.3.0` (KRaft) | replayable span buffer feeding the store |
 | Prometheus | `prom/prometheus:v3.12.0` | collector + ClickHouse metrics |
-| Grafana Tempo | `grafana/tempo:2.9.0` (`block` profile) | block archetype for the section 7.3 contrast, config only, receives no traces |
+| Grafana Tempo | `grafana/tempo:3.0.2` | block archetype for the section 7.3 contrast, fed by the Collector, blocks in MinIO |
 | MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | S3-compatible object store behind the cold tier |
 | MinIO client | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | one-shot bucket bootstrap (`traces-cold`) |
 | Python | `python:3.12-slim` + OTel SDK 1.42.1 | checkout producer + consumer |
@@ -78,7 +80,7 @@ These match `chapter-05/` (Collector >= 0.151.0).
 
 ```
 chapter-07/
-├── docker-compose.yml          # ClickHouse + Collector + Kafka + consumer (+Tempo profile)
+├── docker-compose.yml          # ClickHouse + Collector + Kafka + consumer + Tempo
 ├── prometheus.yml
 ├── README.md
 ├── NOTES.md                    # why everything here works the way it does
@@ -94,7 +96,7 @@ chapter-07/
 │   └── consumer_clickhouse.py  # OTLP -> listing 7.1 columns -> ClickHouse
 ├── collector/
 │   ├── gateway-config.yaml     # OTLP in, partition_traces_by_id, Kafka out
-│   └── tempo.yaml              # block-archetype backend (block profile)
+│   └── tempo.yaml              # block-archetype backend, blocks to MinIO
 ├── clickhouse/
 │   ├── init.sql                # listing 7.1 + adjusted_count column (auto-applied on first boot)
 │   ├── tiering.sql             # listing 7.2 (applied by exercises/tiering.md)
@@ -287,36 +289,67 @@ your time.
 
 If you only do one, do tenancy. It is the one with a trap in it.
 
-## Optional: the block archetype (Grafana Tempo)
+## The block archetype (Grafana Tempo)
+
+Tempo comes up with the rest of the stack. The Collector's traces pipeline has
+two exporters, Kafka and Tempo, so the same spans reach both stores.
+
+Take a trace id from ClickHouse and ask both stores about it. The row store
+answers by scanning columns; the block store answers by looking the id up in a
+block:
 
 ```bash
-docker compose --profile block up -d tempo
+TID=$(ch --query "
+  SELECT trace_id FROM tracing.otel_traces
+  WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
+
+ch --query "
+  SELECT service_name, span_name, round(duration_ns / 1e6, 1) AS ms
+  FROM tracing.otel_traces WHERE trace_id = '$TID' ORDER BY timestamp"
+
+curl -s "http://localhost:3200/api/traces/$TID" | python3 -m json.tool | head -40
 ```
 
-**It will hold no traces, and that is expected.** The Collector in this stack has
-one exporter, Kafka, so nothing is routed to Tempo. `/api/search` returns an
-empty list and `/var/tempo/blocks` stays empty. Tempo is here to be read, not
-queried.
+Seven spans either way, the same names and the same durations. One workload, one
+trace, two layouts.
 
-What it is for is the section 7.3 contrast, and that lives in the config rather
-than in any query. Tempo writes immutable Parquet-shaped blocks and expresses its
-cold boundary as a retention period on whole blocks:
+Now look at where the bytes went. Both stores write to the same MinIO:
 
 ```bash
-grep -A2 'compactor:' collector/tempo.yaml
+docker compose exec -T minio mc alias set demo http://localhost:9000 traceadmin traceadmin-secret
+docker compose exec -T minio mc ls demo
+docker compose exec -T minio mc ls --recursive demo/tempo-blocks | head
+```
+
+`traces-cold/` holds ClickHouse's aged parts. `tempo-blocks/` holds Tempo's
+blocks, each one a `data.parquet` plus an index and a `meta.json` under a block
+uuid. Same bucket store, same API, completely different unit of storage.
+
+The retention boundary differs the same way:
+
+```bash
+grep -B3 -A1 'block_retention' collector/tempo.yaml
 grep -B2 -A6 'TTL' clickhouse/tiering.sql
 ```
 
-One deletes blocks after a period. The other moves and then deletes rows by a TTL
-expression evaluated per part. That difference, not a screenshot of a UI, is the
-archetype contrast the section draws.
+Tempo expires whole blocks. Listing 7.2 moves and then deletes rows by a TTL
+expression evaluated per part. Same two days, different unit of work, and that
+difference is the archetype contrast the section draws.
 
-Two things this stack does not do, in case the names mislead you. Tempo's backend
-here is `backend: local` on a container filesystem, not the MinIO object store;
-MinIO backs ClickHouse's `s3_cold` disk instead. And there is no Grafana, so
-Tempo has no UI. Pointing the Collector at Tempo as a second exporter, and
-putting a Grafana in front of it, is a reasonable thing to go and do, but it is
-not wired up here.
+One thing this stack does not include: there is no Grafana, so Tempo has no UI.
+The HTTP API above is how you query it here.
+
+**Try this.** Search Tempo by service instead of by id, which is the query shape
+a block store is worst at, and watch it scan:
+
+```bash
+curl -s "http://localhost:3200/api/search?tags=service.name%3Dcheckout-service&limit=5" \
+  | python3 -m json.tool | head -30
+```
+
+Then ask ClickHouse the same question. The row store answers it with an indexed
+scan over one column; Tempo has to open blocks. That asymmetry, not the storage
+medium, is why section 7.3 says the two archetypes suit different questions.
 
 ---
 
@@ -380,17 +413,12 @@ docker compose exec -T clickhouse clickhouse-client \
 
 ## Tear down
 
-The `-v` flag drops the named volumes. Run the second line only if you started
-Tempo.
+The `-v` flag drops the named volumes, including Tempo's blocks and the MinIO
+bucket behind them.
 
 ```bash
 docker compose down -v
-docker compose --profile block down -v
 ```
-
-With Tempo running, the first line says `Network chapter-07_ch7 Resource is
-still in use` and exits 0. Tempo is still attached to it. The second line
-removes Tempo and the network together.
 
 ## Notes on running the book's listings
 

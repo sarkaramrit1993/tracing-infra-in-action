@@ -7,15 +7,16 @@
 # chapter 5's: one Kafka broker instead of three, no Flink, no Jaeger. The
 # Collector export contract (partition_traces_by_id + otlp_spans topic) is
 # identical to chapter-05/, so the same span stream lands in the listing 7.1
-# table. ClickHouse is the primary backend. Grafana Tempo is included behind the
-# `block` profile to demonstrate the object-storage block archetype from
-# section 7.3; it stays off by default (docker compose --profile block up).
+# table. ClickHouse is the primary backend. The Collector also fans the same
+# span stream to Grafana Tempo, the object-storage block archetype of section
+# 7.3, so both archetypes run side by side over one workload and both write to
+# the same MinIO object storage.
 #
 # Pinned versions (one tag per image, N1):
 #   apache/kafka                                  4.3.0
 #   otel/opentelemetry-collector-contrib          0.154.0
 #   clickhouse/clickhouse-server                  25.8
-#   grafana/tempo                                 2.9.0   (block profile only)
+#   grafana/tempo                                 3.0.2
 #   prom/prometheus                               v3.12.0
 #   minio/minio                                   RELEASE.2025-09-07T16-13-09Z
 #   minio/mc                                      RELEASE.2025-08-13T08-35-41Z
@@ -83,7 +84,7 @@ services:
       otel-collector:
         condition: service_started
 
-  # --- OTel Collector: OTLP in, partition-by-trace-id, Kafka out ---
+  # --- OTel Collector: OTLP in, partition-by-trace-id, fan-out to Kafka + Tempo ---
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.154.0
     networks: [ch7]
@@ -96,6 +97,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      tempo:
+        condition: service_started
 
   # --- Kafka (single-broker KRaft, no ZooKeeper) ---
   kafka:
@@ -149,7 +152,8 @@ services:
       retries: 10
       start_period: 10s
 
-  # --- MinIO bootstrap: create the traces-cold bucket before ClickHouse starts ---
+  # --- MinIO bootstrap: create the buckets both archetypes write to ---
+  # traces-cold backs ClickHouse's s3_cold disk, tempo-blocks backs Tempo.
   # ClickHouse validates the s3_cold disk on boot, so the bucket must exist first.
   # The retry loop tolerates MinIO still coming up.
   minio-init:
@@ -167,7 +171,8 @@ services:
           echo "waiting for minio..."; sleep 2;
         done
         mc mb --ignore-existing local/traces-cold
-        echo "bucket traces-cold ready"
+        mc mb --ignore-existing local/tempo-blocks
+        echo "buckets traces-cold and tempo-blocks ready"
 
   # --- ClickHouse: the listing 7.1 store, primary backend ---
   clickhouse:
@@ -222,17 +227,19 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
 
   # --- Grafana Tempo: the object-storage BLOCK archetype (section 7.3) ---
-  # Off by default. Bring it up with: docker compose --profile block up -d
-  # Demonstrates the contrast with ClickHouse's row archetype: Tempo writes
-  # immutable Parquet-shaped blocks to a local object store rather than rows.
+  # The second leg of the Collector's fan-out. Same spans as ClickHouse gets,
+  # stored as immutable Parquet-shaped blocks in MinIO rather than as rows, so
+  # the row-versus-block contrast is two live stores over one workload.
   tempo:
-    image: grafana/tempo:2.9.0
-    profiles: ["block"]
+    image: grafana/tempo:3.0.2
     networks: [ch7]
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ./collector/tempo.yaml:/etc/tempo/tempo.yaml
       - tempo-data:/var/tempo
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "3200:3200"   # Tempo HTTP/query
       - "4417:4317"   # Tempo OTLP gRPC (mapped off 4317 to avoid collector clash)

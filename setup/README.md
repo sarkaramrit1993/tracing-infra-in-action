@@ -44,7 +44,7 @@ Settings, Resources before starting it.
 | 3 | ~245 MB | six containers (agent, two gateways, Jaeger, Prometheus, checkout service); measured the same way as chapter 2. The 8+ GB and 4+ core figure in `BENCHMARKS.md` is for the benchmark suite (`docker-compose.benchmark.yml`), not for the plain `docker compose up` stack |
 | 4 | ~1.9 GB (approximate) | three Kafka brokers; allow 60 to 90 seconds for controller election before the stack settles |
 | 5 | ~6 GB at the published Flink sizing | the heaviest stack. On a 3.8 GB allocation the Flink taskmanager gets OOM-killed partway through a run, and the stack still looks healthy while it is gone. It does fit in about 2.8 GB if you shrink Flink; both the symptom and that workaround are in `troubleshooting.md` |
-| 7 | ~1.7 GB settled, ~2.1 GB peak during the benchmarks | seven containers (ClickHouse, Kafka, Collector, MinIO, Prometheus, checkout service, consumer); measured with `docker stats --no-stream` after the stack settled and again mid-benchmark. Allow about 45 seconds to settle, longer on a first run while the images pull and the app image builds |
+| 7 | ~1.7 GB settled, ~2.1 GB peak during the benchmarks | eight containers (ClickHouse, Kafka, Collector, MinIO, Tempo, Prometheus, checkout service, consumer); measured with `docker stats --no-stream` after the stack settled and again mid-benchmark. Tempo is about 85 MB of that. Allow about 45 seconds to settle, longer on a first run while the images pull and the app image builds |
 
 ## Apple Silicon
 
@@ -73,7 +73,7 @@ with `docker compose down -v` before starting another.
 | 9000, 9363 | ClickHouse native and metrics (chapter 7) |
 | 8888 | Collector metrics (chapter 7) |
 | 9001, 9002 | MinIO console and API (chapter 7) |
-| 3200, 4417 | Tempo query and OTLP (chapter 7, `block` profile) |
+| 3200, 4417 | Tempo query and OTLP (chapter 7) |
 
 ## Verifying a chapter
 
