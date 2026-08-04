@@ -118,6 +118,13 @@ explicit move that does not need the part to be TTL-eligible, so the boundary
 change was never doing any work. Dropping it removes the race and leaves listing
 7.2's real rule on the table, which is one less thing to put back.
 
+Counting the objects behind the move is scoped to the parts that are live right
+now for a reason. ClickHouse deletes a replaced part's blobs lazily,
+`old_parts_lifetime` after the replacement, which is eight minutes by default. A
+bucket-wide count therefore picks up garbage from earlier work and is not a fact
+about the move you just made. That is why `mc` can report more objects than
+ClickHouse does on a second run through the exercise.
+
 ## Why `DROP PARTITION` is instant
 
 The last thing [exercises/tiering.md](exercises/tiering.md) does.
