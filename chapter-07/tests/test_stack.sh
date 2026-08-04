@@ -2,14 +2,13 @@
 # Chapter 7 stack test. Asserts four things against the LIVE stack:
 #   1. the listing 7.1 table exists,
 #   2. a trace round-trips (insert -> point lookup by trace_id),
-#   3. the row policy blocks cross-tenant reads (tenant_a cannot see tenant_b),
+#   3. the row policy blocks cross-tenant reads while leaving the operator
+#      login able to read the whole table,
 #   4. a span the checkout service really emitted comes back out of Tempo.
 #
-# Ordering matters and mirrors the README walkthrough: the admin round-trip in
-# step 2 runs BEFORE the listing 7.4 row policy, because that policy is TO ALL
-# and filters the default admin login to zero rows. Step 3 then applies the
-# policy and checks isolation as the tenant users. The script drops any existing
-# policy up front so it is safe to re-run from any prior state.
+# The order mirrors the README walkthrough rather than being forced by the row
+# policy. Listing 7.4 exempts the operator login, so nothing here has to run
+# before the policy exists or after it is gone.
 #
 # Step 4 is split in two: the request that produces the span is fired right
 # after step 2, and the assertion runs last, so the batch timers between the app
@@ -69,9 +68,6 @@ EXISTS=$(CH --query "EXISTS TABLE tracing.otel_traces")
 [ "$EXISTS" = "1" ] || fail "tracing.otel_traces does not exist"
 pass "tracing.otel_traces exists (listing 7.1)"
 
-echo "== reset: drop the row policy so the admin round-trip sees its own write =="
-CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-
 echo "== 2. trace round-trips (insert + point lookup by trace_id) =="
 # One id per run, used twice: once for the synthetic row below, once for the
 # live checkout request that step 4 chases into Tempo. It has to be fresh each
@@ -90,35 +86,44 @@ echo "== fire one live trace, asserted against Tempo in step 4 =="
 emit_live_trace "$TID"
 echo "sent trace $TID into checkout -> collector -> tempo"
 
-echo "== apply tenancy.sql (row policy + tenant users) =="
+echo "== apply tenancy.sql (row policy + tenant map + tenant logins) =="
 CH_FILE clickhouse/tenancy.sql
 pass "tenancy.sql applied (listing 7.4)"
 
 echo "== 3. row policy blocks cross-tenant reads =="
-# tenant_a must see tenant_a rows...
-A_SEES_A=$(CH --user tenant_a --query \
+# acme_reader is mapped to tenant_a in tracing.tenant_users, so it must see
+# tenant_a rows...
+A_SEES_A=$(CH --user acme_reader --query \
   "SELECT count() FROM tracing.otel_traces WHERE tenant_id = 'tenant_a'")
-[ "$A_SEES_A" -ge 1 ] || fail "tenant_a sees zero of its own rows (expected >=1)"
+[ "$A_SEES_A" -ge 1 ] || fail "acme_reader sees zero of its own rows (expected >=1)"
 # ...and zero tenant_b rows, even when explicitly asking for them.
-A_SEES_B=$(CH --user tenant_a --query \
+A_SEES_B=$(CH --user acme_reader --query \
   "SELECT count() FROM tracing.otel_traces WHERE tenant_id = 'tenant_b'")
-[ "$A_SEES_B" = "0" ] || fail "tenant_a saw $A_SEES_B tenant_b rows (row policy leaked)"
+[ "$A_SEES_B" = "0" ] || fail "acme_reader saw $A_SEES_B tenant_b rows (row policy leaked)"
 # symmetric check
-B_SEES_A=$(CH --user tenant_b --query \
+B_SEES_A=$(CH --user globex_reader --query \
   "SELECT count() FROM tracing.otel_traces WHERE tenant_id = 'tenant_a'")
-[ "$B_SEES_A" = "0" ] || fail "tenant_b saw $B_SEES_A tenant_a rows (row policy leaked)"
-pass "row policy isolates tenants (a sees a, a sees 0 of b, b sees 0 of a)"
+[ "$B_SEES_A" = "0" ] || fail "globex_reader saw $B_SEES_A tenant_a rows (row policy leaked)"
+pass "row policy isolates tenants (acme sees a, acme sees 0 of b, globex sees 0 of a)"
 
-# The policy is TO ALL, so leaving it behind would filter the default admin to
-# zero rows for everything the reader does next (walkthrough, benchmarks).
+# Annotation #D: the operator is in the exempt list, so the policy that isolates
+# the tenants does not blind the login every other assertion, benchmark and
+# exercise runs as. Asserted while the policy is in place, which is the only
+# time it means anything.
+ADMIN_SEES=$(CH --query "SELECT count() FROM tracing.otel_traces")
+[ "$ADMIN_SEES" -ge 1 ] \
+  || fail "the operator login reads $ADMIN_SEES rows with the policy in place (TO ALL EXCEPT is not exempting it)"
+pass "operator login reads the whole table with the policy in place ($ADMIN_SEES rows)"
+
+# Nothing above depends on this. It is hygiene: the tenant logins are
+# passwordless and hold SELECT, and dropping the column puts the table back to
+# listing 7.1's nine so a re-run starts where the last one did.
 echo "== cleanup: undo everything tenancy.sql created =="
 CH --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
-# The users outlive the policy otherwise, and without it they are passwordless
-# logins holding SELECT on all of tracing. The column goes too, so the table is
-# back to listing 7.1's nine.
-CH --query "DROP USER IF EXISTS tenant_a, tenant_b"
+CH --query "DROP USER IF EXISTS acme_reader, globex_reader"
+CH --query "DROP TABLE IF EXISTS tracing.tenant_users"
 CH --query "ALTER TABLE tracing.otel_traces DROP COLUMN IF EXISTS tenant_id"
-echo "dropped the policy, the tenant users and the tenant_id column"
+echo "dropped the policy, the tenant logins, the map and the tenant_id column"
 
 echo "== 4. a real span reaches Tempo (the Collector's other export) =="
 # ClickHouse got this trace over Kafka. Tempo got the same spans over the other

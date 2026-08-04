@@ -1,8 +1,9 @@
 -- Chapter 7: row-level tenant isolation, listing 7.4.
 --
 -- Run AFTER init.sql. This makes the shared-table / mandatory-tenant-filter
--- archetype from section 7.5.2 real: a tenant_id column and a row policy that
--- rewrites `tenant_id = currentUser()` onto every SELECT.
+-- archetype from section 7.5.2 real: a tenant_id column, a table mapping each
+-- login to its tenant, and a row policy that rewrites that map's answer onto
+-- every SELECT.
 --
 --   docker compose exec -T clickhouse clickhouse-client --multiquery < clickhouse/tenancy.sql
 --
@@ -21,30 +22,66 @@
 -- tenant_id leads the sort key or not. The sort-key prefix is a read-locality
 -- optimization, not the security boundary.
 --
--- currentUser() returns the connected username, so the demo creates two users
--- named after their tenants (tenant_a, tenant_b). A real deployment maps an
--- authenticated principal to a tenant claim instead of naming the SQL user after
--- the tenant, but the row-policy mechanics are identical.
+-- DEMO NOTE on the exempt list. Listing 7.4 writes TO ALL EXCEPT admin, ingest.
+-- Those two names stand for your operator and your writer, the accounts that
+-- have to read the whole table rather than one tenant's slice. This stack has
+-- one privileged login and it is both: `default`. Roles called admin and ingest
+-- cannot stand in for it either, because `default` is declared in users.xml and
+-- ClickHouse refuses to grant a role to a user held in read-only storage
+-- (ACCESS_STORAGE_READONLY, verified on 25.8). So the exempt list below names
+-- `default`, and the mapping from the printed line to this one is:
+--
+--     admin, ingest   ->   default
+--
+-- Substitute your own operator and writer logins and the line is the book's.
 
 -- The row policy predicate needs tenant_id to exist as a column first.
 ALTER TABLE tracing.otel_traces
   ADD COLUMN IF NOT EXISTS tenant_id LowCardinality(String) DEFAULT 'tenant_a'
   CODEC(ZSTD(1)) AFTER trace_id;
 
--- ---- Listing 7.4: Row-level tenant isolation in ClickHouse
-CREATE ROW POLICY IF NOT EXISTS tenant_filter ON tracing.otel_traces
-  USING tenant_id = currentUser()
-  TO ALL;
--- ---- end listing 7.4
+-- The login-to-tenant map listing 7.4's policy reads. Logins are named after
+-- the people who hold them and tenant ids after the customers they belong to,
+-- which is annotation #C's point: a database user is not a tenant id, and this
+-- table is the only thing that joins the two. Admitting a new login to a tenant
+-- is an INSERT here, not a change to the policy.
+CREATE TABLE IF NOT EXISTS tracing.tenant_users
+(
+    user_name   LowCardinality(String),
+    tenant_id   LowCardinality(String)
+)
+ENGINE = MergeTree
+ORDER BY user_name;
 
--- Two demo tenants. Each user can only ever see rows whose tenant_id equals its
--- own username, because the row policy above is TO ALL (applies to every user,
--- including these and the default admin). With TO ALL, even the admin connection
--- sees only rows tagged with its own username unless a broader policy is added.
-CREATE USER IF NOT EXISTS tenant_a IDENTIFIED WITH no_password;
-CREATE USER IF NOT EXISTS tenant_b IDENTIFIED WITH no_password;
-GRANT SELECT ON tracing.* TO tenant_a;
-GRANT SELECT ON tracing.* TO tenant_b;
+TRUNCATE TABLE tracing.tenant_users;
+
+INSERT INTO tracing.tenant_users (user_name, tenant_id) VALUES
+  ('acme_reader',   'tenant_a'),
+  ('globex_reader', 'tenant_b');
+
+CREATE USER IF NOT EXISTS acme_reader IDENTIFIED WITH no_password;
+CREATE USER IF NOT EXISTS globex_reader IDENTIFIED WITH no_password;
+GRANT SELECT ON tracing.otel_traces TO acme_reader, globex_reader;
+
+-- ClickHouse evaluates the policy predicate with the querying user's own
+-- grants, so a login that cannot read tenant_users cannot run any SELECT
+-- against otel_traces at all. The map is therefore readable by the tenants
+-- here. A production deployment keeps it out of their reach, behind a
+-- dictionary or in a database they hold no grant on.
+GRANT SELECT ON tracing.tenant_users TO acme_reader, globex_reader;
+
+-- ---- Listing 7.4: Row-level tenant isolation in ClickHouse ----
+CREATE ROW POLICY OR REPLACE tenant_filter ON tracing.otel_traces
+  USING tenant_id IN (SELECT tenant_id FROM tracing.tenant_users
+                      WHERE user_name = currentUser())
+  TO ALL EXCEPT default;
+-- ---- end listing 7.4 ----
+--
+-- OR REPLACE rather than the book's bare CREATE so re-applying this file
+-- converges on the definition above instead of leaving an older policy in
+-- place. An unmapped login is still filtered, and a filter that matches no
+-- tenant returns nothing, so a login nobody remembered to add to tenant_users
+-- reads an empty table rather than the whole one.
 
 -- Seed one obvious row per tenant so the README can prove cross-tenant blocking.
 INSERT INTO tracing.otel_traces

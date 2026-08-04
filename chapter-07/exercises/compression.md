@@ -293,8 +293,9 @@ ch --query "DROP TABLE IF EXISTS tracing.compress_plain"
 ch --query "SHOW TABLES FROM tracing"
 ```
 
-That should print `otel_traces` and nothing else. `otel_traces` was never
-touched by this exercise.
+That should print `otel_traces`, plus `tenant_users` if the tenancy exercise or
+either live test script is part way through. Neither of them was touched by this
+exercise.
 
 ## Going deeper
 

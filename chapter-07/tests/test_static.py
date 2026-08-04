@@ -137,16 +137,55 @@ def test_listing_7_2_tiering_exact():
 
 def test_listing_7_4_tenancy_exact():
     sql = _read("clickhouse/tenancy.sql")
+    executable = "\n".join(
+        l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    norm = re.sub(r"\s+", " ", executable).strip()
+
+    # The policy statement as listing 7.4 prints it, modulo three things that
+    # cannot be literal here and are asserted in the shape they take instead:
+    #   - `tracing.` qualifies both tables, because that is the database the
+    #     repo puts them in and the book writes them unqualified,
+    #   - OR REPLACE makes re-applying the file converge on this definition
+    #     rather than keep an older policy,
+    #   - the book's `admin, ingest` are the operator and the writer. This
+    #     stack has one privileged login for both, `default`, and roles cannot
+    #     stand in because `default` lives in read-only users.xml storage.
+    assert (
+        "CREATE ROW POLICY OR REPLACE tenant_filter ON tracing.otel_traces "
+        "USING tenant_id IN (SELECT tenant_id FROM tracing.tenant_users "
+        "WHERE user_name = currentUser()) "
+        "TO ALL EXCEPT default;"
+    ) in norm, "the row policy is not listing 7.4's"
+
+    # The two ways this drifted before. `TO ALL` filters the operator to zero
+    # rows, which annotation #D warns against, and comparing the username to
+    # the tenant id skips the map that annotation #C exists to require.
+    assert not re.search(r"TO ALL\s*;", norm), \
+        "policy is TO ALL, which filters the operator (annotation #D)"
+    assert "tenant_id = currentUser()" not in norm, \
+        "policy compares the username to the tenant id (annotation #C)"
+
     for needle in (
-        "CREATE ROW POLICY",
-        "tenant_filter ON tracing.otel_traces",
-        "USING tenant_id = currentUser()",
-        "TO ALL",
         "ADD COLUMN IF NOT EXISTS tenant_id",
-        "CREATE USER IF NOT EXISTS tenant_a",
-        "CREATE USER IF NOT EXISTS tenant_b",
+        "CREATE TABLE IF NOT EXISTS tracing.tenant_users",
+        "CREATE USER IF NOT EXISTS acme_reader",
+        "CREATE USER IF NOT EXISTS globex_reader",
+        "GRANT SELECT ON tracing.tenant_users",
     ):
         assert needle in sql, f"listing 7.4 missing: {needle!r}"
+
+    # Annotation #C only means anything if the map is not an identity function.
+    # A login named after its own tenant id would pass every other assertion
+    # here while teaching the opposite of what the annotation says.
+    seed = re.search(r"INSERT INTO tracing\.tenant_users[^;]*?VALUES(.*?);",
+                     sql, re.S)
+    assert seed, "tenant_users is created but never seeded"
+    pairs = re.findall(r"\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)", seed.group(1))
+    assert len(pairs) >= 2, f"expected two seeded logins, got {pairs}"
+    for user_name, tenant_id in pairs:
+        assert user_name != tenant_id, \
+            f"login {user_name!r} is named after its tenant id (annotation #C)"
+
     # ClickHouse cannot ALTER a pre-existing column into the sort key, so the
     # tenant-leading layout is a CREATE-time concern, documented not executed;
     # any MODIFY ORDER BY line must stay commented out.
