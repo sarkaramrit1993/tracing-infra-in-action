@@ -191,11 +191,9 @@ column files became opaque blobs with generated names, which is why you cannot
 read a part out of a bucket without the server that wrote it.
 
 If you have run this before, `mc` may report more than ClickHouse does. It is
-listing the whole bucket, and ClickHouse holds on to a replaced part for
-`old_parts_lifetime`, eight minutes by default, before deleting its blobs. That
-is the reason the query above scopes itself to parts that are live right now
-rather than counting the bucket: a bucket-wide count is not a fact about this
-move.
+listing the whole bucket, blobs from earlier work included, so the scoped count
+above is the one that is a fact about this move.
+[NOTES.md](../NOTES.md) has how long a replaced part's blobs stick around.
 
 Or open the MinIO console at http://localhost:9001, user `traceadmin`, password
 `traceadmin-secret`, and click into the `traces-cold` bucket.
