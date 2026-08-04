@@ -262,7 +262,7 @@ SELECT trace_id FROM tracing.otel_traces
 WHERE span_name = 'GET /checkout' ORDER BY timestamp DESC LIMIT 1")
 echo "trace_id=${TID:-(none found: either the first traces have not landed yet, or a row policy is still filtering you, see above)}"
 ch --query "
-SELECT service_name, span_name, duration_ns
+SELECT service_name, span_name, round(duration_ns / 1e6, 1) AS ms
 FROM tracing.otel_traces WHERE trace_id = '$TID'"
 ```
 

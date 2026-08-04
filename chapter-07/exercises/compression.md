@@ -93,7 +93,12 @@ measured.
 
 200,000 spans, six per trace, generated inside ClickHouse so nothing large
 crosses the wire. That is the row count `RESULTS.md` was measured at. The
-timestamp anchor is fixed, so your bytes will match these to the byte.
+timestamp anchor is fixed, so your bytes will match these to the byte on the
+ClickHouse this stack pins, 25.8. On another version they will not. Codec
+implementations, part format and index granularity defaults all move between
+releases, and any of them shifts the per-column figures. The ratios between
+the columns are the point and they survive the move; the exact byte counts do
+not.
 
 ```bash
 ch --query "
@@ -179,6 +184,12 @@ status_code      4.21 KiB        45.74 KiB    10.9
 service_name     420.00 B        14.50 KiB    35.4
 span_name        525.00 B        11.42 KiB    22.3
 ```
+
+One caveat before you read anything into a single row. The plain table drops
+`LowCardinality` **and** the explicit codec together, so a per-column figure here
+is the two of them combined, not the dictionary alone. The first "Try this" below
+separates them by changing only the cardinality and leaving the codec in place,
+which is where the attribution actually comes from.
 
 Read that from the bottom up. `service_name` and `span_name` are the two columns
 that lead the sort key, they hold five and ten distinct values, and

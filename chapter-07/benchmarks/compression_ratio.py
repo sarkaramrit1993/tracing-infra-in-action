@@ -18,7 +18,9 @@ S3-resident parts, or of nothing. The scratch table carries the same columns,
 codecs, sort key, partitioning and skip index with no TTL and no storage policy,
 which is the approach bloom_index_pruning.py and tenant_cardinality_blowup.py
 take. It is dropped on exit, so otel_traces is never touched. To run listing 7.3
-against the live table instead, apply clickhouse/compression.sql by hand.
+against the live table instead, apply clickhouse/compression.sql by hand, and
+expect 0.00 B and nan until that table holds roughly 10 MiB, because per-column
+byte accounting only exists once its parts are Wide rather than Compact.
 
 What the chapter argues, and what this proves or refutes on your own hardware:
   - service_name / span_name / status_code : these are LowCardinality columns, so
