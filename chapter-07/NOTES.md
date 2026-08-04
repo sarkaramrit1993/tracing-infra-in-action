@@ -4,6 +4,26 @@ Why [README.md](README.md) and the three files in `exercises/` are built the way
 they are. None of this is needed to run the stack. Read a section when something
 surprises you, or when you want to know what the demo is doing underneath.
 
+## Where a finding goes
+
+Every paragraph in this file started life next to a command. The rule that
+decides where the next one lands:
+
+- A finding that changes what a reader **does** stays in the walkthrough, beside
+  the command it governs. Preconditions, pass conditions, run order, version
+  constraints and the sample output people compare their own against are all
+  this kind. Move one and you break the reader, even though every command still
+  runs.
+- A finding that explains what a reader **saw** belongs here. The walkthrough
+  keeps one sentence and a link that names what this file explains.
+
+When a paragraph is both, split it. The operative sentence stays put and the
+explanation moves.
+
+The test is that any one exercise can be finished start to finish without
+opening this file. If a section here is load-bearing for a step, it is in the
+wrong document.
+
 ## Why there are two helpers, `ch` and `ch_file`
 
 Both are defined at the top of README's "Look at your trace data", and again at
