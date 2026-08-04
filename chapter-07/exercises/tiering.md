@@ -282,10 +282,8 @@ query above takes the newest `tiering-demo` partition rather than all of them.
 
 The part never touched the hot volume, and nobody asked for a move. ClickHouse
 picks an insert's destination from the move TTL at write time rather than
-relocating it later. Backfilling a month of history into a tiered table therefore
-writes a month of history to object storage, at object-storage write rates,
-whether or not you expected that. It is also why the compression exercise keeps
-its fixed past timestamps out of `otel_traces`.
+relocating it later. [NOTES.md](../NOTES.md) has what that costs you the day you
+backfill history into a tiered table.
 
 **Let the rule do the moving.** Instead of `MOVE PARTITION`, lower the boundary
 so the staged rows cross it, then make the existing part re-evaluate it:
