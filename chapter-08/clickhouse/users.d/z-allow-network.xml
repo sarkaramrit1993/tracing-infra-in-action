@@ -1,0 +1,15 @@
+<clickhouse>
+    <!-- The image restricts the password-less `default` user to localhost.
+         This file loads after (z- prefix) and re-opens it to the container
+         network so the demos can connect. Local demo only, not for production. -->
+    <users>
+        <default>
+            <networks replace="replace">
+                <ip>::/0</ip>
+            </networks>
+            <!-- Let the default user run CREATE USER / CREATE ROW POLICY so
+                 tenancy.sql can be applied at runtime by the same admin login. -->
+            <access_management>1</access_management>
+        </default>
+    </users>
+</clickhouse>
