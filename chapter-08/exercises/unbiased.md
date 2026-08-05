@@ -131,7 +131,7 @@ ch_file clickhouse/unbiased.sql
 ```
 checkout-service   154200
 checkout-service   10000000
-checkout-service   1444
+checkout-service   1445
 checkout-service   180
 10000000   180
 ```
@@ -147,15 +147,15 @@ Same rows, same scan, same bytes off disk. The only difference is that the secon
 query multiplies each survivor by what it stands for.
 
 Then the percentiles, and this is the pair the chapter's opening dashboard is
-built on. The plain `quantile()` over the survivors says 1444 ms. The weighted
+built on. The plain `quantile()` over the survivors says 1445 ms. The weighted
 `quantileExactWeighted()` says 180 ms, which is the true p99 to the decimal.
 
-1444 ms is not a rounding error, and it is not the tail being noisy. It is the
+1445 ms is not a rounding error, and it is not the tail being noisy. It is the
 sampler's own preferences read back as if they were traffic. The survivor set is
 1.54 percent of the population but it holds every error and half the slow
 requests, so its tail is packed with exactly the traces a tail sampler works
 hardest to keep. Ask that set for a p99 and it answers honestly about itself and
-tells you nothing true about production. An on-call engineer reads 1444 ms,
+tells you nothing true about production. An on-call engineer reads 1445 ms,
 starts an investigation, and the system is fine.
 
 One caveat on the window before you go further. The generator hangs its
@@ -231,15 +231,16 @@ ch_file clickhouse/unbiased.sql
 ```
 checkout-service   154200
 checkout-service   154200
-checkout-service   1444
+checkout-service   1445
 checkout-service   1444
 10000000   180
 ```
 
 Read those five lines slowly. Listing 8.1 has not changed by one character. The
 biased query and the unbiased query now return the same number. The broken
-percentile and the corrected percentile now return the same number. The two pairs
-the chapter built to disagree agree, and every query succeeded.
+percentile and the corrected one now land a millisecond apart, 1445 against 1444,
+which on a dashboard is the same reading. The two pairs the chapter built to
+disagree have stopped disagreeing, and every query succeeded.
 
 The only line that still knows anything is the ground-truth row at the bottom,
 and production does not have it. That is the whole of section 8.2.1: the number
@@ -247,12 +248,13 @@ stays precise, stays confident, and turns wrong, and no part of the system is in
 a position to notice. The dashboard stays green because green is a color, not a
 claim.
 
-Worth noticing that the two percentiles agree to the digit. They are not even the
-same estimator: #C is `quantile()`, which is approximate, and #D is
-`quantileExactWeighted()`, which is exact. Feed the exact one a weight of 1 and
-the difference between the two estimators is nothing at all, because the
-estimator was never what separated 1444 from 180. The weight was, and it was
-worth 1264 ms.
+Go back to that one-millisecond gap for a moment, because it is the entire
+contribution of the estimator. The two percentiles are not even the same
+function: #C is `quantile()`, which is approximate, and #D is
+`quantileExactWeighted()`, which is exact. Take the weight away and approximate
+against exact is the only difference left between them, and it is worth one
+millisecond. The estimator was never what separated 1445 from 180. The weight
+was, and it was worth 1265 ms.
 
 Put it back before moving on:
 
@@ -312,7 +314,8 @@ number is standing on, and every real weighted dashboard has one and shows none
 of it.
 
 Now make the sampler more aggressive, which is what a cost review does. Change
-the `100` in the `multiIf` to `5000` and run it again:
+the `100` in the `w` expression, the normal class's keep weight, to `5000` and
+run it again. Leave the two `n % 100` terms in the duration expression alone:
 
 ```
 seed   kept    weighted_total   pct_off   p99_ms
@@ -428,7 +431,7 @@ ch_file clickhouse/unbiased.sql
 ```
 checkout-service   154200
 checkout-service   10000000
-checkout-service   1444
+checkout-service   1445
 checkout-service   180
 10000000   180
 ```
