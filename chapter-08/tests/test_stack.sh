@@ -42,7 +42,23 @@ TRUE_P99=$(CH --query "SELECT p99_ms FROM tracing.ground_truth LIMIT 1")
 TRUE_ERRORS=$(CH --query "SELECT errors FROM tracing.ground_truth LIMIT 1")
 SPANS=$(CH --query "SELECT count() FROM tracing.otel_traces")
 [ "$SPANS" != "0" ] || fail "no spans in tracing.otel_traces. Run: python3 generate/generate.py"
-pass "population $POP requests recorded, $SPANS spans on disk"
+
+# Every assertion below filters to the last hour, and the generator writes rows
+# spanning the twenty minutes before it ran. So this suite has a shelf life: an
+# hour after generating, every row is still on disk and none is in the window.
+# Check it here. Left to surface downstream it arrives as a weighted total of
+# zero, which reads like the sampling weights are broken and sends you into
+# adjusted_count when the answer is that the clock moved.
+IN_WINDOW=$(CH --query "SELECT count() FROM tracing.otel_traces
+             WHERE timestamp >= toStartOfMinute(now() - INTERVAL 1 HOUR)")
+if [ "$IN_WINDOW" = "0" ]; then
+  AGE=$(CH --query "SELECT dateDiff('minute', max(timestamp), now())
+         FROM tracing.otel_traces")
+  fail "all $SPANS spans are on disk but none fall inside the one-hour window every
+      query uses; the newest is $AGE minutes old. This is age, not a broken query.
+      Run: python3 generate/generate.py"
+fi
+pass "population $POP requests recorded, $SPANS spans on disk, $IN_WINDOW in the window"
 
 echo "== 3. listing 8.1: the weighted answers are right, the biased ones are not =="
 BIASED=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE $WINDOW")
@@ -66,15 +82,30 @@ awk -v u="$U_P99" -v t="$TRUE_P99" 'BEGIN { exit !(u > t * 2) }' \
 pass "unweighted p99 $U_P99 ms reads far above the truth, which is the other half of the bug"
 
 echo "== 4. listing 8.2: the bloom index prunes granules the primary key left =="
+# The last Granules line of the plan is the last thing that got to prune. Before
+# the index that is the primary key; after, it is the bloom. Comparing the two is
+# the difference between proving the index prunes and proving it merely appears,
+# and an index that appears while pruning nothing is exactly the failure listing
+# 8.2 warns about.
+EXPLAIN_8_2() {
+  CH --query "EXPLAIN indexes = 1 SELECT * FROM tracing.otel_traces
+              WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'"
+}
+SURVIVORS() { EXPLAIN_8_2 | grep -oE 'Granules: [0-9]+' | tail -1 | grep -oE '[0-9]+' || true; }
+
 CH --query "ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id"
-BEFORE=$(CH --query "EXPLAIN indexes = 1 SELECT * FROM tracing.otel_traces
-          WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'" | grep -c "Name: idx_trace_id" || true)
+BEFORE=$(EXPLAIN_8_2 | grep -c "Name: idx_trace_id" || true)
 [ "$BEFORE" = "0" ] || fail "the index still exists before listing 8.2 adds it"
+BEFORE_G=$(SURVIVORS)
 CH_FILE clickhouse/skipindex.sql > /dev/null
-AFTER=$(CH --query "EXPLAIN indexes = 1 SELECT * FROM tracing.otel_traces
-          WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'" | grep -c "Name: idx_trace_id" || true)
+AFTER=$(EXPLAIN_8_2 | grep -c "Name: idx_trace_id" || true)
 [ "$AFTER" = "1" ] || fail "listing 8.2 ran but EXPLAIN does not report the index"
-pass "listing 8.2 adds the index and EXPLAIN reports it pruning"
+AFTER_G=$(SURVIVORS)
+[ -n "$BEFORE_G" ] && [ -n "$AFTER_G" ] \
+  || fail "could not read granule counts out of EXPLAIN; has the output format changed?"
+[ "$AFTER_G" -lt "$BEFORE_G" ] \
+  || fail "the index is in the plan but pruned nothing: $BEFORE_G granules before, $AFTER_G after"
+pass "listing 8.2 adds the index and it prunes $BEFORE_G granules to $AFTER_G"
 
 echo "== 5. listing 8.3: the rollup agrees with the raw scan, to the unit =="
 CH_FILE clickhouse/rollup.sql > /dev/null
