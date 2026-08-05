@@ -219,13 +219,23 @@ the third is not, which is worth understanding before you read anything into it.
 row count is fixed. 0 is stable: the looked-up ID is absent, so no bloom can
 report anything else.
 
+132 has one exception, and it is worth knowing before it puzzles you. Granules
+are counted per part, and the table is `PARTITION BY toYYYYMMDD(timestamp)`, so
+a generator run between 00:00 and 00:20 writes rows either side of midnight and
+gets two partitions. `OPTIMIZE TABLE ... FINAL` cannot merge across a partition
+boundary, so the total becomes the sum of two ceilings rather than one, and each
+partition wastes part of a granule on its remainder. Measured: a run at 00:01 or
+00:19 reports 133, a run at 00:10 splits evenly enough to still report 132.
+Nothing is wrong when this happens and nothing needs fixing; the number just
+moved by one for twenty minutes a day.
+
 The survivor count is the one that moves, and the sort key is why.
 `service_name` is one value here and `span_name` is seven, but the third
 component is `toStartOfHour(timestamp)` and the generator's timestamps hang off
-`now()`. A run that starts at 16:20 spreads its 50 minutes across two hour
-buckets, so the table sorts into fourteen groups of rows, each holding its own
-sorted run of trace IDs. A run that starts at 16:55 lands inside one bucket and
-sorts into seven. The generic exclusion search has to keep, per group, the
+`now()`. The spread is twenty minutes, so a run that starts at 16:10 reaches back
+to 15:50 and straddles two hour buckets, and the table sorts into fourteen groups
+of rows, each holding its own sorted run of trace IDs. A run that starts at 16:55
+lands inside one bucket and sorts into seven. The generic exclusion search has to keep, per group, the
 granule whose trace-ID range brackets the target, so twice the groups means
 roughly twice the survivors. The split between the buckets moves too, which moves
 the boundaries again.
