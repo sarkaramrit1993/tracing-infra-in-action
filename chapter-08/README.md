@@ -290,8 +290,9 @@ below it, and its denominator is whatever that step left. Its line reads 0 out o
 
 Your primary-key number probably will not be 27, and that is fine: it moves with
 the clock, because the sort key groups by hour. 13, 20 and 24 are all real
-readings from this same generator. The 132 does not move, and neither does the
-bloom's 0. That 0 is the strongest reading available, because
+readings from this same generator. The 132 does not move, apart from a run
+between 00:00 and 00:20 that can report 133, and neither does the bloom's 0.
+That 0 is the strongest reading available, because
 `4bf92f3577b34da6a3ce929d0e0e4736` is the W3C spec's example ID and is not in your
 data, so the bloom settles membership without reading a granule. NOTES has the
 long version of both.

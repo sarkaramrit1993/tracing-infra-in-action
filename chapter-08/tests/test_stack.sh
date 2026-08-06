@@ -68,7 +68,9 @@ WEIGHTED=$(CH --query "SELECT toUInt64(sum(adjusted_count)) FROM tracing.otel_tr
 pass "sum(adjusted_count) reproduces the population exactly ($WEIGHTED)"
 [ "$BIASED" != "$POP" ] \
   || fail "count() returned the population exactly; the data is not sampled, so listing 8.1 shows nothing"
-pass "count() reads $BIASED, low by $(( POP / BIASED ))x, which is the bug the chapter opens with"
+# 10,000,000 over 154,200 is 64.85, which shell arithmetic would truncate to 64.
+RATIO=$(awk -v pop="$POP" -v kept="$BIASED" 'BEGIN { printf "%.0f", pop / kept }')
+pass "count() reads $BIASED, low by ${RATIO}x, which is the bug the chapter opens with"
 
 W_P99=$(CH --query "SELECT round(quantileExactWeighted(0.99)(duration_ns,
           toUInt64(round(adjusted_count))) / 1e6, 1) FROM tracing.otel_traces WHERE $WINDOW")
