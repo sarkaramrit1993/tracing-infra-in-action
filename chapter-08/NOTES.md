@@ -68,9 +68,12 @@ only way to see an index earn its keep is to watch a query that was not using on
 start using one.
 
 So the table starts bare, listing 8.2 adds the index, and README tells you to
-drop it again afterwards. `tests/test_stack.sh` drops it before step 4 and again
-at the end, so the test can run in any order and leaves the table the way boot
-left it.
+drop it again afterwards. `clickhouse/skipindex.sql` also drops it before adding
+it, because `ADD INDEX` fails on an index that exists and `TRUNCATE` does not
+remove index definitions, so a second run would otherwise report a "before"
+reading that already has the index pruning. `tests/test_stack.sh` drops it before
+step 4 and again at the end, so the suite can run in any order and leaves the
+table the way boot left it.
 
 ## Why `parent_span_id` exists, and what `''` means
 
@@ -124,9 +127,9 @@ something is wrong, and that is worth more here than realism.
 
 The cost is that the demo hides the confidence interval, which section 8.2.2 says
 is the gap that matters most in practice and is almost always missing from
-production dashboards. `exercises/unbiased.md` has a variation that swaps the
-counter for a real coin and shows the scatter, which is where the interval
-becomes visible.
+production dashboards. The last query in `exercises/unbiased.md` swaps the counter
+for a real coin across ten seeds and shows the scatter, which is where the
+interval becomes visible.
 
 Rows are built server-side with `INSERT ... SELECT FROM numbers()`. A million
 spans take seconds, nothing large crosses the wire, and the duration function and
@@ -158,8 +161,8 @@ is the same arithmetic.
 
 ## Why timestamps are relative to `now()`
 
-Every row is written at `now64(9)` minus some number of seconds up to 3000, so
-the data spans the 50 minutes before the generator ran.
+Every row is written at `now64(9)` minus some number of seconds up to 1,200, so
+the data spans the twenty minutes before the generator ran.
 
 The listings filter on `timestamp >= toStartOfMinute(now() - INTERVAL 1 HOUR)`.
 A fixed past anchor, which is what `chapter-07/`'s compression exercise uses for
@@ -173,21 +176,20 @@ the true p99 are all functions of the row index and none of them touch the
 timestamp, so every printed number is still fully deterministic. Only the clock
 moves.
 
-It does leave one edge, and README names it: the data covers 50 minutes and the
-window covers 60, so there is about ten minutes of slack before the window starts
-sliding off the oldest rows and the totals drift below 10,000,000. Rerun
-`generate/generate.py` and they come back exact.
+It does leave one edge, and README names it: the data covers twenty minutes and
+the window covers sixty, so there is about forty minutes of slack before the
+window starts sliding off the oldest rows and the totals drift below 10,000,000.
+Rerun `generate/generate.py` and they come back exact. `tests/test_stack.sh`
+checks for it at step 2 and says so, rather than letting it surface further down
+as a weighted total of zero that reads like broken arithmetic.
 
-The clock does leave one visible fingerprint. `toStartOfHour(timestamp)` is the
-third component of the sort key, so where the 50-minute span falls across the
+The clock leaves two visible fingerprints. `toStartOfHour(timestamp)` is the
+third component of the sort key, so where the twenty-minute span falls across the
 hour boundary changes how the rows group, which changes what listing 8.2's
-primary-key line reports. That is the one number in this directory that does not
-reproduce, and "Why the primary key's own number moves between runs" below is
-about it.
-
-Partitioning is `toYYYYMMDD(timestamp)`, so a run that straddles UTC midnight
-splits across two partitions. Nothing here measures per-part bytes, so that costs
-nothing but a second entry in `system.parts`.
+primary-key line reports. "Why the primary key's own number moves between runs"
+below is about that one. Partitioning is `toYYYYMMDD(timestamp)`, so a run
+between 00:00 and 00:20 straddles midnight and takes two partitions, which can
+move the granule total by one. "What `EXPLAIN`'s chain means" has that one.
 
 ## What `EXPLAIN`'s chain means
 
@@ -212,8 +214,9 @@ amplification, and the `EXPLAIN` says so directly.
 ### Why the primary key's own number moves between runs
 
 README prints 27 and says yours will probably differ. Runs of the same generator
-have given 20, 24 and 27. Two of the three numbers on that line are stable and
-the third is not, which is worth understanding before you read anything into it.
+have given 13, 20, 24 and 27. Two of the three numbers on that line are stable
+and the third is not, which is worth understanding before reading anything into
+it.
 
 132 is stable: 1,079,400 rows at 8,192 rows per granule is 132 granules, and the
 row count is fixed. 0 is stable: the looked-up ID is absent, so no bloom can
@@ -272,7 +275,9 @@ unexpectedly, these are why:
 2. **Listing 8.2 needs a table with no trace-ID bloom on it.** Listing 7.1
    creates one. Run listing 8.2 against a chapter 7 table and both `EXPLAIN`
    readings are identical, because the existing index already pruned. `init.sql`
-   here leaves the index off for exactly this reason.
+   here leaves the index off for exactly this reason, and `skipindex.sql` drops
+   the index before adding it, so the file can be run as many times as you like
+   and still give a real before-reading.
 3. **Listing 8.2's `MATERIALIZE INDEX` is not optional.** `ADD INDEX` only
    applies to parts written after it, so on a table that already holds rows the
    new index prunes nothing until it is built over what is there.

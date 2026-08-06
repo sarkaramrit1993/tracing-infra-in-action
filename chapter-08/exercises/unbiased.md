@@ -131,13 +131,28 @@ Then the percentiles, and this is the pair the chapter's opening dashboard is
 built on. The plain `quantile()` over the survivors says 1445 ms. The weighted
 `quantileExactWeighted()` says 180 ms, which is the true p99 to the decimal.
 
-1445 ms is not a rounding error, and it is not the tail being noisy. It is the
-sampler's own preferences read back as if they were traffic. The survivor set is
-1.54 percent of the population but it holds every error and half the slow
-requests, so its tail is packed with exactly the traces a tail sampler works
-hardest to keep. Ask that set for a p99 and it answers honestly about itself and
-tells you nothing true about production. An on-call engineer reads 1445 ms,
-starts an investigation, and the system is fine.
+1445 ms is not a rounding error and it is not a noisy tail. Ask the survivor set
+what it is made of:
+
+```bash
+ch --query "
+SELECT round(100 * countIf(adjusted_count < 100) / count(), 1) AS pct_of_kept,
+       round(100 * sumIf(adjusted_count, adjusted_count < 100)
+             / sum(adjusted_count), 1)                        AS pct_of_traffic
+FROM tracing.otel_traces
+WHERE timestamp >= toStartOfMinute(now() - INTERVAL 1 HOUR)
+  AND parent_span_id = ''"
+```
+
+```
+35.7   0.8
+```
+
+Slow and failing requests are 0.8 percent of the traffic and 35.7 percent of the
+rows you kept. That is the whole of it: the sampler worked hardest to keep
+exactly the traces that sit in the tail, so the survivor set answers honestly
+about itself and tells you nothing true about production. An on-call engineer
+reads 1445 ms, starts an investigation, and the system is fine.
 
 One caveat on the window. Timestamps hang off `now()` and span the twenty minutes
 before the run, and listing 8.1 asks for the last hour, so you have about forty
