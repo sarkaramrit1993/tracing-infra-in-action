@@ -34,6 +34,11 @@ down what it produced, because it produced it.
 
 ## Why there are two helpers, `ch` and `ch_file`
 
+<!-- Load-bearing. This is the only full statement of the stdin trap left in the
+     directory: README, both exercises, tests/test_stack.sh and
+     generate/generate.py were each cut back to one clause and a pointer here.
+     Shorten this section and five files lose their explanation. -->
+
 Both are defined at the top of README's "Look at your trace data", and again at
 the top of each exercise, so each one stands alone.
 

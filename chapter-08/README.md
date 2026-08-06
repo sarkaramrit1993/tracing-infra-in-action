@@ -133,9 +133,8 @@ ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-`ch` hands ClickHouse an empty stdin so a query does not sit waiting on your
-keyboard. `ch_file` is the only thing here that puts anything on stdin, and what
-it puts there is a file. Merging the two breaks both; NOTES says why.
+`ch` closes stdin so a query cannot sit waiting on your keyboard. NOTES says
+why, and why merging the two helpers breaks both.
 
 Start with the shape of one trace, because a wide table of spans does not look
 much like a trace until you group it. This pulls one trace from each sampling

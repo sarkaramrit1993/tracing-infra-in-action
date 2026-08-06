@@ -13,10 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# clickhouse-client reads stdin for INSERT even when the rows come from a
-# SELECT, and `docker compose exec -T` hands it the caller's stdin. From a
-# terminal that never reaches EOF and the query hangs with no output. So every
-# query feeds /dev/null, and CH_FILE is the one path that feeds a file.
+# stdin is /dev/null so a query cannot hang on it. NOTES.md has the why, and why
+# CH_FILE has to be a separate helper.
 CH()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
 CH_FILE() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 pass() { echo "PASS: $1"; }

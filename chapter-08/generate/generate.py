@@ -102,12 +102,9 @@ CHILD_NAMES = ("'validate_cart', 'inventory.reserve', 'payment.charge', "
 
 
 def ch(sql, *, quiet=False):
-    """Run one statement. stdin is /dev/null, never the caller's terminal.
+    """Run one statement. stdin is DEVNULL so the client cannot hang on it.
 
-    clickhouse-client reads stdin for INSERT data even when the rows are inline
-    or come from a SELECT, and `docker compose exec -T` hands it whatever stdin
-    the caller had. From a terminal that never reaches EOF and the whole thing
-    hangs with no output. See NOTES.md.
+    NOTES.md, "Why there are two helpers", has the why.
     """
     argv = ["docker", "compose", "exec", "-T", "clickhouse",
             "clickhouse-client", "--query", sql]

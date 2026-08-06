@@ -25,9 +25,8 @@ ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-The `< /dev/null` is not decoration. Without it `clickhouse-client` waits on a
-stdin that never reaches EOF and the command hangs with no output. NOTES has the
-detail.
+The `< /dev/null` is not decoration. Without it the client waits on a stdin that
+never reaches EOF. NOTES has the detail.
 
 ```bash
 docker compose up -d
