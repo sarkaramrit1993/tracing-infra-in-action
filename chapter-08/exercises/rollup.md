@@ -51,16 +51,11 @@ That `DROP` is the one thing to remember about this file. The generator truncate
 `tracing.otel_traces` and writes the population again, and a truncate is not an
 insert, so a materialized view never hears about it and keeps everything it had.
 Run the generator twice with the view in place and the rollup holds two copies of
-a population that exists once:
-
-```
-rollup says   20000000
-raw table says 10000000
-```
-
-Neither query errored, and the raw table is not wrong. This is worth causing on
-purpose once, at the end, so you recognize it in six months. The fix is always
-the same: drop the view, run `clickhouse/rollup.sql` again.
+a population that exists once: 20,000,000 requests read back from a table that
+holds ten million. Nothing errors, and the raw table is not wrong. The fix is
+always the same: drop the view, run `clickhouse/rollup.sql` again. Going deeper,
+at the end of this file, walks through causing it on purpose so you recognize the
+shape in six months.
 
 ## The rollup
 
