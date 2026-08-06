@@ -149,11 +149,15 @@ normal band, at 180 ms. Meanwhile the survivors are 154,200 traces of which
 population, so the unweighted p99 over the survivors lands out at 1445 ms. Three
 numbers, well apart: 180 true, 180 weighted, 1445 unweighted.
 
-Push slow and error past one percent and the true p99 moves into the slow band.
-All three numbers collapse toward each other, the weighted query no longer has a
-low number to find, and the exercise shows nothing while still running clean.
-This is the knob to turn first if you are adapting the generator, and the one
-most likely to quietly destroy the demonstration.
+Push slow and error past one percent and the true p99 climbs out of the normal
+band. The correction survives that: measured at 2, 3, 5 and 10 percent the
+weighted query returns the true p99 to within a millisecond every time, so the
+chapter's claim never breaks. What breaks is the contrast. At three percent the
+truth is 1366 ms and the unweighted survivors read 1447, six percent apart where
+the shipped split is eight times apart, and six percent on a dashboard is a
+shrug. This is the knob to turn first if you are adapting the generator, and the
+one most likely to quietly flatten the demonstration. `exercises/unbiased.md`
+has the variation with the measured output.
 
 The 1445 ms figure is also the one in the chapter opener, where a platform team
 spent an afternoon rolling back a healthy deploy. That is not a coincidence, it

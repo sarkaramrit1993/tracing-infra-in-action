@@ -22,9 +22,11 @@ while a bare count() returns 154,200 and reads 65x low.
 Slow and error together are under one percent of the population on purpose. That
 is what puts the true p99 inside the normal band, so the weighted query has a
 low number to find and the survivors, packed with the classes the sampler
-favored, have a high one. Push those two classes past one percent and the true
-p99 moves into the slow band, all three numbers collapse together, and the
-exercise stops showing anything.
+favored, have a high one. Push those two classes up and the true p99 climbs with
+them. The weighted query still finds it, to within a millisecond at every split
+measured between 0.8 and 10 percent, so the correction itself never fails. What
+closes is the distance to the unweighted number: by about three percent the two
+read 1366 against 1447 and there is nothing left to point at.
 
 Sampling here is deterministic (every hundredth, every second) rather than a
 coin flip per trace. That is a real difference and worth naming: with a real

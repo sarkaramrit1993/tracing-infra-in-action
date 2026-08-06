@@ -161,7 +161,7 @@ and not the math. Re-run `generate/generate.py`.
 
 ## Try this
 
-Three edits. Each is one line, each changes a number you can see, and the first
+Four edits. Each is one line, each changes a number you can see, and the first
 two are the mistakes people actually ship.
 
 **Drop the root-span filter.** This is the single most likely mistake a reader
@@ -317,6 +317,68 @@ distinct count is not additive. There is no weight to apply, so a HyperLogLog
 sketch over unsampled data, or accepting that the number is a floor, are the two
 honest options.
 
+**Move the tail classes past one percent and watch the contrast go, not the
+correction.** `NORMAL, SLOW, ERROR` in `generate/generate.py` hold the three
+class sizes. Slow and error are 0.8 percent of the population there, and that is
+what keeps the true p99 down in the normal band. Push them to three percent:
+
+```
+NORMAL, SLOW, ERROR = 9_700_000, 180_000, 120_000
+```
+
+Normal is still divisible by 100 and slow by 2, so the weights still close on the
+population exactly. Regenerate:
+
+```bash
+python3 generate/generate.py
+```
+
+The first two lines of the banner move:
+
+```
+[generate] population 10,000,000 requests, keeping 307,000 (3.07%)
+[generate] true p99 over the full population: 1366.0 ms
+```
+
+Now ask listing 8.1 the same four questions:
+
+```bash
+ch_file clickhouse/unbiased.sql
+```
+
+```
+checkout-service   307000
+checkout-service   10000000
+checkout-service   1447
+checkout-service   1366
+10000000   1366
+```
+
+Read the bottom three lines. The weighted p99 is 1366 and the true p99 is 1366,
+so the correction is exactly as right here as it was at 180 ms, and it stays
+right to within a millisecond at every split between 0.8 and 10 percent. Nothing
+the chapter claims depends on where the tail sits.
+
+What goes is the contrast. The unweighted number barely moved, 1445 to 1447,
+because the survivor set was already packed with slow and failing requests. The
+truth climbed to meet it. 180 against 1445 is eight times and it ends an
+argument. 1366 against 1447 is six percent, and six percent on a dashboard is a
+shrug.
+
+Both gates fail while this split is applied, and they fail for the right reason.
+`tests/test_static.py` asserts that slow and error stay under one percent of the
+population, and `tests/test_stack.sh` asserts that the unweighted p99 reads more
+than twice the truth, which at three percent it does not. Put the constants back
+and regenerate before you run either:
+
+```
+NORMAL, SLOW, ERROR = 9_920_000, 50_000, 30_000
+```
+
+```bash
+python3 generate/generate.py
+```
+
 ## Clean up
 
 If you ran the mutation in the second variation, the weights on disk are all 1.
@@ -355,9 +417,10 @@ there and `ALTER TABLE tracing.otel_traces DROP INDEX idx_trace_id` takes it off
 worth reading before changing anything. In particular, slow and error traffic sum
 to under one percent of the population on purpose. That is what puts the true p99
 inside the normal band and leaves the survivors, packed with the classes the
-sampler favored, with a very different one. Push those two classes past one
-percent and all three numbers collapse together and the exercise stops showing
-anything. Try it, then read the docstring.
+sampler favored, with a very different one. Push those two classes up and the
+true p99 climbs with them, until at about three percent it is close enough to
+the unweighted number that the pair says nothing. The fourth variation above
+does exactly that, with the output it actually printed. Then read the docstring.
 
 `clickhouse/unbiased.sql` is listing 8.1 with its annotations, including why the
 weight argument to `quantileExactWeighted()` is rounded before the cast rather

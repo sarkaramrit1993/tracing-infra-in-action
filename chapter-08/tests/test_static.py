@@ -175,7 +175,10 @@ def test_generator_arithmetic_closes():
         f"weights sum to {weighted}, so sum(adjusted_count) will not reproduce {pop}"
     assert (slow + error) / pop < 0.01, \
         ("slow and error must stay under one percent of the population, or the true p99 "
-         "moves out of the normal band and all three numbers collapse together")
+         "leaves the normal band and every printed number in the chapter moves. The "
+         "weighted query keeps finding the truth at any split; what closes is its "
+         "distance from the unweighted one, and by about three percent there is no "
+         "contrast left to show")
 
 
 @test
