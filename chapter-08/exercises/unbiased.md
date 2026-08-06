@@ -128,10 +128,12 @@ Same rows, same scan, same bytes off disk. The only difference is that the secon
 query multiplies each survivor by what it stands for.
 
 Then the percentiles, and this is the pair the chapter's opening dashboard is
-built on. The plain `quantile()` over the survivors says 1445 ms. The weighted
-`quantileExactWeighted()` says 180 ms, which is the true p99 to the decimal.
+built on. The plain `quantile()` over the survivors says about 1445 ms, and it is
+the one number in this file that is not fixed: `quantile()` is approximate, so
+your run may read 1444 or 1444.1 instead. The weighted `quantileExactWeighted()`
+says 180 ms, which is the true p99 to the decimal, on every run.
 
-1445 ms is not a rounding error and it is not a noisy tail. Ask the survivor set
+That gap is not a rounding error and it is not a noisy tail. Ask the survivor set
 what it is made of:
 
 ```bash
@@ -231,9 +233,9 @@ checkout-service   1444
 
 Read those five lines slowly. Listing 8.1 has not changed by one character. The
 biased query and the unbiased query now return the same number. The broken
-percentile and the corrected one now land a millisecond apart, 1445 against 1444,
-which on a dashboard is the same reading. The two pairs the chapter built to
-disagree have stopped disagreeing, and every query succeeded.
+percentile and the corrected one now land a millisecond apart, 1445 against 1444
+on this run, which on a dashboard is the same reading. The two pairs the chapter
+built to disagree have stopped disagreeing, and every query succeeded.
 
 The only line that still knows anything is the ground-truth row at the bottom,
 and production does not have it. That is the whole of section 8.2.1: the number
@@ -241,10 +243,14 @@ stays precise, stays confident, and turns wrong, and no part of the system is in
 a position to notice. The dashboard stays green because green is a color, not a
 claim.
 
-That one-millisecond gap is the entire contribution of the estimator: #C is
-`quantile()`, approximate, and #D is `quantileExactWeighted()`, exact. With the
-weight gone, approximate against exact is all that is left between them. The
-estimator never separated 1445 from 180. The weight did, and it was worth 1265 ms.
+Whatever gap is left between those two percentiles is the entire contribution of
+the estimator: #C is `quantile()`, approximate, and #D is
+`quantileExactWeighted()`, exact. With the weight gone, approximate against exact
+is all that is left between them, and that is worth a millisecond or two in
+either direction. Three regenerations of this variation read 1445 against 1444,
+then 1443 against 1444, then 1444 against 1444: #D is exact on every one of
+them, and #C lands above it, then below it, then on it. The estimator never
+separated 1445 from 180. The weight did, and it was worth about 1265 ms.
 
 Put it back before moving on:
 
@@ -359,11 +365,11 @@ so the correction is exactly as right here as it was at 180 ms, and it stays
 right to within a millisecond at every split between 0.8 and 10 percent. Nothing
 the chapter claims depends on where the tail sits.
 
-What goes is the contrast. The unweighted number barely moved, 1445 to 1447,
-because the survivor set was already packed with slow and failing requests. The
-truth climbed to meet it. 180 against 1445 is eight times and it ends an
-argument. 1366 against 1447 is six percent, and six percent on a dashboard is a
-shrug.
+What goes is the contrast. The unweighted number barely moved, 1445 to 1447, a
+shift no bigger than its own run-to-run noise, because the survivor set was
+already packed with slow and failing requests. The truth climbed to meet it. 180
+against 1445 is eight times and it ends an argument. 1366 against 1447 is six
+percent, and six percent on a dashboard is a shrug.
 
 Both gates fail while this split is applied, and they fail for the right reason.
 `tests/test_static.py` asserts that slow and error stay under one percent of the

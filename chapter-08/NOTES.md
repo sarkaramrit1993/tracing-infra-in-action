@@ -146,8 +146,8 @@ The p99 is the 99th percentile, so it sits one percent from the top. Keep slow
 and error under one percent of the population and the true p99 lands inside the
 normal band, at 180 ms. Meanwhile the survivors are 154,200 traces of which
 55,000 are slow or error, 36 percent of the kept set against 0.8 percent of the
-population, so the unweighted p99 over the survivors lands out at 1445 ms. Three
-numbers, well apart: 180 true, 180 weighted, 1445 unweighted.
+population, so the unweighted p99 over the survivors lands out around 1445 ms.
+Three numbers, well apart: 180 true, 180 weighted, about 1445 unweighted.
 
 Push slow and error past one percent and the true p99 climbs out of the normal
 band. The correction survives that: measured at 2, 3, 5 and 10 percent the
@@ -162,6 +162,39 @@ has the variation with the measured output.
 The 1445 ms figure is also the one in the chapter opener, where a platform team
 spent an afternoon rolling back a healthy deploy. That is not a coincidence, it
 is the same arithmetic.
+
+## Why the unweighted p99 wobbles and the weighted one does not
+
+Listing 8.1's third query uses `quantile()`, which is approximate on purpose.
+ClickHouse implements it with reservoir sampling: it holds up to 8,192 values,
+drops the rest and interpolates. That buys a fixed memory ceiling and one pass
+instead of exactness, and the trade is documented rather than hidden. The manual
+says outright that the result is non-deterministic.
+
+So the unweighted number is not a fixed 1445. Six regenerations of the same
+population read 1445 three times, then 1444, 1444.1 and 1442.1. Every one of
+those is the same reading for the purpose the chapter puts it to.
+
+The rows are not what changed. Durations are functions of a row's index, so the
+154,200 values the query reads are identical on every run. What moves is the
+order they sit in. The sort key's third component is `toStartOfHour(timestamp)`
+and the generator's timestamps hang off `now()`, so a regeneration drops the rows
+into different hour buckets and the reservoir meets the values in a different
+order. Ask the same population twice without regenerating in between and it will
+usually answer the same twice, which is a consequence of the order not having
+moved rather than a guarantee.
+
+The exact estimators do not move at all. `quantileExact(0.99)` over the same rows
+returns 1444 on every run, and listing 8.1's fourth query,
+`quantileExactWeighted(0.99)`, returns 180 on every run. That is why
+`tests/test_stack.sh` can assert equality on the weighted answer and asserts only
+a relation, more than twice the truth, on the unweighted one.
+
+Listing 8.1 keeps `quantile()` anyway. It is what the book prints, and it is also
+what a dashboard actually runs, because the exact variants hold every value in
+memory and nobody points those at a full span table. The realistic estimator is
+the approximate one. Its last digit is noise and the chapter's argument is a
+factor of eight, so nothing here rests on the wobble either way.
 
 ## Why timestamps are relative to `now()`
 
@@ -187,13 +220,15 @@ Rerun `generate/generate.py` and they come back exact. `tests/test_stack.sh`
 checks for it at step 2 and says so, rather than letting it surface further down
 as a weighted total of zero that reads like broken arithmetic.
 
-The clock leaves two visible fingerprints. `toStartOfHour(timestamp)` is the
+The clock leaves three visible fingerprints. `toStartOfHour(timestamp)` is the
 third component of the sort key, so where the twenty-minute span falls across the
 hour boundary changes how the rows group, which changes what listing 8.2's
 primary-key line reports. "Why the primary key's own number moves between runs"
 below is about that one. Partitioning is `toYYYYMMDD(timestamp)`, so a run
 between 00:00 and 00:20 straddles midnight and takes two partitions, which can
-move the granule total by one. "What `EXPLAIN`'s chain means" has that one.
+move the granule total by one. "What `EXPLAIN`'s chain means" has that one. And
+that same sort-key grouping sets the order `quantile()` samples in, which is what
+moves listing 8.1's unweighted p99; the section above has that one.
 
 ## What `EXPLAIN`'s chain means
 

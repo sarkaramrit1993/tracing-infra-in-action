@@ -107,10 +107,15 @@ checkout-service   180
 10000000   180
 ```
 
-154,200 requests at a p99 of 1445 ms is what the survivors say. 10,000,000 at
-180 ms is what happened. Both pairs came from the same rows and the same store,
-and the only thing separating a precise lie from a correct estimate is whether
-the query weighted what it read.
+154,200 requests at a p99 of about 1445 ms is what the survivors say. 10,000,000
+at 180 ms is what happened. Both pairs came from the same rows and the same
+store, and the only thing separating a precise lie from a correct estimate is
+whether the query weighted what it read.
+
+The third line is the one number here that is not fixed. `quantile()` is an
+approximate estimator, so your run may read 1444 or 1444.1 instead, and NOTES has
+the why. The weighted 180, the two totals and the ground-truth row are exact
+every time.
 
 The last line is the generator's own record, written before it sampled anything.
 It is the only reason you can tell which pair is which, and it is the one line
