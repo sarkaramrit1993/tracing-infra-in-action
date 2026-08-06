@@ -5,14 +5,11 @@ built the store. This makes it answerable, and it makes the chapter's claim
 checkable: the same bytes return a precise lie or a correct estimate depending on
 how the query weights what it reads.
 
-One service, ClickHouse. Chapter 7's stack carried a producer, a Collector, Kafka
-and a consumer because chapter 7 is about the path into the store. Chapter 8 asks
-whether the answer is true, which is a question you put to the store and not to
-the path, so there is no ingest path here. The data comes from
-`generate/generate.py`, which builds a ten-million-request population
-server-side, keeps it at a rate that differs by class the way a tail sampler
-does, writes the survivors, and records what it produced before it sampled
-anything.
+One service, ClickHouse, and no ingest path. Chapter 8 asks whether the answer is
+true, which is a question for the store rather than the path into it.
+`generate/generate.py` builds a ten-million-request population server-side, keeps
+it at a rate that differs by class the way a tail sampler does, and records what
+it produced before it sampled anything.
 
 That last part is the point of the whole directory. In production the population
 is gone, thrown away at the sampler, so an unbiased estimate can be compared with
@@ -21,10 +18,10 @@ row, so you can put a biased `count()`, an unbiased `sum(adjusted_count)` and th
 number of requests that actually happened side by side and see which one is
 telling the truth.
 
-[NOTES.md](NOTES.md) holds the why behind all of it: why there is no ingest path,
-why there are two shell helpers and what breaks if you merge them, why this table
-ships without the trace-ID index chapter 7 gives it, and why the generator counts
-instead of flipping coins. Read it when something surprises you.
+Three commands get you to that comparison: `docker compose up -d`, then
+`generate/generate.py`, then listing 8.1. Everything after that is optional.
+[NOTES.md](NOTES.md) holds the why behind the design and is worth opening when
+something surprises you.
 
 ## Listings
 
@@ -85,14 +82,12 @@ numbers()`, so nothing large crosses the wire:
 
 Those numbers reproduce exactly on your machine. The sampling is deterministic,
 every hundredth and every second rather than a coin flip per trace, which is what
-lets this file print a number you can check yours against. NOTES says what that
-costs and what a real Bernoulli sampler would do instead.
+lets this file print a number you can check yours against.
 
-The generator writes timestamps spread over the 50 minutes before it ran, and
-listings 8.1 and 8.3 filter on the last hour. So there is about ten minutes of
-slack. If you leave the stack up over lunch and come back, run
-`generate/generate.py` again before you compare numbers, or the window will have
-slid off the oldest rows.
+Timestamps span the twenty minutes before the run and every query filters on the
+last hour, so you have about forty minutes. Come back after lunch and run
+`generate/generate.py` again before comparing numbers, or the window will have
+slid off the rows.
 
 ---
 
@@ -106,15 +101,13 @@ ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-`ch` hands ClickHouse an empty stdin, which is what stops a query from sitting
-there waiting on your keyboard. `ch_file` is the only thing here that puts
-anything on stdin, and what it puts there is a file. See [NOTES.md](NOTES.md) for
-why that split is not optional.
+`ch` hands ClickHouse an empty stdin so a query does not sit waiting on your
+keyboard. `ch_file` is the only thing here that puts anything on stdin, and what
+it puts there is a file. Merging the two breaks both; NOTES says why.
 
 Start with the shape of one trace, because a wide table of spans does not look
-much like a trace until you group it. This pulls one whole trace from each
-sampling class, root first and then its children in call order, and marks each
-root with a `>`:
+much like a trace until you group it. This pulls one trace from each sampling
+class, root first, and marks each root with a `>`:
 
 ```bash
 ch --query "
@@ -181,39 +174,11 @@ roots alone. A producer that marks only the failing child leaves the root lookin
 healthy, and the error half of a RED dashboard then reads near zero.
 
 The weights are not invented per row. They are the reciprocal of the keep rate,
-and the policy is a table you can read:
-
-```bash
-ch --query "
-SELECT class, keep_rate, adjusted_count, round(1 / keep_rate, 0) AS reciprocal
-FROM tracing.sampling_policy ORDER BY adjusted_count DESC
-FORMAT PrettyCompactMonoBlock"
-```
-
-```
-   ┌─class──┬─keep_rate─┬─adjusted_count─┬─reciprocal─┐
-1. │ normal │      0.01 │            100 │        100 │
-2. │ slow   │       0.5 │              2 │          2 │
-3. │ error  │         1 │              1 │          1 │
-   └────────┴───────────┴────────────────┴────────────┘
-```
-
-Which shakes out as 99,200 normal traces at weight 100, 25,000 slow at 2, and
-30,000 errors at 1. Multiply and add: 9,920,000 + 50,000 + 30,000 = 10,000,000.
-So this is what is on disk, and what it stands for:
-
-```bash
-ch --query "
-SELECT count() AS spans, countIf(parent_span_id = '') AS traces,
-       toUInt64(sumIf(adjusted_count, parent_span_id = '')) AS requests_represented
-FROM tracing.otel_traces FORMAT PrettyCompactMonoBlock"
-```
-
-```
-   ┌───spans─┬─traces─┬─requests_represented─┐
-1. │ 1079400 │ 154200 │             10000000 │
-   └─────────┴────────┴──────────────────────┘
-```
+and `tracing.sampling_policy` holds that rate per class so you can read the
+policy rather than trust it. It shakes out as 99,200 normal traces at weight 100,
+25,000 slow at 2 and 30,000 errors at 1: 9,920,000 + 50,000 + 30,000 =
+10,000,000, from 1,079,400 spans on disk. `exercises/unbiased.md` does that
+arithmetic against the table.
 
 And this is the answer sheet, written by the generator before it sampled a thing:
 
@@ -248,12 +213,10 @@ and neither leaves a mess behind.
 | [exercises/unbiased.md](exercises/unbiased.md) | 8.1 | Four queries over one table, two of them wrong. The population is on disk, so which two is not a matter of opinion. |
 | [exercises/rollup.md](exercises/rollup.md) | 8.3 | A materialized view turns the RED dashboard into a lookup. Three ways to build it wrong, all three silent. |
 
-Each ends with a **Try this** section: a few one-line edits with a visible
-consequence. Those are where the chapter's claims stop being claims.
-
-If you only do one, do unbiased. It is the chapter's thesis, and it is the only
-place in the book where you get to grade an estimate against the population it
-estimates.
+Both are optional and independent, so pick either. If you only do one, do
+unbiased: it is the chapter's thesis, and the only place in the book where you
+grade an estimate against the population it estimates. Each ends with a **Try
+this** section of one-line edits with visible consequences.
 
 ## The skip index (listing 8.2)
 
@@ -292,26 +255,19 @@ The second, after `ADD INDEX` and `MATERIALIZE INDEX`:
         Ranges: 0
 ```
 
-Read that as a chain, not as one ratio. `EXPLAIN` prints a section per step. The
-primary key goes first and reports how many of the table's 132 granules survived
-the sort-key comparison. `trace_id` is last in the sort key and the IDs are
-random, so all the sort key can do is a generic exclusion search, and this is as
-far as it gets. Then each skip index prints below it, and its denominator is
-whatever the step above already left. The bloom's line reads 0 out of 27, not 0
-out of 132. Credit an index with the fall between its own two numbers and nothing
-else. The reduction on the line above was free.
+Read that as a chain, not one ratio. The primary key reports first: `trace_id` is
+last in the sort key and the IDs are random, so all it can do is a generic
+exclusion search, and 27 of 132 granules is as far as it gets. The bloom prints
+below it, and its denominator is whatever that step left. Its line reads 0 out of
+27, not 0 out of 132. Credit an index with the fall between its own two numbers.
 
-Your primary-key number will probably not be 27, and that is not a problem. It is
-the one number here that moves between runs: 13, 20 and 24 are also real readings
-from the same generator, and which one you get depends on where the clock is. NOTES explains why, and the short version is that the
-sort key groups by hour and the generator's clock is `now()`. The 132 does not
-move, and neither does the bloom's 0.
-
-Zero granules is the strongest reading you can get. `4bf92f3577b34da6a3ce929d0e0e4736`
-is the example trace ID from the W3C trace-context spec and it is not in your
-data, so the bloom answers the membership question outright and the query reads
-nothing at all. Proving absence without touching a granule is exactly what a
-point lookup needs from an index.
+Your primary-key number probably will not be 27, and that is fine: it moves with
+the clock, because the sort key groups by hour. 13, 20 and 24 are all real
+readings from this same generator. The 132 does not move, and neither does the
+bloom's 0. That 0 is the strongest reading available, because
+`4bf92f3577b34da6a3ce929d0e0e4736` is the W3C spec's example ID and is not in your
+data, so the bloom settles membership without reading a granule. NOTES has the
+long version of both.
 
 Put the table back when you are done:
 
@@ -339,13 +295,11 @@ Live, so the stack must be up and `generate/generate.py` must have run:
 bash tests/test_stack.sh
 ```
 
-It does not check that the biased and unbiased answers differ, which would pass
-on any pair of wrong numbers. It checks that the weighted answer equals the
-recorded truth and the biased one does not: `sum(adjusted_count)` against the
-population, the weighted p99 against the true p99, the rollup against the raw
-scan, and the rollup's error count against the errors the generator produced. It
-drops the index and the view it created on the way out, so you can run it before
-or after anything else here.
+It does not check that the biased and unbiased answers merely differ, which would
+pass on any pair of wrong numbers. It checks each against the recorded truth:
+`sum(adjusted_count)` against the population, the weighted p99 against the true
+p99, the rollup against the raw scan and against the errors the generator
+produced. It cleans up the index and view it creates, so run it whenever.
 
 ## Tear down
 

@@ -25,10 +25,9 @@ ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-The `< /dev/null` is not decoration. `clickhouse-client` reads stdin for INSERT
-data even when the rows are inline or come from a SELECT, and `docker compose
-exec -T` hands it whatever stdin you had. From a terminal that never reaches EOF
-and the command hangs with no output.
+The `< /dev/null` is not decoration. Without it `clickhouse-client` waits on a
+stdin that never reaches EOF and the command hangs with no output. NOTES has the
+detail.
 
 ```bash
 docker compose up -d
@@ -43,12 +42,9 @@ ch --query "DROP VIEW IF EXISTS tracing.red_by_service"
 python3 generate/generate.py
 ```
 
-The `DROP` matters more than it looks. The generator truncates
-`tracing.otel_traces` and inserts the population again, and a truncate never
-reaches a materialized view's own storage. A leftover view would fold a second
-copy of the population into its rollup while the span table stayed perfectly
-correct. `rollup.md` walks into that on purpose. One line here is how you avoid
-meeting it by accident.
+The `DROP` matters. A truncate never reaches a materialized view's own storage,
+so a view left over from `rollup.md` would quietly fold a second copy of the
+population into its rollup while the span table stayed correct.
 
 ```
 [generate] population 10,000,000 requests, keeping 154,200 (1.54%)
@@ -64,27 +60,12 @@ the numbers below are checkable: everything the sampler dropped is still known.
 
 ## The policy, on paper
 
-The keep rate per class is a table rather than a constant buried in a script, so
-you can read the policy instead of trusting it:
+`tracing.sampling_policy` holds the keep rate per class: normal kept one in a
+hundred, slow one in two, errors whole. `adjusted_count` is the reciprocal of
+that rate, which is the entire trick. A survivor kept at one in a hundred stands
+for the hundred requests that looked like it.
 
-```bash
-ch --query "
-SELECT class, keep_rate, adjusted_count
-FROM tracing.sampling_policy ORDER BY adjusted_count DESC"
-```
-
-```
-normal   0.01   100
-slow     0.5    2
-error    1      1
-```
-
-Three classes, the shape a tail sampler produces. Bulk traffic kept one in a
-hundred. Slow requests kept one in two. Errors kept whole. The `adjusted_count`
-column is the reciprocal of the keep rate, which is the entire trick: a survivor
-kept at one in a hundred stands for the hundred requests that looked like it.
-
-Now count the survivors by weight and multiply back:
+Count the survivors by weight and multiply back:
 
 ```bash
 ch --query "
@@ -158,12 +139,10 @@ hardest to keep. Ask that set for a p99 and it answers honestly about itself and
 tells you nothing true about production. An on-call engineer reads 1445 ms,
 starts an investigation, and the system is fine.
 
-One caveat on the window before you go further. The generator hangs its
-timestamps off `now()` and spreads them across the twenty minutes before it runs,
-and listing 8.1 asks for the last hour, so you have about forty minutes of slack.
-Come back later than that and the window starts dropping the oldest rows and
-every total falls short of the population. That is the clock, not the math.
-Re-run `generate/generate.py` and the numbers come back.
+One caveat on the window. Timestamps hang off `now()` and span the twenty minutes
+before the run, and listing 8.1 asks for the last hour, so you have about forty
+minutes. After that every total falls short of the population, which is the clock
+and not the math. Re-run `generate/generate.py`.
 
 ## Try this
 
@@ -188,12 +167,11 @@ Seventy million. The unbiased query, the correct weight, the right column, and
 the answer is seven times the truth. The table stores one row per span and a
 request is seven of them, so without `parent_span_id = ''` the query counts spans
 and calls them requests. Adding a child span to one service, which is a normal
-week's work, moves every request count in the dashboard.
-
-Nothing about 70,000,000 looks broken. It is a round, plausible, confident
-number. Compare it to what `count()` does over the same rows without the filter,
-1,079,400, also exactly seven times its own already-wrong 154,200. Both errors
-compose. A biased count on the wrong grain is wrong twice and looks fine once.
+week's work, moves every request count in the dashboard. And nothing about
+70,000,000 looks broken; it is round, plausible and confident. The biased
+`count()` over the same rows reads 1,079,400, seven times its own already-wrong
+154,200. Both errors compose, and the pair is wrong twice while looking fine
+once.
 
 **Strip the weight and watch the correction quietly stop correcting.** This is
 section 8.2.1's silent failure mode, made runnable. First at read time, without
@@ -248,13 +226,10 @@ stays precise, stays confident, and turns wrong, and no part of the system is in
 a position to notice. The dashboard stays green because green is a color, not a
 claim.
 
-Go back to that one-millisecond gap for a moment, because it is the entire
-contribution of the estimator. The two percentiles are not even the same
-function: #C is `quantile()`, which is approximate, and #D is
-`quantileExactWeighted()`, which is exact. Take the weight away and approximate
-against exact is the only difference left between them, and it is worth one
-millisecond. The estimator was never what separated 1445 from 180. The weight
-was, and it was worth 1265 ms.
+That one-millisecond gap is the entire contribution of the estimator: #C is
+`quantile()`, approximate, and #D is `quantileExactWeighted()`, exact. With the
+weight gone, approximate against exact is all that is left between them. The
+estimator never separated 1445 from 180. The weight did, and it was worth 1265 ms.
 
 Put it back before moving on:
 
@@ -337,15 +312,13 @@ from 120,000 wide to 784,000 wide, and the only thing that changed is how much
 traffic got thrown out. Cheaper sampling does not make the estimate wrong. It
 makes it vaguer, and vagueness is invisible in a number.
 
-Now look at the last column, which does not move at all. That is worth more than
-the rest of the table. The count estimate wobbles by five percent while the p99
-sits on 180 through every seed, from the same rows, in the same query. The reason
-is in this population's shape: the normal band is `40 + (n % 141)`, so its 141
-possible durations each carry about 70,354 requests, and the 99th percentile
-lands inside the top one. A wide flat step is a comfortable place for a quantile
-to sit. Make the band smooth by changing it to `40 + (n % 14100) / 100` and the
-p99 starts to move, though only between 180.69 and 180.76 across the same ten
-seeds, because the distribution is dense right there.
+Now look at the last column, which does not move at all, and is worth more than
+the rest of the table. The count wobbles five percent while the p99 sits on 180
+through every seed, same rows, same query. The normal band is `40 + (n % 141)`,
+so each of its 141 durations carries about 70,354 requests and the 99th
+percentile lands inside the top one. A wide flat step is a comfortable place for
+a quantile to sit. Smooth the band to `40 + (n % 14100) / 100` and the p99 does
+move, but only between 180.69 and 180.76 across the same ten seeds.
 
 So: two estimates, one sample, error bars that differ by orders of magnitude, and
 nothing in either output that tells you which case you are in. That is the

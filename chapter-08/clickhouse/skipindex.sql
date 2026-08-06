@@ -11,19 +11,13 @@
 -- denominator is whatever the primary key already left, never the table total.
 -- Credit it with the fall between its own two numbers and nothing more.
 --
--- The trace ID below is the W3C specification's example, and it is deliberately
--- NOT in the generated data. That is what makes the reading clean: a bloom
--- filter's guarantee is that it never misses a block that could match, so an ID
--- the table has never seen prunes every surviving granule and the second EXPLAIN
--- reports 0. Looking up an ID that IS present prunes less, because a bloom can
--- only narrow to the blocks that might hold it. Trace IDs here are MD5 of the
--- trace's index, so lower(hex(MD5('0'))) is a real one if you want that reading
--- too; it returns seven spans.
+-- The trace ID below is the W3C spec's example and is deliberately NOT in the
+-- data, so the bloom rules out every surviving granule and the second EXPLAIN
+-- reports 0. For a present ID instead, lower(hex(MD5('0'))) returns seven spans.
 --
--- The DROP below is outside the listing. ADD INDEX fails if the index already
--- exists, and TRUNCATE does not remove index definitions, so without this a
--- second run of the file would report a "before" that already has the index
--- pruning, which is the one thing this listing exists to show.
+-- The DROP is outside the listing. ADD INDEX fails if the index exists, and
+-- TRUNCATE does not remove index definitions, so without it a second run reports
+-- a "before" that already has the index pruning.
 ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id;
 
 -- ---- Listing 8.2: Add a bloom-filter skip index and verify the pruning ----

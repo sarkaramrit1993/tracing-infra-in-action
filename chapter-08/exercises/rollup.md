@@ -23,9 +23,8 @@ ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-The `< /dev/null` is not decoration. `clickhouse-client` reads stdin for INSERT
-data even when the rows are inline or come from a SELECT, and `docker compose
-exec -T` hands it whatever stdin you had, where it will sit and wait.
+The `< /dev/null` is not decoration. Without it the client waits on a stdin that
+never reaches EOF. NOTES has the detail.
 
 ```bash
 docker compose up -d
@@ -48,11 +47,10 @@ python3 generate/generate.py
 [generate] done. The weighted total reproduces the population exactly.
 ```
 
-That `DROP` is the one thing to remember about this whole file, so it is worth
-knowing why before you need it. The generator truncates `tracing.otel_traces` and
-writes the population again. A truncate is not an insert, so a materialized view
-never hears about it, and the view's own storage keeps everything it had. Run the
-generator a second time with the view in place and the rollup holds two copies of
+That `DROP` is the one thing to remember about this file. The generator truncates
+`tracing.otel_traces` and writes the population again, and a truncate is not an
+insert, so a materialized view never hears about it and keeps everything it had.
+Run the generator twice with the view in place and the rollup holds two copies of
 a population that exists once:
 
 ```
@@ -162,10 +160,10 @@ how this ships: at a hundred billion spans the same query is the 20-to-60-second
 aggregation section 8.4 calls the inflection point. The rollup is how you never
 find out.
 
-That 132 is stable, which is not luck. The generator ends with `OPTIMIZE TABLE
-tracing.otel_traces FINAL` so the insert lands in one part instead of however
-many the server felt like, and granule totals stop drifting between runs for
-reasons that have nothing to do with indexes.
+That 132 is stable because the generator ends with `OPTIMIZE TABLE
+tracing.otel_traces FINAL`, so the insert lands in one part rather than however
+many the server felt like. One exception, in NOTES: a run between 00:00 and 00:20
+straddles midnight, takes two daily partitions, and can report 133.
 
 ## Try this
 
