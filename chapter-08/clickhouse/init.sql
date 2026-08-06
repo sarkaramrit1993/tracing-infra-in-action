@@ -41,13 +41,18 @@ ORDER BY (service_name, span_name, toStartOfHour(timestamp), trace_id);
 -- What the generator produced before it sampled anything. This is the whole
 -- reason the exercises can prove an estimate correct rather than merely
 -- different: in production the population is gone, here it is one row.
+-- users is the number of distinct people behind those requests. It is here for
+-- the one aggregate the sampling weight cannot repair: a count can be scaled
+-- back up and a distinct count cannot, and without this column that claim can
+-- be asserted but not graded.
 CREATE TABLE IF NOT EXISTS tracing.ground_truth
 (
     run_id       String,
     generated_at DateTime,
     requests     UInt64,
     p99_ms       Float64,
-    errors       UInt64
+    errors       UInt64,
+    users        UInt64
 )
 ENGINE = MergeTree
 ORDER BY run_id;

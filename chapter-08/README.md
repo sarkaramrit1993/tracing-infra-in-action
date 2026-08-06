@@ -42,7 +42,7 @@ changes are load-bearing and both are explained in NOTES.
 - About 2 GB of memory given to Docker. On macOS and Windows that is Docker
   Desktop's own setting under Settings, Resources, not free host RAM. The single
   container settles under 1 GB once the data is loaded
-- About 1 GB of free disk for the ClickHouse image, plus 35 MB for the data the
+- About 1 GB of free disk for the ClickHouse image, plus 38 MB for the data the
   generator writes
 - Python 3 on the host, for `generate/generate.py`. Nothing to install: it shells
   out to `clickhouse-client` inside the container

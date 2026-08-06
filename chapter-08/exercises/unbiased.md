@@ -284,6 +284,49 @@ fixed one happens to fix the other. Ask about distinct users and the floor gives
 way, because two survivors may be the same user and 9.85 million dropped requests
 may be 9.85 million users or one.
 
+So ask about distinct users. Every span carries a `user.id`, hashed from the
+request's index in the population, and the generator recorded how many distinct
+users that population held before it sampled anything. Put the store's answer,
+the count rule's fix for it and the truth on one line. The `!= ''` guard is there
+because a missing map key reads back as an empty string, and an empty string is a
+perfectly good distinct value:
+
+```bash
+ch --query "
+SELECT uniqExact(attributes['user.id']) AS users_in_store,
+       round(uniqExact(attributes['user.id'])
+             * sum(adjusted_count) / count()) AS scaled_by_the_rule,
+       (SELECT users FROM tracing.ground_truth) AS users_that_shopped
+FROM tracing.otel_traces
+WHERE timestamp >= toStartOfMinute(now() - INTERVAL 1 HOUR)
+  AND parent_span_id = ''
+  AND attributes['user.id'] != ''"
+```
+
+```
+132789   8611479   500000
+```
+
+Take the outer two first. The store holds 132,789 distinct users. Half a million
+people shopped, so the store is reading 3.77x low. The request count over these
+same rows, in the same hour, read 64.85x low. One sampler, one set of survivors,
+and two error factors that are not within an order of magnitude of each other, so
+there is no single correct-for-sampling step that fixes both.
+
+The middle column is what happens when you apply one anyway.
+`sum(adjusted_count) / count()` is 64.85, the multiplier this table has already
+earned, taken from the rows rather than typed in. Multiply the distinct count by
+it and you get 8,611,479 users out of a population of 500,000. The raw answer was
+3.77x low. The corrected one is 17x high. The rule did not merely fail to help
+here: it moved the answer further from the truth than leaving it alone, and it
+moved it in the opposite direction, which is the part no dashboard can warn you
+about.
+
+3.77 is the multiplier that would have worked, and the only reason it is on this
+page is that the generator wrote the truth down. Take that row away, the way
+production does, and nothing in the sampled rows points at 3.77 rather than
+64.85.
+
 Here is why no scale factor can exist. Two populations, sampled identically, that
 the query engine cannot tell apart:
 
@@ -403,8 +446,10 @@ checkout-service   180
 ```
 
 Those five lines are the state this file started in. Nothing else to undo: this
-exercise built no tables, created no views and added no indexes, and the last
-three variations ran against `numbers()` and never touched storage. Confirm:
+exercise built no tables, created no views and added no indexes. Two of the four
+variations did change what is on disk, the `ALTER TABLE ... UPDATE` that stripped
+the weights and the regeneration at a wider tail split, and the `generate.py`
+above puts both back. Confirm:
 
 ```bash
 ch --query "SELECT name FROM system.tables WHERE database = 'tracing' AND engine NOT LIKE '%View%' ORDER BY name"

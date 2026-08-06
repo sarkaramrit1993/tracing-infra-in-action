@@ -36,6 +36,15 @@ number that reproduces on your machine. exercises/unbiased.md has a variation
 that switches the sampler to a real coin and shows the scatter, which is the
 confidence interval the chapter says is usually missing.
 
+Every request also carries a user, hashed from its index in the population into
+a pool of 500,000. The hash is the part that matters. Sampling here keeps every
+hundredth normal trace, so a user id taken as n % 500000 would put all 99,200
+surviving normal traces onto exactly 5,000 ids, and the shortfall the exercise
+measures would be an artifact of the stride rather than a property of sampling.
+Hashed, the survivors cover roughly a quarter of the pool, which is what 154,200
+draws from 500,000 buys you. That shortfall is the point: a distinct count over
+sampled data is a floor, and unlike a count there is no weight that lifts it.
+
 Rows are built server-side with INSERT ... SELECT FROM numbers(), so a million
 spans take seconds and nothing large crosses the wire.
 
@@ -64,6 +73,7 @@ SLOW_KEPT = SLOW // SLOW_KEEP                # 25,000
 ERROR_KEPT = ERROR // ERROR_KEEP             # 30,000
 KEPT = NORMAL_KEPT + SLOW_KEPT + ERROR_KEPT  # 154,200
 SPANS_PER_TRACE = 7
+USER_POOL = 500_000
 
 # Duration of a request, in milliseconds, as a function of its index in the
 # population. Written once here and reused for both the true-p99 computation
@@ -96,6 +106,13 @@ multiIf(
   t < {NORMAL_KEPT + SLOW_KEPT},  {SLOW_KEEP},
                                   {ERROR_KEEP})
 """
+
+# The user a request came from, as a function of its index in the population, so
+# the truth below and the rows themselves cannot drift apart. Hashed rather than
+# taken modulo: the sampler keeps every hundredth normal trace, and n % USER_POOL
+# would collapse those survivors onto USER_POOL / gcd(100, USER_POOL) ids, which
+# would make the exercise measure the stride instead of the sampling.
+USER_ID = f"concat('u', toString(cityHash64(n) % {USER_POOL}))"
 
 CHILD_NAMES = ("'validate_cart', 'inventory.reserve', 'payment.charge', "
                "'fraud.score', 'order.create', 'notification.send'")
@@ -139,6 +156,15 @@ def main():
     """))
     print(f"[generate] true p99 over the full population: {true_p99:.1f} ms")
 
+    # How many distinct people were behind those requests. Recorded and not
+    # printed: three files quote this script's banner verbatim, and a sixth line
+    # would make all three wrong. It is the number a distinct count over the
+    # survivors gets graded against, and the survivors will not reach it.
+    true_users = int(ch(f"""
+        SELECT uniqExact({USER_ID})
+        FROM (SELECT toInt64(number) AS n FROM numbers({POPULATION}))
+    """))
+
     for table in ("otel_traces", "ground_truth", "sampling_policy"):
         ch(f"TRUNCATE TABLE IF EXISTS tracing.{table}")
 
@@ -151,8 +177,8 @@ def main():
 
     ch(f"""
         INSERT INTO tracing.ground_truth
-          (run_id, generated_at, requests, p99_ms, errors)
-        VALUES ('run', now(), {POPULATION}, {true_p99}, {ERROR})
+          (run_id, generated_at, requests, p99_ms, errors, users)
+        VALUES ('run', now(), {POPULATION}, {true_p99}, {ERROR}, {true_users})
     """)
 
     # One row per span. The root carries the request's outcome, the way an HTTP
@@ -179,7 +205,7 @@ def main():
                   'STATUS_CODE_OK') AS status_code,
           if(s = 0, dur_ms * 1000000, intDiv(dur_ms * 1000000, 8)) AS duration_ns,
           w AS adjusted_count,
-          map('http.method', 'POST') AS attributes
+          map('http.method', 'POST', 'user.id', {USER_ID}) AS attributes
         FROM (
           SELECT number, t, s, n, w, {DURATION_MS} AS dur_ms
           FROM (

@@ -81,7 +81,34 @@ awk -v u="$U_P99" -v t="$TRUE_P99" 'BEGIN { exit !(u > t * 2) }' \
   || fail "unweighted p99 $U_P99 ms is not meaningfully above the true $TRUE_P99 ms; the demo shows nothing"
 pass "unweighted p99 $U_P99 ms reads far above the truth, which is the other half of the bug"
 
-echo "== 4. listing 8.2: the bloom index prunes granules the primary key left =="
+echo "== 4. section 8.2.2: the weight lifts a count and cannot lift a distinct count =="
+# The other three assertions in this file check that the weight recovers the
+# truth. This one checks where it stops. Both failure directions are asserted,
+# because a distinct count over sampled data misses low and the count rule's
+# multiplier then overshoots high, and a gate that only knew about one of them
+# would pass on a table where the other had quietly become the bigger error.
+HAS_USERS=$(CH --query "SELECT count() FROM system.columns
+  WHERE database='tracing' AND table='ground_truth' AND name='users'")
+[ "$HAS_USERS" = "1" ] || fail "tracing.ground_truth has no users column. init.sql is applied on
+      first boot only, so an older volume keeps the older table.
+      Run: docker compose down -v && docker compose up -d && python3 generate/generate.py"
+TRUE_USERS=$(CH --query "SELECT users FROM tracing.ground_truth LIMIT 1")
+SEEN_USERS=$(CH --query "SELECT uniqExact(attributes['user.id']) FROM tracing.otel_traces
+              WHERE $WINDOW AND attributes['user.id'] != ''")
+[ "$SEEN_USERS" != "0" ] \
+  || fail "no span carries a user.id, so section 8.2.2 has nothing to count. Run: python3 generate/generate.py"
+awk -v s="$SEEN_USERS" -v t="$TRUE_USERS" 'BEGIN { exit !(s * 2 < t) }' \
+  || fail "the survivors hold $SEEN_USERS distinct users against a true $TRUE_USERS, which is
+      close enough to look like recovery. The user pool is too small for the sample size,
+      so the exercise shows a floor that is not visibly a floor"
+pass "distinct users reads $SEEN_USERS against a true $TRUE_USERS, a floor and not an estimate"
+SCALED=$(awk -v s="$SEEN_USERS" -v p="$POP" -v k="$BIASED" 'BEGIN { printf "%.0f", s * p / k }')
+awk -v c="$SCALED" -v t="$TRUE_USERS" 'BEGIN { exit !(c > t) }' \
+  || fail "scaling the distinct count by the count rule gave $c against a true $TRUE_USERS;
+      it is supposed to overshoot, and section 8.2.2 has no example if it does not"
+pass "the count rule's own multiplier turns it into $SCALED, past the truth in the other direction"
+
+echo "== 5. listing 8.2: the bloom index prunes granules the primary key left =="
 # The last Granules line of the plan is the last thing that got to prune. Before
 # the index that is the primary key; after, it is the bloom. Comparing the two is
 # the difference between proving the index prunes and proving it merely appears,
@@ -107,7 +134,7 @@ AFTER_G=$(SURVIVORS)
   || fail "the index is in the plan but pruned nothing: $BEFORE_G granules before, $AFTER_G after"
 pass "listing 8.2 adds the index and it prunes $BEFORE_G granules to $AFTER_G"
 
-echo "== 5. listing 8.3: the rollup agrees with the raw scan, to the unit =="
+echo "== 6. listing 8.3: the rollup agrees with the raw scan, to the unit =="
 CH_FILE clickhouse/rollup.sql > /dev/null
 ROLLUP=$(CH --query "SELECT toUInt64(sum(requests)) FROM tracing.red_by_service
           WHERE minute >= toStartOfMinute(now() - INTERVAL 1 HOUR)")
@@ -120,7 +147,7 @@ ROLLUP_ERRORS=$(CH --query "SELECT toUInt64(sum(requests)) FROM tracing.red_by_s
   || fail "the rollup counts $ROLLUP_ERRORS errors against a true $TRUE_ERRORS"
 pass "the error half of RED reads $ROLLUP_ERRORS, exactly what the generator produced"
 
-echo "== 6. cleanup: put the table back the way the stack starts =="
+echo "== 7. cleanup: put the table back the way the stack starts =="
 CH --query "DROP VIEW IF EXISTS tracing.red_by_service"
 CH --query "ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id"
 echo "dropped the rollup view and the index listing 8.2 added"
