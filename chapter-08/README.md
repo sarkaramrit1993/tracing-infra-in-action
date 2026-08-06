@@ -89,6 +89,33 @@ last hour, so you have about forty minutes. Come back after lunch and run
 `generate/generate.py` again before comparing numbers, or the window will have
 slid off the rows.
 
+## The third command
+
+Listing 8.1 asks the same two questions twice, once ignoring the sampling weight
+and once respecting it:
+
+```bash
+docker compose exec -T clickhouse clickhouse-client \
+  --multiquery < clickhouse/unbiased.sql
+```
+
+```
+checkout-service   154200
+checkout-service   10000000
+checkout-service   1445
+checkout-service   180
+10000000   180
+```
+
+154,200 requests at a p99 of 1445 ms is what the survivors say. 10,000,000 at
+180 ms is what happened. Both pairs came from the same rows and the same store,
+and the only thing separating a precise lie from a correct estimate is whether
+the query weighted what it read.
+
+The last line is the generator's own record, written before it sampled anything.
+It is the only reason you can tell which pair is which, and it is the one line
+production does not get to have. `exercises/unbiased.md` takes it apart.
+
 ---
 
 ## Look at your trace data
