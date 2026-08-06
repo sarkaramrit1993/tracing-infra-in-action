@@ -146,8 +146,8 @@ and not the math. Re-run `generate/generate.py`.
 
 ## Try this
 
-Four edits. Each is small, each changes a number you can see, and the first two
-are the mistakes people actually ship.
+Three edits. Each is one line, each changes a number you can see, and the first
+two are the mistakes people actually ship.
 
 **Drop the root-span filter.** This is the single most likely mistake a reader
 will make, so make it deliberately and look at what it costs:
@@ -236,95 +236,6 @@ Put it back before moving on:
 ```bash
 python3 generate/generate.py
 ```
-
-**Swap the deterministic sampler for a real coin.** The exact 10,000,000 above is
-not a law of nature. It comes from the generator keeping every hundredth trace
-and every second slow one, and determinism is what makes the number reproduce on
-your machine. A real probabilistic sampler hashes the trace ID and compares it
-against a threshold, so the count of survivors is itself a random variable.
-
-This query draws the population and the coin in one pass, ten independent seeds
-at a time. It touches no table:
-
-```bash
-ch --query "
-SELECT
-  seed,
-  count()                                   AS kept_traces,
-  sum(w)                                    AS weighted_total,
-  round(100 * (sum(w) - 10000000) / 1e7, 2) AS pct_off,
-  round(quantileExactWeighted(0.99)(dur_ms, toUInt64(w)), 1) AS p99_ms
-FROM (
-  SELECT arrayJoin(range(1, 11)) AS seed, number AS n,
-    multiIf(n < 9920000, 100, n < 9970000, 2, 1) AS w,
-    multiIf(n < 9920000, 40 + (n % 141),
-            n < 9970000, 700 + (n % 100),
-                        1350 + (n % 100)) AS dur_ms
-  FROM numbers(10000000))
-WHERE cityHash64(n, seed) % w = 0
-GROUP BY seed ORDER BY seed"
-```
-
-```
-seed   kept     weighted_total   pct_off   p99_ms
-1      153793   9975764          -0.24     180
-2      154393   10014008          0.14     180
-3      154198   10016852          0.17     180
-4      154101   10004702          0.05     180
-5      154446   10027540          0.28     180
-6      154766   10046310          0.46     180
-7      153337   9926048          -0.74     180
-8      153792   9956750          -0.43     180
-9      154116   10013846          0.14     180
-10     153951   9988722          -0.11     180
-```
-
-Ten answers to one question. Near ten million, never on it, from 9,926,048 to
-10,046,310. The estimator is unbiased, meaning it is right on average, which is a
-different and much weaker promise than being right.
-
-That scatter is the confidence interval section 8.2.2 says is almost always
-missing. It is not an artifact of the demo. It is the thing a single printed
-number is standing on, and every real weighted dashboard has one and shows none
-of it.
-
-Now make the sampler more aggressive, which is what a cost review does. Change
-the `100` in the `w` expression, the normal class's keep weight, to `5000` and
-run it again. Leave the two `n % 100` terms in the duration expression alone:
-
-```
-seed   kept    weighted_total   pct_off   p99_ms
-1      56872   10279664          2.80     180
-2      57067   10145108          1.45     180
-3      56812   10009652          0.10     180
-4      56826   9954702          -0.45     180
-5      57005   10254940          2.55     180
-6      56988   9495210          -5.05     180
-7      56825   9834748          -1.65     180
-8      56988   9895050          -1.05     180
-9      56810   10264546          2.65     180
-10     56882   10184722          1.85     180
-```
-
-Seed 6 reports 9.5 million against a truth of 10 million. Half a million requests
-that never happened, or rather did happen and were guessed away. The spread went
-from 120,000 wide to 784,000 wide, and the only thing that changed is how much
-traffic got thrown out. Cheaper sampling does not make the estimate wrong. It
-makes it vaguer, and vagueness is invisible in a number.
-
-Now look at the last column, which does not move at all, and is worth more than
-the rest of the table. The count wobbles five percent while the p99 sits on 180
-through every seed, same rows, same query. The normal band is `40 + (n % 141)`,
-so each of its 141 durations carries about 70,354 requests and the 99th
-percentile lands inside the top one. A wide flat step is a comfortable place for
-a quantile to sit. Smooth the band to `40 + (n % 14100) / 100` and the p99 does
-move, but only between 180.69 and 180.76 across the same ten seeds.
-
-So: two estimates, one sample, error bars that differ by orders of magnitude, and
-nothing in either output that tells you which case you are in. That is the
-argument for the error bar, and it is a better argument than "estimates are
-uncertain". A weighted p99 of 180 might mean 180 plus or minus 0.05 or 180 plus
-or minus 40, and the query prints the same six characters either way.
 
 **Count distinct instead of counting, and watch the rule run out.** Section 8.2.2
 says the adjusted-count rule covers counts, sums and percentiles and stops at
@@ -441,3 +352,23 @@ than after. `clickhouse/init.sql` explains why this table carries
 `exercises/rollup.md` takes the same weight into a materialized view, where
 getting it wrong is quieter, because the rollup keeps answering at full speed
 with a number that no longer matches the raw scan.
+
+One more if you want it. The 10,000,000 above is exact because the generator
+keeps every hundredth trace rather than flipping a coin per trace. Swap in a real
+probabilistic sampler and the weighted total becomes an estimate with a spread:
+
+```bash
+ch --query "
+SELECT seed, count() AS kept, sum(w) AS weighted,
+       round(100 * (sum(w) - 10000000) / 1e7, 2) AS pct_off
+FROM (
+  SELECT number AS n, arrayJoin(range(1, 11)) AS seed,
+         multiIf(n < 9920000, 100, n < 9970000, 2, 1) AS w
+  FROM numbers(10000000))
+WHERE cityHash64(n, seed) % w = 0
+GROUP BY seed ORDER BY seed"
+```
+
+Ten seeds, ten answers, spread from about three quarters of a percent low to
+half a percent high, and none of them exactly ten million. That spread is the
+confidence interval the chapter says is usually missing from a sampled dashboard.

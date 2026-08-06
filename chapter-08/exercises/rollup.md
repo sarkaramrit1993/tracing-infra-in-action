@@ -167,10 +167,11 @@ straddles midnight, takes two daily partitions, and can report 133.
 
 ## Try this
 
-Each variation builds its own view, tags its rows with its own service name, and
-drops what it made. Define one helper first. It writes 500 root spans into one
-minute, each carrying a weight of 100 and a duration of 180 ms, so a batch is
-worth exactly 50,000 requests:
+Two edits, both one word or one clause, both silent in production. Each builds
+its own view, tags its rows with its own service name, and drops what it made.
+One helper first: it writes 500 root spans into a single minute, each carrying a
+weight of 100 and a duration of 180 ms, so a batch is worth exactly 50,000
+requests:
 
 ```bash
 demo_batch() {
@@ -250,64 +251,6 @@ Same source table, same engine, same SELECT, one keyword apart.
 ch --query "DROP VIEW IF EXISTS tracing.red_no_populate"
 ```
 
-**Read the SummingMergeTree without re-summing.** Annotation #D on listing 8.3
-says the dashboard query re-sums on the way out because the background merge has
-not necessarily run. Make that visible by taking the merge away:
-
-```bash
-ch --query "SYSTEM STOP MERGES tracing.red_by_service"
-MIN=$(ch --query "SELECT toString(toStartOfMinute(now()))")
-demo_batch rollup-demo-b "$MIN" 1
-demo_batch rollup-demo-b "$MIN" 2
-ch --query "
-SELECT service_name, status_code, minute, requests
-FROM tracing.red_by_service WHERE service_name = 'rollup-demo-b' ORDER BY minute"
-```
-
-```
-rollup-demo-b   STATUS_CODE_UNSET   2026-08-05 16:49:00   50000
-rollup-demo-b   STATUS_CODE_UNSET   2026-08-05 16:49:00   50000
-```
-
-The minute is whenever you ran it, so your timestamp will differ. What matters is
-that there are two rows. Same service, same status, same minute, which the
-`ORDER BY` says is impossible and the storage says is fine. A SummingMergeTree does not collapse
-duplicate keys on insert. It collapses them on a background merge, whenever that
-happens to run, so between the insert and the merge the table holds one row per
-insert batch rather than one per minute. Read it raw and a per-minute panel plots
-one point per batch of traffic and undercounts every one of them.
-
-Reading it the way listing 8.3 does costs nothing and is always right:
-
-```bash
-ch --query "
-SELECT service_name, sum(requests) AS requests
-FROM tracing.red_by_service WHERE service_name = 'rollup-demo-b' GROUP BY service_name"
-```
-
-```
-rollup-demo-b   100000
-```
-
-Now let the merge happen:
-
-```bash
-ch --query "SYSTEM START MERGES tracing.red_by_service"
-ch --query "OPTIMIZE TABLE tracing.red_by_service FINAL"
-ch --query "
-SELECT service_name, status_code, minute, requests
-FROM tracing.red_by_service WHERE service_name = 'rollup-demo-b' ORDER BY minute"
-```
-
-```
-rollup-demo-b   STATUS_CODE_UNSET   2026-08-05 16:49:00   100000
-```
-
-One row, 100,000. The rows collapsed and the total never changed, which is the
-point: the re-sum is not a workaround for a bug, it is how you read a table whose
-row count is a scheduling detail. `OPTIMIZE ... FINAL` is fine for a demo and a
-poor habit in production, where it rewrites whole parts on demand.
-
 **Leave the root-span filter out of the view.** Same mistake as the unbiased
 exercise, one layer further from where anyone will look for it:
 
@@ -364,106 +307,6 @@ combination nobody investigates.
 ch --query "DROP VIEW IF EXISTS tracing.red_no_root"
 ```
 
-**Put a percentile in a SummingMergeTree.** Section 8.3.3 says a sum rolls up by
-adding and a percentile cannot. That is easy to nod at, so watch it instead:
-
-```bash
-ch --query "DROP VIEW IF EXISTS tracing.p99_summing"
-ch --query "
-CREATE MATERIALIZED VIEW tracing.p99_summing
-ENGINE = SummingMergeTree
-ORDER BY (service_name, minute)
-POPULATE
-AS SELECT service_name, toStartOfMinute(timestamp) AS minute,
-   round(quantileExactWeighted(0.99)(duration_ns,
-         toUInt64(round(adjusted_count))) / 1e6, 1) AS p99_ms
-FROM tracing.otel_traces WHERE parent_span_id = ''
-GROUP BY service_name, minute"
-```
-
-It builds without complaint. Now send it two batches of 180 ms traffic in one
-minute, which is what any minute of real ingest looks like:
-
-```bash
-MIN=$(ch --query "SELECT toString(toStartOfMinute(now()))")
-demo_batch rollup-demo-c "$MIN" 1
-demo_batch rollup-demo-c "$MIN" 2
-ch --query "
-SELECT service_name, minute, p99_ms FROM tracing.p99_summing
-WHERE service_name = 'rollup-demo-c' ORDER BY minute"
-```
-
-```
-rollup-demo-c   2026-08-05 16:50:00   180
-rollup-demo-c   2026-08-05 16:50:00   180
-```
-
-Two batches, each with a p99 of 180 ms, correct so far. Then the background merge
-does its job:
-
-```bash
-ch --query "OPTIMIZE TABLE tracing.p99_summing FINAL"
-ch --query "
-SELECT service_name, minute, p99_ms FROM tracing.p99_summing
-WHERE service_name = 'rollup-demo-c' ORDER BY minute"
-```
-
-```
-rollup-demo-c   2026-08-05 16:50:00   360
-```
-
-360 ms. Every request in that minute took 180 ms and the latency panel now reads
-360, because a SummingMergeTree sums every numeric column that is not in the sort
-key and it has no way to know that this one is a percentile. Nothing was
-misconfigured. The engine did precisely what it is for. The p99 doubles with the
-number of insert batches, so it climbs when traffic climbs, which reads exactly
-like a service degrading under load.
-
-The shape that works stores a mergeable sketch rather than a finished number:
-
-```bash
-ch --query "DROP VIEW IF EXISTS tracing.p99_by_service"
-ch --query "
-CREATE MATERIALIZED VIEW tracing.p99_by_service
-ENGINE = AggregatingMergeTree
-ORDER BY (service_name, minute)
-POPULATE
-AS SELECT service_name, toStartOfMinute(timestamp) AS minute,
-   quantileExactWeightedState(0.99)(duration_ns,
-         toUInt64(round(adjusted_count))) AS p99_state
-FROM tracing.otel_traces WHERE parent_span_id = ''
-GROUP BY service_name, minute"
-ch --query "
-SELECT service_name,
-       round(quantileExactWeightedMerge(0.99)(p99_state) / 1e6, 1) AS p99_ms
-FROM tracing.p99_by_service
-WHERE minute >= toStartOfMinute(now() - INTERVAL 1 HOUR)
-  AND service_name IN ('checkout-service', 'rollup-demo-c')
-GROUP BY service_name ORDER BY service_name"
-```
-
-```
-checkout-service   180
-rollup-demo-c      180
-```
-
-180 ms for checkout-service, which is listing 8.1's weighted p99 and the true p99
-in `tracing.ground_truth`. Merged across 21 separate per-minute states, and still
-the population's own answer to the decimal. And 180 for `rollup-demo-c`, the same
-two batches that made the SummingMergeTree read 360.
-
-Three things changed and only one of them is cosmetic. `quantileExactWeightedState`
-stores the partial distribution instead of a number. `AggregatingMergeTree` merges
-those partials on a background merge rather than adding them.
-`quantileExactWeightedMerge` finishes the calculation at read time. The weight from
-listing 8.1 rides through all of it, so the pre-aggregation is unbiased for the
-same reason the raw query was.
-
-```bash
-ch --query "DROP VIEW IF EXISTS tracing.p99_summing"
-ch --query "DROP VIEW IF EXISTS tracing.p99_by_service"
-```
-
 ## Clean up
 
 Drop the views and take this exercise's rows back out of the span table:
@@ -472,8 +315,6 @@ Drop the views and take this exercise's rows back out of the span table:
 ch --query "DROP VIEW IF EXISTS tracing.red_by_service"
 ch --query "DROP VIEW IF EXISTS tracing.red_no_populate"
 ch --query "DROP VIEW IF EXISTS tracing.red_no_root"
-ch --query "DROP VIEW IF EXISTS tracing.p99_summing"
-ch --query "DROP VIEW IF EXISTS tracing.p99_by_service"
 ch --query "
 ALTER TABLE tracing.otel_traces DELETE WHERE service_name LIKE 'rollup-demo%'
 SETTINGS mutations_sync = 2"
@@ -520,3 +361,18 @@ raw scan disagree.
 and what it is worth, including what listing 8.1 returns when the weight goes
 missing. The rollup inherits all of it: a materialized view over a biased query
 is a fast biased query.
+
+Two more if the engine itself interests you, both about SummingMergeTree rather
+than about chapter 8's argument.
+
+Send two `demo_batch` batches into one minute with `SYSTEM STOP MERGES` set, and
+the view returns one row per insert rather than one per minute. Reading it the
+way listing 8.3 does, `GROUP BY` and re-sum, is right either way; reading raw
+rows undercounts until a merge that may never come. `SYSTEM START MERGES` and
+`OPTIMIZE TABLE ... FINAL` collapse them.
+
+And put `quantileExactWeighted` in a SummingMergeTree instead of a sum. It builds
+without complaint, reads 180 ms per batch, then reads 360 after a merge, because
+the engine adds a column it was never told was a percentile. `AggregatingMergeTree`
+with `quantileExactWeightedState` and a `...Merge` at read time is the shape that
+works, and the listing 8.1 weight rides through it unchanged.
