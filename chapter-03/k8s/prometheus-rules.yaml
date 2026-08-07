@@ -18,7 +18,7 @@ spec:
         description: "{{ $labels.pod }} is refusing spans at the receiver"
     - alert: CollectorExportFailures
       expr: rate(otelcol_exporter_send_failed_spans[5m]) > 0
-      for: 5m
+      for: 2m
       labels:
         severity: critical
       annotations:
@@ -32,7 +32,7 @@ spec:
       labels:
         severity: warning
       annotations:
-        summary: "Collector high memory usage"
+        summary: "Collector memory above 85% of limit"
         description: "{{ $labels.pod }} memory above 85%"
     - alert: CollectorQueueBacklog
       expr: otelcol_exporter_queue_size > 1000
@@ -40,5 +40,5 @@ spec:
       labels:
         severity: warning
       annotations:
-        summary: "Collector export queue building"
+        summary: "Collector export queue backing up"
         description: "{{ $labels.pod }} has {{ $value }} spans queued"

@@ -91,5 +91,10 @@ services:
         aliases:
           - benchmark
 
+  # Swap Prometheus onto the config that also scrapes the benchmark collectors.
+  prometheus:
+    volumes:
+      - ./prometheus.benchmark.yml:/etc/prometheus/prometheus.yml:ro
+
 volumes:
   pq-data:

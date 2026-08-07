@@ -17,6 +17,10 @@ metadata:
     app: kafka
 spec:
   clusterIP: None
+  # KRaft registration makes the broker resolve its own stable DNS name before
+  # it can report ready. A headless Service withholds DNS for not-ready pods by
+  # default, so without this the broker can never become ready.
+  publishNotReadyAddresses: true
   selector:
     app: kafka
   ports:

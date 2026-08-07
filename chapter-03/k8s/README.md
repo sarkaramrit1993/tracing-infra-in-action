@@ -84,6 +84,23 @@ To watch collector metrics, port-forward the gateway:
 kubectl port-forward -n observability svc/otel-gateway 8888:8888
 ```
 
+## DNS resolution for the gateway
+
+The agent reaches gateways through the headless Service, so every export depends
+on cluster DNS. Two things are worth knowing when you deploy this for real.
+
+The load balancing exporter re-resolves on `resolver.dns.interval`, so a new
+gateway pod is not routed to until the next resolution. Lower the interval if you
+scale the gateway tier often.
+
+Kubernetes sets `ndots:5` in a pod's `/etc/resolv.conf` by default, so a name with
+fewer than five dots is tried against each search domain before it is tried as
+written. For a fully qualified target like
+`otel-gateway-headless.observability.svc.cluster.local` that means several wasted
+NXDOMAIN lookups per resolution. If DNS load matters at your span rate, set
+`dnsConfig.options` with `ndots: 1` on the agent pod spec, or keep the trailing
+dot on the name.
+
 ## Tear down
 
 ```bash
