@@ -13,8 +13,9 @@ data:
       kafka:
         brokers:
         - kafka-0.kafka-headless.kafka.svc:9092
-        topic: otlp_spans
-        encoding: otlp_proto
+        traces:
+          topics: [otlp_spans]
+          encoding: otlp_proto
         group_id: otel-consumer
     processors:
       memory_limiter:

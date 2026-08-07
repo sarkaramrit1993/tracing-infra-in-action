@@ -37,7 +37,7 @@ data:
         resolver:
           dns:
             hostname: otel-gateway-headless.observability.svc.cluster.local
-            port: 4317
+            port: "4317"
         routing_key: traceID
     extensions:
       health_check:

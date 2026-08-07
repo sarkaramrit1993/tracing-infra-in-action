@@ -27,6 +27,20 @@ spec:
     ports:
     - protocol: TCP
       port: 4317
+  # Egress in policyTypes denies everything not listed here, including DNS.
+  # Without this rule the gateway Service name never resolves.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -56,3 +70,17 @@ spec:
     ports:
     - protocol: TCP
       port: 9092
+  # Without this, kafka-0.kafka-headless.kafka.svc never resolves and the
+  # gateway cannot reach Kafka at all.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

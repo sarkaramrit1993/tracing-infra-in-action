@@ -1,0 +1,32 @@
+# Used only with docker-compose.benchmark.yml, which starts the extra
+# collectors these jobs scrape. The default prometheus.yml omits them so a
+# plain `docker compose up` shows no permanently-down targets.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "otel-agent"
+    static_configs:
+      - targets: ["otel-agent:8888"]
+  - job_name: "otel-gateway-1"
+    static_configs:
+      - targets: ["otel-gateway-1:8888"]
+  - job_name: "otel-gateway-2"
+    static_configs:
+      - targets: ["otel-gateway-2:8888"]
+  - job_name: "otel-agent-random"
+    static_configs:
+      - targets: ["otel-agent-random:8888"]
+  - job_name: "otel-agent-memory"
+    static_configs:
+      - targets: ["otel-agent-memory:8888"]
+  - job_name: "otel-agent-pq"
+    static_configs:
+      - targets: ["otel-agent-pq:8888"]
+  - job_name: "otel-agent-blackhole"
+    static_configs:
+      - targets: ["otel-agent-blackhole:8888"]
+  - job_name: "otel-gateway-blackhole"
+    static_configs:
+      - targets: ["otel-gateway-blackhole:8888"]

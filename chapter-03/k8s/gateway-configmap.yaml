@@ -45,10 +45,11 @@ data:
         - kafka-0.kafka-headless.kafka.svc:9092
         - kafka-1.kafka-headless.kafka.svc:9092
         - kafka-2.kafka-headless.kafka.svc:9092
-        topic: otlp_spans
-        encoding: otlp_proto
+        traces:
+          topic: otlp_spans
+          encoding: otlp_proto
         producer:
-          max_message_bytes: 10000000
+          max_message_bytes: 1000000
           required_acks: 1
           compression: lz4
     extensions:

@@ -17,6 +17,10 @@ spec:
       containers:
       - name: checkout-service
         image: checkout-service:latest
+        # The :latest tag makes Kubernetes default to Always, which fails
+        # here because the image is side-loaded with `kind load docker-image`
+        # and exists in no registry.
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
         env:
