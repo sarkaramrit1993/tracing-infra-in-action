@@ -1,0 +1,23 @@
+<clickhouse>
+    <!-- The image restricts the password-less `default` user to localhost.
+         This file loads after (z- prefix) and re-opens it to the container
+         network so the demos can connect. Local demo only, not for production. -->
+    <!-- The ::/0 below opens the user to the CONTAINER network, not to the
+         world: the host publishes 8123 and 9000 on loopback only (see
+         docker-compose.yml), so nothing outside this machine can reach it.
+         Both halves are load-bearing. Widen the port binding without adding a
+         password and this becomes an open admin database. -->
+    <users>
+        <default>
+            <networks replace="replace">
+                <ip>::/0</ip>
+            </networks>
+            <!-- The image's own users.xml turns access management ON for this
+                 password-less user, so it can create accounts and grant itself
+                 anything. Chapter 8 never manages users, roles or policies, so
+                 it is switched back off here. This file loads after users.xml,
+                 which is what the z- prefix buys. -->
+            <access_management>0</access_management>
+        </default>
+    </users>
+</clickhouse>

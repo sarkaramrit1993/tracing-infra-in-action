@@ -11,6 +11,7 @@ self-contained stack for one chapter, with its own `README.md` and a
 | `chapter-04/` | Ingestion and buffering | OpenTelemetry gateway + 3-broker Kafka (KRaft) + Jaeger, partitioning benchmarks |
 | `chapter-05/` | Trace assembly | Kafka + Flink assembly job + ClickHouse + Jaeger, store-then-stitch vs stream-time benchmarks |
 | `chapter-07/` | Trace storage | ClickHouse wide-table store + Kafka + Grafana Tempo, both archetypes fed by one Collector and both backed by MinIO object storage; compression, tiering and tenant-isolation exercises and benchmarks |
+| `chapter-08/` | Query patterns | ClickHouse alone, with a generated sampled population and the ground truth behind it, so an unbiased query can be graded and not just compared; unbiased-aggregate and pre-aggregation exercises |
 
 ## Running a chapter
 
@@ -46,7 +47,10 @@ through Prometheus metrics and does not query Jaeger. Chapter 5 confirms
 trace assembly through ClickHouse and Kafka and has no services-up step.
 Chapter 7 confirms the store rather than the ingest path: that the listing 7.1
 schema exists, that a trace round-trips by ID, and that the row policy keeps
-one tenant from reading another's spans.
+one tenant from reading another's spans. Chapter 8 has no ingest path at all
+and confirms the answers instead: it generates a sampled population, records
+what it generated, and then checks that the weighted query reproduces that
+number while the unweighted one does not.
 See [`setup/README.md`](setup/README.md) for memory, ports, and per-chapter
 requirements, and [`troubleshooting.md`](troubleshooting.md) for what to do
 when a stack doesn't come up cleanly.

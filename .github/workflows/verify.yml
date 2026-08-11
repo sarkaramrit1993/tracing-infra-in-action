@@ -29,7 +29,8 @@ jobs:
                    chapter-03/docker-compose.yml \
                    chapter-04/docker-compose.yml \
                    chapter-05/docker-compose.yml \
-                   chapter-07/docker-compose.yml; do
+                   chapter-07/docker-compose.yml \
+                   chapter-08/docker-compose.yml; do
               docker compose -f "$f" config -q
           done
           docker compose -f chapter-03/docker-compose.yml \
@@ -93,6 +94,13 @@ jobs:
           /tmp/venv-ch07/bin/pip install --quiet -r chapter-07/tests/requirements.txt
           /tmp/venv-ch07/bin/python chapter-07/tests/test_static.py
 
+      - name: Chapter 8 offline tests
+        run: |
+          python -m venv /tmp/venv-ch08
+          /tmp/venv-ch08/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch08/bin/pip install --quiet -r chapter-08/tests/requirements.txt
+          /tmp/venv-ch08/bin/python chapter-08/tests/test_static.py
+
       # These three gate the published record rather than the stack, and every
       # one of them has caught something: a listing table pointing at a file
       # that no longer carried its anchor, a RESULTS.md rendered from a local
@@ -136,6 +144,11 @@ jobs:
           # so it settles longer than chapter 5 despite running no Flink.
           - chapter: chapter-07
             settle: 150
+          # Chapter 8 runs ClickHouse and nothing else, so it settles fast. Its
+          # data does not arrive from an ingest path; generate.py builds it
+          # server-side, which is the extra step below.
+          - chapter: chapter-08
+            settle: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -148,6 +161,14 @@ jobs:
           docker compose up -d
           sleep ${{ matrix.settle }}
           docker compose ps
+
+      # Chapter 8 has no producer. Its population is generated server-side, and
+      # the live tests grade the queries against what the generator recorded, so
+      # this has to run before them.
+      - name: Generate the chapter 8 population
+        if: matrix.chapter == 'chapter-08'
+        working-directory: ${{ matrix.chapter }}
+        run: python3 generate/generate.py
 
       - name: Run the verification script
         working-directory: ${{ matrix.chapter }}

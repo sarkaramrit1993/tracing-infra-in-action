@@ -1,0 +1,46 @@
+# Chapter 8: Query Patterns and Performance.
+#
+# Chapter 7 is about where the spans live, so its stack carries a producer, a
+# Collector, Kafka, a consumer and two storage backends. Chapter 8 is about
+# whether the answer is true, which is a question you ask of the store and not
+# of the path into it. So there is one service here.
+#
+# The data arrives from generate/generate.py, which builds the population
+# server-side with INSERT ... SELECT FROM numbers(). That is deliberate: it is
+# deterministic, it takes seconds instead of minutes, and it means the numbers
+# in the exercises reproduce on your machine exactly.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    networks: [ch8]
+    # Bound to loopback deliberately. Publishing a bare "8123:8123" binds every
+    # interface on the host, and Docker writes its own iptables rules in front of
+    # most host firewalls, so on a shared network that hands an unauthenticated
+    # admin ClickHouse to anyone who can reach the machine. Nothing here needs
+    # more than localhost: the client runs through `docker compose exec`, and
+    # container-to-container traffic goes over the ch8 network, which is what the
+    # listen_host override in config.d exists for.
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./clickhouse/users.d/z-allow-network.xml:/etc/clickhouse-server/users.d/z-allow-network.xml
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+networks:
+  ch8:
+
+volumes:
+  clickhouse-data:
