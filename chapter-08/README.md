@@ -34,7 +34,7 @@ something surprises you.
 The table those three run against is `clickhouse/init.sql`, applied on first
 boot. It is chapter 7's listing 7.1 schema with two deliberate changes: it adds
 `parent_span_id`, and it leaves off listing 7.1's trace-ID bloom index. Both
-changes are load-bearing and both are explained in NOTES.
+are explained in NOTES.
 
 ## Prerequisites
 
@@ -84,10 +84,8 @@ Those numbers reproduce exactly on your machine. The sampling is deterministic,
 every hundredth and every second rather than a coin flip per trace, which is what
 lets this file print a number you can check yours against.
 
-Timestamps span the twenty minutes before the run and every query filters on the
-last hour, so you have about forty minutes. Come back after lunch and run
-`generate/generate.py` again before comparing numbers, or the window will have
-slid off the rows.
+The data ages out of the query window. NOTES explains the slack you have and
+when to rerun `generate/generate.py`.
 
 ## The third command
 
@@ -112,10 +110,8 @@ at 180 ms is what happened. Both pairs came from the same rows and the same
 store, and the only thing separating a precise lie from a correct estimate is
 whether the query weighted what it read.
 
-The third line is the one number here that is not fixed. `quantile()` is an
-approximate estimator, so your run may read 1444 or 1444.1 instead, and NOTES has
-the why. The weighted 180, the two totals and the ground-truth row are exact
-every time.
+The third line is the one number here that is not fixed. NOTES has the why. The
+weighted 180, the two totals and the ground-truth row are exact every time.
 
 The last line is the generator's own record, written before it sampled anything.
 It is the only reason you can tell which pair is which, and it is the one line
@@ -133,8 +129,7 @@ ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null
 ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 ```
 
-`ch` closes stdin so a query cannot sit waiting on your keyboard. NOTES says
-why, and why merging the two helpers breaks both.
+NOTES says why `ch` closes stdin, and why merging the two helpers breaks both.
 
 Start with the shape of one trace, because a wide table of spans does not look
 much like a trace until you group it. This pulls one trace from each sampling
@@ -293,13 +288,10 @@ below it, and its denominator is whatever that step left. Its line reads 0 out o
 27, not 0 out of 132. Credit an index with the fall between its own two numbers.
 
 Your primary-key number probably will not be 27, and that is fine: it moves with
-the clock, because the sort key groups by hour. 13, 20 and 24 are all real
-readings from this same generator. The 132 does not move, apart from a run
-between 00:00 and 00:20 that can report 133, and neither does the bloom's 0.
-That 0 is the strongest reading available, because
-`4bf92f3577b34da6a3ce929d0e0e4736` is the W3C spec's example ID and is not in your
-data, so the bloom settles membership without reading a granule. NOTES has the
-long version of both.
+the clock. 13, 20 and 24 are all real readings from this same generator. The 132
+does not move, apart from a run between 00:00 and 00:20 that can report 133, and
+neither does the bloom's 0. That 0 is the strongest reading available. NOTES has
+the long version of both.
 
 Put the table back when you are done:
 
@@ -343,9 +335,8 @@ docker compose down -v
 
 ## Notes on running the book's listings
 
-The book's listings are kept terse. A few assume a column, an index state or a
-run order that this code supplies. If you run one verbatim and it behaves
-unexpectedly, see "Running the book's listings verbatim" in [NOTES.md](NOTES.md).
+If you run a listing verbatim and it behaves unexpectedly, see "Running the
+book's listings verbatim" in [NOTES.md](NOTES.md).
 
 ## Reference
 
