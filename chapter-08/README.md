@@ -287,8 +287,9 @@ exclusion search, and 27 of 132 granules is as far as it gets. The bloom prints
 below it, and its denominator is whatever that step left. Its line reads 0 out of
 27, not 0 out of 132. Credit an index with the fall between its own two numbers.
 
-Your primary-key number probably will not be 27, and that is fine: it moves with
-the clock. 13, 20 and 24 are all real readings from this same generator. The 132
+Your primary-key numbers, both the granules and the ranges below them, probably
+will not be 27 and 25, and that is fine: they move with the clock. 13, 20 and 24
+are all real readings from this same generator. The 132
 does not move, apart from a run between 00:00 and 00:20 that can report 133, and
 neither does the bloom's 0. That 0 is the strongest reading available. NOTES has
 the long version of both.
@@ -327,10 +328,14 @@ produced. It cleans up the index and view it creates, so run it whenever.
 
 ## Tear down
 
-The `-v` flag drops the named volume holding the generated spans.
+The `-v` flag drops the named volume holding the generated spans. The last two
+lines undo the virtual environment from the test step, and are harmless if you
+never made one.
 
 ```bash
 docker compose down -v
+deactivate 2>/dev/null
+rm -rf .venv
 ```
 
 ## Notes on running the book's listings
