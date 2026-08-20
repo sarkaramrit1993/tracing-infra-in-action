@@ -142,6 +142,6 @@ Results land in `benchmarks/results/`. See [BENCHMARKS.md](BENCHMARKS.md) for me
 2. Compare gateway-1 and gateway-2 metrics for load skew
 
 **Test multi-tenant routing:**
-1. Swap agent config to `tenant-routing-config.yaml`
+1. Swap agent config to `collector/tenant-routing-config.yaml`
 2. `python3 scripts/load-generator.py --scenario multi-tenant --duration 60`
 3. Watch spans route to different gateways by tenant
