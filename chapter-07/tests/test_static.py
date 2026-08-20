@@ -4,7 +4,7 @@ Offline well-formedness checks for the Chapter 7 stack. No Docker required.
 Asserts:
   - docker-compose.yml and every collector/*.yaml + prometheus.yml parse,
   - every image is pinned to exactly one tag (N1),
-  - the three SQL files contain the listing 7.1/7.2/7.4 statements with the
+  - the four SQL files contain the listing 7.1/7.2/7.3/7.4 statements with the
     exact column names, codecs, ORDER BY, TTL, and row policy from the chapter,
   - the config.d XML files are well-formed and define the 'cold' volume that
     listing 7.2's `TO VOLUME 'cold'` resolves against.
@@ -133,6 +133,18 @@ def test_listing_7_2_tiering_exact():
         "DROP PARTITION '20260601'",
     ):
         assert needle in sql, f"listing 7.2 missing: {needle!r}"
+
+
+def test_listing_7_3_compression_exact():
+    sql = _read("clickhouse/compression.sql")
+    for needle in (
+        "formatReadableSize(sum(data_compressed_bytes))",
+        "formatReadableSize(sum(data_uncompressed_bytes))",
+        "FROM system.columns",
+        "WHERE table = 'otel_traces'",
+        "ORDER BY ratio DESC",
+    ):
+        assert needle in sql, f"listing 7.3 missing: {needle!r}"
 
 
 def test_listing_7_4_tenancy_exact():
