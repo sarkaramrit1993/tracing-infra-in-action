@@ -121,6 +121,40 @@ Polls metrics every 0.5s to capture four timestamps (T1--T4).
 
 From 3 runs / 15 iterations on an Apple M-series laptop (16 GB RAM, Docker Desktop):
 
+### How much memory Docker gets changes these numbers
+
+Give the Docker VM less than the 8 GB above and the results move, in both
+directions, so record the allocation alongside any figure you quote.
+
+Reproduced on an Apple M-series machine at two allocations:
+
+| Metric | 3.8 GB | 7.8 GB | Table above (16 GB) |
+|---|---|---|---|
+| Throughput peak | 49,678/sec | 52,909/sec | 50K-100K/sec |
+| PQ overhead | -0.1% | 1.1% | 0-8% |
+| Cascade T1-T4 | 68.9 s | 45.6 s | ~28 s |
+| Agent RSS idle-peak | 199-210 MB | 204-212 MB | 185-206 MB |
+| Gateway RSS idle-peak | 225-229 MB | 245 MB | 230-238 MB |
+| Routing Gini, trace-aware | 0.009 | 0.009 | < 0.01 |
+| Routing Gini, single-gateway | 0.500 | 0.500 | ~0.5 |
+
+Two things to take from this.
+
+Throughput and persistent-queue overhead sit below their published range when
+the VM is starved and land inside it once it is not, so a run under 8 GB is not
+a measurement of this stack.
+
+Resident memory moves the other way. More headroom means the Go runtime
+collects less often, so RSS rises with the allocation rather than falling. The
+gateway measured 225 MB at 3.8 GB and 245 MB at 7.8 GB. Treat the published
+range as the shape of the number, not a bound.
+
+The cascade timeline is the most allocation-sensitive figure here and trends
+toward the published value as the VM grows.
+
+Routing distribution does not depend on memory at all, and reproduces exactly at
+every allocation.
+
 | Metric                         | Range           | Notes                          |
 |--------------------------------|-----------------|--------------------------------|
 | Agent RSS (idle--50K/sec)      | 185--206 MB     | Grows ~20 MB under load        |
