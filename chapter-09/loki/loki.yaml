@@ -1,0 +1,74 @@
+# Chapter 9: Loki, single binary, filesystem storage, OTLP ingest.
+#
+# This is a demo store, not a deployment reference. One process runs every
+# component, chunks and the index land on a local volume, and there is no
+# object store and no replication. What it is here to do is receive OTLP logs
+# and let a query find them by trace id.
+#
+# Three settings are the whole reason logs and traces meet:
+#
+#   schema v13 + tsdb. Structured metadata requires both. On an older schema
+#   Loki refuses to start with structured metadata enabled, and the trace id
+#   would have to be squeezed into a label or a regex over the line.
+#
+#   allow_structured_metadata: true. OTLP log records carry TraceId and SpanId
+#   outside the message body. Loki stores them as structured metadata, which is
+#   indexed per-chunk rather than as a stream label. That distinction matters:
+#   a trace id has effectively unbounded cardinality, so as a LABEL it would
+#   create one stream per request and take the index down with it.
+#
+#   auth_enabled: false. Single tenant. Loki then reads everything as tenant
+#   "fake", and a query without an X-Scope-OrgID header works.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-04-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  allow_structured_metadata: true
+  volume_enabled: true
+  retention_period: 24h
+  # A fresh stack has no logs older than a few minutes, and a demo that is
+  # replayed from a saved capture can carry timestamps that are hours old.
+  # Without these Loki rejects those lines as too far in the past and the
+  # trace-to-log jump comes back empty with the reason only in Loki's own log.
+  reject_old_samples: false
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+
+# This stack is offline-friendly and nobody needs usage pings from a book demo.
+analytics:
+  reporting_enabled: false

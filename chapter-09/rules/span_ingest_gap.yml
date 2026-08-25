@@ -1,0 +1,60 @@
+# Chapter 9, listing 9.5: the emit-to-ingest gap.
+#
+# RED panels cannot catch this book's signature failure, a dashboard staying
+# green while spans quietly vanish, because a panel computed over the spans that
+# arrived cannot know how many did not. Catching it needs a second number that
+# did not come down the same pipe.
+#
+# So there are two counters here and they are deliberately unrelated:
+#
+#   RECEIVED is otelcol_receiver_accepted_spans_total, the Collector's own
+#   internal telemetry, scraped from its :8888 endpoint. It counts spans the
+#   Collector took in.
+#
+#   EXPECTED is checkout_spans_emitted_total, a counter the producer increments
+#   from a SpanProcessor in its own process, scraped by Prometheus directly off
+#   the application container. It counts spans the application finished.
+#
+# The independence is the signal. Comparing the Collector's received count
+# against a number that also travelled through the Collector proves nothing: an
+# outage takes both to zero and the ratio holds at 1.0. Comparing it against a
+# number the Collector never touched is what makes a gap visible.
+#
+# `or vector(0)` on each side is not cosmetic. If the Collector stops exporting
+# entirely its series goes stale, rate() returns an empty vector, and an alert
+# over an empty vector never fires: the total-outage case, the one this alert
+# exists for, would be the one case it stays silent on. Substituting zero turns
+# a missing series into a 100% gap, which is what it actually is.
+groups:
+  - name: span_ingest_gap
+    interval: 15s
+    rules:
+      - record: spans:received:rate5m
+        expr: sum(rate(otelcol_receiver_accepted_spans_total[5m])) or vector(0)
+
+      - record: spans:expected:rate5m
+        expr: sum(rate(checkout_spans_emitted_total[5m])) or vector(0)
+
+      # The fraction of emitted spans that never reached the Collector. Around
+      # zero is healthy. The floor at 0 keeps ordinary scrape skew, where
+      # received briefly reads above expected, from showing as a negative gap.
+      - record: spans:ingest_gap:ratio5m
+        expr: |
+          clamp_min(spans:expected:rate5m - spans:received:rate5m, 0)
+            /
+          clamp_min(spans:expected:rate5m, 1e-9)
+
+      # 5% for ten minutes. The tolerance absorbs batch-export lag between the
+      # two scrapes; the duration absorbs a restart. Neither absorbs a pipe that
+      # is actually leaking.
+      - alert: SpanIngestGap
+        expr: spans:ingest_gap:ratio5m > 0.05
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "spans are being lost between emit and ingest"
+          description: >-
+            The producer reports emitting more spans than the Collector reports
+            accepting, by more than 5% over five minutes. Every aggregate
+            downstream is losing its denominator while the RED panels stay flat.

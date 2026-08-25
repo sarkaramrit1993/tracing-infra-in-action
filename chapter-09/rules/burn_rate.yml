@@ -1,0 +1,94 @@
+# Chapter 9, listing 9.4: multi-window multi-burn-rate alerting on an SLO whose
+# error ratio is derived from spans before they are sampled.
+#
+# Two decisions here are the chapter's, not Prometheus's:
+#
+# THE SERIES IS pre_calls_total, NOT post_calls_total. The Collector runs span
+# metrics twice, once over 100% of spans and once over the sampler's survivors
+# (collector/gateway-config.yaml). Only the pre series is a true population
+# count. The tail sampler keeps every error and a tenth of the successes, so an
+# error ratio computed from post reads roughly ten times too high and this alert
+# would page on a healthy service. The namespace: pre setting on the connector
+# is what puts the counter under this name rather than the connector default
+# traces_span_metrics_calls_total.
+#
+# ALL FOUR RECORDING RULES ARE HERE. The chapter prints the 5m and 1h pair to
+# keep the listing readable. Both alerts below reference all four, and a
+# Prometheus alert whose expression names a rule that does not exist does not
+# error: it evaluates to an empty vector and never fires. A burn-rate alert that
+# silently never fires is worse than no alert, so the runnable file carries the
+# whole set.
+#
+# The windows are the Google SRE workbook's: a fast burn at 14.4x checked over
+# 1h and confirmed over 5m, a slow burn at 6x over 6h confirmed over 30m. The
+# short window is what stops an alert firing on a spike that has already ended;
+# the long window is what stops it firing on a single bad scrape.
+#
+# The ratio is over spans, not requests. spanmetrics counts spans, and the
+# injected failure in this stack is on a child span rather than the root, so a
+# root-only selector would read a flat zero. On a service that propagates
+# failure to its server span, add span_kind="SPAN_KIND_SERVER" and the same
+# arithmetic becomes a request SLO.
+groups:
+  - name: checkout_slo_burn_rate
+    interval: 15s
+    rules:
+      - record: slo:checkout_errors:ratio_rate5m
+        expr: |
+          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[5m])) or vector(0))
+            /
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[5m])) or vector(0), 1e-9)
+
+      - record: slo:checkout_errors:ratio_rate30m
+        expr: |
+          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[30m])) or vector(0))
+            /
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[30m])) or vector(0), 1e-9)
+
+      - record: slo:checkout_errors:ratio_rate1h
+        expr: |
+          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[1h])) or vector(0))
+            /
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[1h])) or vector(0), 1e-9)
+
+      - record: slo:checkout_errors:ratio_rate6h
+        expr: |
+          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[6h])) or vector(0))
+            /
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[6h])) or vector(0), 1e-9)
+
+      # 14.4x burn against a 99.9% objective exhausts a 30-day error budget in
+      # about two days. The 5m window has to agree, so the page stops as soon as
+      # the burn does.
+      - alert: CheckoutErrorBudgetBurnFast
+        expr: |
+          slo:checkout_errors:ratio_rate1h > (14.4 * 0.001)
+            and
+          slo:checkout_errors:ratio_rate5m > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          slo: checkout-availability
+        annotations:
+          summary: "checkout-service is burning its error budget 14.4x too fast"
+          description: >-
+            The pre-sample span error ratio is above 1.44% over both the last
+            hour and the last five minutes. At this rate a 30-day budget for a
+            99.9% objective is gone in about two days.
+
+      # 6x burn is not a page. It is a ticket: the budget lasts about five days,
+      # which is time to fix it during working hours.
+      - alert: CheckoutErrorBudgetBurnSlow
+        expr: |
+          slo:checkout_errors:ratio_rate6h > (6 * 0.001)
+            and
+          slo:checkout_errors:ratio_rate30m > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: ticket
+          slo: checkout-availability
+        annotations:
+          summary: "checkout-service is burning its error budget 6x too fast"
+          description: >-
+            The pre-sample span error ratio is above 0.6% over both the last six
+            hours and the last thirty minutes.
