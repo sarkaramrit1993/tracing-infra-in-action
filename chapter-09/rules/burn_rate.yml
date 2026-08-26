@@ -6,10 +6,10 @@
 # THE SERIES IS pre_calls_total, NOT post_calls_total. The Collector runs span
 # metrics twice, once over 100% of spans and once over the sampler's survivors
 # (collector/gateway-config.yaml). Only the pre series is a true population
-# count. The tail sampler keeps every error and a tenth of the successes, so an
-# error ratio computed from post reads roughly ten times too high and this alert
-# would page on a healthy service. The namespace: pre setting on the connector
-# is what puts the counter under this name rather than the connector default
+# count. The tail sampler keeps every error and one success in a hundred, so an
+# error ratio computed from post reads many times too high and this alert would
+# page on a healthy service. The namespace: pre setting on the connector is
+# what puts the counter under this name rather than the connector default
 # traces_span_metrics_calls_total.
 #
 # ALL FOUR RECORDING RULES ARE HERE. The chapter prints the 5m and 1h pair to
@@ -24,38 +24,45 @@
 # short window is what stops an alert firing on a spike that has already ended;
 # the long window is what stops it firing on a single bad scrape.
 #
-# The ratio is over spans, not requests. spanmetrics counts spans, and the
-# injected failure in this stack is on a child span rather than the root, so a
-# root-only selector would read a flat zero. On a service that propagates
-# failure to its server span, add span_kind="SPAN_KIND_SERVER" and the same
-# arithmetic becomes a request SLO.
+# THE RATIO IS OVER REQUESTS, NOT SPANS. spanmetrics counts spans and a checkout
+# produces seven of them. Dropping span_kind from the selectors below divides
+# failed spans by all spans, and with the failure recorded only where it was
+# thrown that ratio is one seventh of the request error rate: the fast threshold
+# of 1.44% would not fire until real requests were failing at 10.1%, under a
+# label that promises 99.9% availability. The SERVER span is opened once per
+# request, so selecting it is what makes this a request rate. app/checkout.py
+# marks that span failed when the request fails, the way a service returning a
+# 500 does, which is what gives the selector something to count. Measured on
+# this stack at nine failures in 306 requests: 2.96% recorded against a driven
+# 2.94%, where the span-grain ratio read 0.84%.
+# ---- Listing 9.4: A multi-window multi-burn-rate rule on span metrics ----
 groups:
   - name: checkout_slo_burn_rate
     interval: 15s
     rules:
       - record: slo:checkout_errors:ratio_rate5m
         expr: |
-          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[5m])) or vector(0))
+          (sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[5m])) or vector(0))
             /
-          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[5m])) or vector(0), 1e-9)
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER"}[5m])) or vector(0), 1e-9)
 
       - record: slo:checkout_errors:ratio_rate30m
         expr: |
-          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[30m])) or vector(0))
+          (sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[30m])) or vector(0))
             /
-          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[30m])) or vector(0), 1e-9)
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER"}[30m])) or vector(0), 1e-9)
 
       - record: slo:checkout_errors:ratio_rate1h
         expr: |
-          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[1h])) or vector(0))
+          (sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[1h])) or vector(0))
             /
-          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[1h])) or vector(0), 1e-9)
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER"}[1h])) or vector(0), 1e-9)
 
       - record: slo:checkout_errors:ratio_rate6h
         expr: |
-          (sum(rate(pre_calls_total{service_name="checkout-service",status_code="STATUS_CODE_ERROR"}[6h])) or vector(0))
+          (sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[6h])) or vector(0))
             /
-          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service"}[6h])) or vector(0), 1e-9)
+          clamp_min(sum(rate(pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER"}[6h])) or vector(0), 1e-9)
 
       # 14.4x burn against a 99.9% objective exhausts a 30-day error budget in
       # about two days. The 5m window has to agree, so the page stops as soon as
@@ -72,9 +79,9 @@ groups:
         annotations:
           summary: "checkout-service is burning its error budget 14.4x too fast"
           description: >-
-            The pre-sample span error ratio is above 1.44% over both the last
-            hour and the last five minutes. At this rate a 30-day budget for a
-            99.9% objective is gone in about two days.
+            The pre-sample request error ratio is above 1.44% over both the
+            last hour and the last five minutes. At this rate a 30-day budget
+            for a 99.9% objective is gone in about two days.
 
       # 6x burn is not a page. It is a ticket: the budget lasts about five days,
       # which is time to fix it during working hours.
@@ -90,5 +97,6 @@ groups:
         annotations:
           summary: "checkout-service is burning its error budget 6x too fast"
           description: >-
-            The pre-sample span error ratio is above 0.6% over both the last six
-            hours and the last thirty minutes.
+            The pre-sample request error ratio is above 0.6% over both the
+            last six hours and the last thirty minutes.
+# ---- end listing 9.4 ----

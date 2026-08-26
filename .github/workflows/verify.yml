@@ -30,7 +30,8 @@ jobs:
                    chapter-04/docker-compose.yml \
                    chapter-05/docker-compose.yml \
                    chapter-07/docker-compose.yml \
-                   chapter-08/docker-compose.yml; do
+                   chapter-08/docker-compose.yml \
+                   chapter-09/docker-compose.yml; do
               docker compose -f "$f" config -q
           done
           docker compose -f chapter-03/docker-compose.yml \
@@ -46,6 +47,8 @@ jobs:
           paths = sorted(
               glob.glob("chapter-*/collector/*.yaml")
               + glob.glob("chapter-*/prometheus.yml")
+              + glob.glob("chapter-*/rules/*.yml")
+              + glob.glob("chapter-*/loki/*.yaml")
               + glob.glob("chapter-03/k8s/*.yaml")
           )
           if not paths:
@@ -101,6 +104,13 @@ jobs:
           /tmp/venv-ch08/bin/pip install --quiet -r chapter-08/tests/requirements.txt
           /tmp/venv-ch08/bin/python chapter-08/tests/test_static.py
 
+      - name: Chapter 9 offline tests
+        run: |
+          python -m venv /tmp/venv-ch09
+          /tmp/venv-ch09/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch09/bin/pip install --quiet -r chapter-09/tests/requirements.txt
+          /tmp/venv-ch09/bin/python chapter-09/tests/test_static.py
+
       # These three gate the published record rather than the stack, and every
       # one of them has caught something: a listing table pointing at a file
       # that no longer carried its anchor, a RESULTS.md rendered from a local
@@ -149,6 +159,13 @@ jobs:
           # server-side, which is the extra step below.
           - chapter: chapter-08
             settle: 30
+          # Chapter 9 runs eight containers and three of the checks downstream
+          # of them are rate-based: spanmetrics flushes every 15s, Prometheus
+          # scrapes every 15s, and the recording rules evaluate every 15s. The
+          # settle covers the stack; the traffic step below is what gives those
+          # series something to be a rate of.
+          - chapter: chapter-09
+            settle: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -170,13 +187,34 @@ jobs:
         working-directory: ${{ matrix.chapter }}
         run: python3 generate/generate.py
 
+      # Chapter 9's assertions are about series, not about rows. An empty
+      # pre_calls_total is indistinguishable from a broken connector, so the
+      # stack gets a workload before the suite polls for one.
+      - name: Prime the chapter 9 stack with traffic
+        if: matrix.chapter == 'chapter-09'
+        working-directory: ${{ matrix.chapter }}
+        run: |
+          for _ in $(seq 1 300); do
+              curl -s -o /dev/null http://localhost:8080/checkout || true
+          done
+          for _ in $(seq 1 6); do
+              curl -s -o /dev/null "http://localhost:8080/checkout?fail=1" || true
+          done
+          sleep 30
+
       - name: Run the verification script
         working-directory: ${{ matrix.chapter }}
         run: bash tests/test_stack.sh
 
-      # Chapter 7 is the only chapter with a second live script. Either order
-      # works: listing 7.4 exempts the operator login from its own policy, so
-      # neither script leaves the other reading an empty table.
+      - name: Run the correlation test
+        if: matrix.chapter == 'chapter-09'
+        working-directory: ${{ matrix.chapter }}
+        run: bash tests/test_correlation.sh
+
+      # The second of chapter 7's two live scripts, the same shape as chapter
+      # 9's correlation step above. Either order works: listing 7.4 exempts the
+      # operator login from its own policy, so neither script leaves the other
+      # reading an empty table.
       - name: Run the tenancy test
         if: matrix.chapter == 'chapter-07'
         working-directory: ${{ matrix.chapter }}

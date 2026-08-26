@@ -16,7 +16,9 @@ can learn without the application telling it anything special:
      Collector's transform processor moves them onto the span. That is what
      makes the listing 9.2 error-issue index a real artifact: it fingerprints
      what any instrumented service already emits, not what this file was
-     rigged to emit.
+     rigged to emit. The handler also marks the SERVER span failed, the way a
+     service that returns a 500 would, so an error ratio over span metrics is
+     a ratio of requests and not a ratio of the seven spans each one makes.
 
   2. THE PROCESS COUNTS ITS OWN SPANS. A SpanProcessor increments a Prometheus
      counter as each span ends, and /metrics publishes it. Prometheus scrapes
@@ -159,7 +161,7 @@ def checkout():
     # ?fail=1 forces the failure path. The 1-in-100 cadence is what ordinary
     # traffic looks like; this is how a test gets one error trace on demand,
     # which matters because the tail sampler keeps error traces unconditionally
-    # and keeps only a tenth of everything else.
+    # and keeps only one in a hundred of everything else.
     force_fail = request.args.get("fail") == "1"
 
     with tracer.start_as_current_span("validate_cart") as span:
@@ -175,6 +177,7 @@ def checkout():
 
     amount = round(random.uniform(15, 450), 2)
     failed = False
+    failure = None
     with tracer.start_as_current_span("payment.charge", kind=SpanKind.CLIENT) as span:
         span.set_attribute("peer.service", "payment-service")
         span.set_attribute("payment.method", "credit_card")
@@ -204,6 +207,7 @@ def checkout():
                     child.set_status(Status(StatusCode.ERROR, str(exc)))
                     log.error("fraud scoring failed for %s: %s", cart_id, exc)
                     failed = True
+                    failure = exc
             else:
                 child.set_attribute("fraud.score", round(random.uniform(0, 1), 3))
 
@@ -218,6 +222,27 @@ def checkout():
         "notification.channel": "email",
         "notification.order_id": order_id,
     })
+
+    if failure is not None:
+        # Propagate the failure to the server span. Every child span has closed
+        # by now, so the current span is the one FlaskInstrumentor opened for
+        # this request, and marking it ERROR is what makes the REQUEST countable
+        # as failed. Without it the only ERROR span in the trace is fraud.score,
+        # and rules/burn_rate.yml would be dividing failed spans by all spans:
+        # seven spans to a checkout, so a ratio a seventh of the request error
+        # rate, under an alert label that promises 99.9% availability.
+        #
+        # The exception goes on with it, and that is not decoration either. The
+        # listing 9.2 index fingerprints every ERROR span on its exception type,
+        # message template and innermost frame. A span marked ERROR carrying
+        # none of the three hashes to a constant, and the error-issue index
+        # gains a second issue with an empty title for every failure in the
+        # service. Same exception object, so the same three fields, so the same
+        # fingerprint: one issue, twice the volume. fraud.score is still the
+        # deeper of the two, which is what section 9.2.2's origin query wants.
+        span = trace.get_current_span()
+        span.record_exception(failure)
+        span.set_status(Status(StatusCode.ERROR, str(failure)))
 
     # Written inside the Flask server span, so the emitted log record carries
     # that span's TraceId and SpanId. This is the line section 9.3's trace-to-log

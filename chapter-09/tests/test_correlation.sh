@@ -18,7 +18,8 @@
 #
 #             It reads POST exemplars, not pre. Both connectors emit them, but a
 #             pre-sampler exemplar is minted before the sampling decision, so
-#             nine times in ten it points at a trace that was then discarded and
+#             ninety-nine times in a hundred it points at a trace that was then
+#             discarded and
 #             the jump dead-ends. Only an exemplar minted after the decision is a
 #             pointer to something that is still there.
 #
@@ -27,15 +28,16 @@
 #             count of survivors.
 #
 # The request is fired with ?fail=1 on purpose. The tail sampler keeps every
-# trace carrying an error and only a tenth of the rest, so a success trace would
-# be dropped nine runs in ten and this suite would be a coin flip.
+# trace carrying an error and only one in a hundred of the rest, so a success
+# trace would be dropped ninety-nine runs in a hundred and this suite would be a
+# lottery.
 #
 # Prereq: docker compose up -d --build, settled.
 # Usage:  bash tests/test_correlation.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CH() { docker compose exec -T clickhouse clickhouse-client --database tracing "$@" < /dev/null; }
+CH() { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -85,9 +87,9 @@ echo "== 1. those spans reach the store, stitched to the caller's span =="
 # nowhere. What must be true instead is stronger and is the actual claim: the
 # service's own span points back at the caller's span id, which proves both that
 # the incoming context was continued and that parent_span_id is being written.
-Q_TRACE="SELECT count() FROM otel_traces WHERE trace_id='$TRACE_ID'"
-Q_STITCH="SELECT count() FROM otel_traces WHERE trace_id='$TRACE_ID' AND parent_span_id='$SPAN_ID'"
-Q_TRACE_ERR="SELECT count() FROM otel_traces WHERE trace_id='$TRACE_ID' AND status_code='STATUS_CODE_ERROR'"
+Q_TRACE="SELECT count() FROM tracing.otel_traces WHERE trace_id='$TRACE_ID'"
+Q_STITCH="SELECT count() FROM tracing.otel_traces WHERE trace_id='$TRACE_ID' AND parent_span_id='$SPAN_ID'"
+Q_TRACE_ERR="SELECT count() FROM tracing.otel_traces WHERE trace_id='$TRACE_ID' AND status_code='STATUS_CODE_ERROR'"
 wait_for 150 "the trace to arrive in ClickHouse" 'ge "$Q_TRACE" 1'
 wait_for 60 "the span that continues the caller's span id" 'ge "$Q_STITCH" 1'
 wait_for 60 "the error span the tail sampler kept the trace for" 'ge "$Q_TRACE_ERR" 1'
@@ -126,7 +128,7 @@ RESOLVED=0
 CHECKED=0
 for tid in $(EXEMPLAR_TIDS); do
   CHECKED=$((CHECKED + 1))
-  n=$(CH --query "SELECT count() FROM otel_traces WHERE trace_id='$tid'")
+  n=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE trace_id='$tid'")
   if [ "${n:-0}" -gt 0 ]; then
     RESOLVED=$((RESOLVED + 1))
     [ "$RESOLVED" = "1" ] && echo "   exemplar $tid -> $n spans in ClickHouse"

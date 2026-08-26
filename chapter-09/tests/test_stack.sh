@@ -14,7 +14,7 @@
 #   4. The listing 9.2 error-issue index collapses many raw error spans into one
 #      fingerprint, with a real innermost frame.
 #   5. The pre/post divergence (section 9.2.4): the sampler keeps every error and
-#      a tenth of the successes, so the post error rate reads inflated against
+#      one success in a hundred, so the post error rate reads inflated against
 #      the pre rate, which is the truth.
 #   6. The service graph has edges, derived from the pre-sample stream.
 #   7. Listing 9.5's two counters exist and were reached by two different paths.
@@ -35,8 +35,8 @@ cd "$(dirname "$0")/.."
 # a loop that also owns stdin will sit there forever with no output. Redirecting
 # from /dev/null is what stops that. It has to be a SEPARATE helper from the one
 # that pipes a .sql file in, because that one needs its stdin for the file.
-CH() { docker compose exec -T clickhouse clickhouse-client --database tracing "$@" < /dev/null; }
-CH_FILE() { docker compose exec -T clickhouse clickhouse-client --database tracing --multiquery < "$1"; }
+CH() { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
+CH_FILE() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
 
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
@@ -103,7 +103,7 @@ wait_for 60 "prometheus ready" \
 pass "clickhouse, loki and prometheus all answering"
 
 echo "== 2. the store carries parent_span_id =="
-[ "$(CH --query "EXISTS TABLE otel_traces")" = "1" ] \
+[ "$(CH --query "EXISTS TABLE tracing.otel_traces")" = "1" ] \
   || fail "tracing.otel_traces is missing; did clickhouse finish its first-boot init.sql?"
 HAS_PARENT=$(CH --query "SELECT count() FROM system.columns WHERE database='tracing' AND table='otel_traces' AND name='parent_span_id'")
 [ "$HAS_PARENT" = "1" ] \
@@ -111,8 +111,8 @@ HAS_PARENT=$(CH --query "SELECT count() FROM system.columns WHERE database='trac
 pass "tracing.otel_traces exists and declares parent_span_id"
 
 echo "== 3. arm the listing 9.2 error-issue index BEFORE traffic (the MV fires on insert) =="
-CH --query "DROP VIEW IF EXISTS exc_mv" >/dev/null
-CH --query "DROP TABLE IF EXISTS exceptions" >/dev/null
+CH --query "DROP VIEW IF EXISTS tracing.exc_mv" >/dev/null
+CH --query "DROP TABLE IF EXISTS tracing.exceptions" >/dev/null
 CH_FILE clickhouse/error_index.sql >/dev/null
 pass "error_index.sql applied against an empty index"
 
@@ -120,17 +120,19 @@ echo "== 4. drive $CHECKOUTS checkouts plus $FORCED_ERRORS forced failures =="
 # Baseline first. The store survives a re-run, so polling for an absolute count
 # is satisfied instantly by the PREVIOUS run's rows and every assertion below
 # then reads a half-arrived store. The target has to be relative to this run.
-Q_ERRSPANS="SELECT count() FROM otel_traces WHERE status_code='STATUS_CODE_ERROR'"
+Q_ERRSPANS="SELECT count() FROM tracing.otel_traces WHERE status_code='STATUS_CODE_ERROR'"
 ERR_BEFORE=$(CH_COUNT "$Q_ERRSPANS")
 for _ in $(seq 1 "$CHECKOUTS"); do curl -s -o /dev/null http://localhost:8080/checkout || true; done
 for _ in $(seq 1 "$FORCED_ERRORS"); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1" || true; done
 # The sampler keeps every error trace, so the forced failures are guaranteed to
-# land. The successes are sampled at 10%, which is the whole point of step 6.
+# land. The successes are sampled at one in a hundred, which is the whole point
+# of step 7. Each failed checkout stores TWO error spans, fraud.score and the
+# server span it propagated to, so the target below is the conservative one.
 ERR_TARGET=$((ERR_BEFORE + FORCED_ERRORS))
 wait_for 180 "this run's $FORCED_ERRORS error spans to reach ClickHouse" 'ge "$Q_ERRSPANS" "$ERR_TARGET"'
-SPANS=$(CH --query "SELECT count() FROM otel_traces")
-ROOTS=$(CH --query "SELECT count() FROM otel_traces WHERE parent_span_id = ''")
-CHILDREN=$(CH --query "SELECT count() FROM otel_traces WHERE parent_span_id != ''")
+SPANS=$(CH --query "SELECT count() FROM tracing.otel_traces")
+ROOTS=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE parent_span_id = ''")
+CHILDREN=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE parent_span_id != ''")
 [ "$ROOTS" -gt 0 ] || fail "no root spans: every row has a parent, so parent_span_id is not being written"
 [ "$CHILDREN" -gt 0 ] || fail "no child spans carry a parent_span_id, so the column is declared but never filled"
 pass "$SPANS spans stored, $ROOTS roots and $CHILDREN children, so parent_span_id is populated both ways"
@@ -139,27 +141,35 @@ echo "== 5. record_exception detail reached the span attributes =="
 # The SDK writes exception.* onto a span EVENT and the consumer stores span
 # ATTRIBUTES. If the Collector's transform processor is not moving them across,
 # these are empty and the index in step 6 has nothing to fingerprint.
-ETYPE=$(CH --query "SELECT attributes['exception.type'] FROM otel_traces WHERE status_code='STATUS_CODE_ERROR' AND attributes['exception.type'] != '' LIMIT 1")
+ETYPE=$(CH --query "SELECT attributes['exception.type'] FROM tracing.otel_traces WHERE status_code='STATUS_CODE_ERROR' AND attributes['exception.type'] != '' LIMIT 1")
 [ -n "$ETYPE" ] || fail "no error span carries attributes['exception.type']; the transform processor is not flattening the exception event"
-STACK_LINES=$(CH --query "SELECT length(splitByChar('\n', attributes['exception.stacktrace'])) FROM otel_traces WHERE status_code='STATUS_CODE_ERROR' AND attributes['exception.stacktrace'] != '' LIMIT 1")
+STACK_LINES=$(CH --query "SELECT length(splitByChar('\n', attributes['exception.stacktrace'])) FROM tracing.otel_traces WHERE status_code='STATUS_CODE_ERROR' AND attributes['exception.stacktrace'] != '' LIMIT 1")
 [ -n "$STACK_LINES" ] && [ "$STACK_LINES" -ge 3 ] \
   || fail "exception.stacktrace is ${STACK_LINES:-absent} lines; expected a real multi-line traceback"
-FRAMES=$(CH --query "SELECT length(extractAll(attributes['exception.stacktrace'], 'File \"[^\"]*\", line [0-9]+, in [A-Za-z_0-9<>.]+')) FROM otel_traces WHERE status_code='STATUS_CODE_ERROR' AND attributes['exception.stacktrace'] != '' LIMIT 1")
+FRAMES=$(CH --query "SELECT length(extractAll(attributes['exception.stacktrace'], 'File \"[^\"]*\", line [0-9]+, in [A-Za-z_0-9<>.]+')) FROM tracing.otel_traces WHERE status_code='STATUS_CODE_ERROR' AND attributes['exception.stacktrace'] != '' LIMIT 1")
 [ -n "$FRAMES" ] && [ "$FRAMES" -ge 1 ] \
   || fail "the stacktrace parses to ${FRAMES:-0} frames; listing 9.2 fingerprints on the innermost one"
 pass "exception.type=$ETYPE with a $STACK_LINES-line traceback carrying $FRAMES frames"
 
 echo "== 6. listing 9.2: many raw error spans collapse to one issue =="
-# The index was recreated empty in step 3, so it holds only this run's errors.
-# Waiting for the busiest issue to reach the forced-error count is what stops the
-# dedup assertion below from reading a partially-filled index.
-Q_BUSIEST="SELECT max(c) FROM (SELECT sum(error_count) AS c FROM exceptions GROUP BY fingerprint)"
-wait_for 90 "the error-issue index to fold this run's errors" 'ge "$Q_BUSIEST" "$FORCED_ERRORS"'
-RAW_ERR=$(CH --query "SELECT count() FROM otel_traces WHERE status_code='STATUS_CODE_ERROR'")
-FPS=$(CH --query "SELECT uniqExact(fingerprint) FROM exceptions")
-TOPCOUNT=$(CH --query "SELECT sum(error_count) FROM exceptions GROUP BY fingerprint ORDER BY sum(error_count) DESC LIMIT 1")
-TOPFRAME=$(CH --query "SELECT any(top_frame) FROM exceptions GROUP BY fingerprint ORDER BY sum(error_count) DESC LIMIT 1")
-TEMPLATE=$(CH --query "SELECT any(msg_template) FROM exceptions GROUP BY fingerprint ORDER BY sum(error_count) DESC LIMIT 1")
+# The index was recreated empty in step 3, so it holds only THIS run's errors.
+# The span table does not: it survives a re-run. Counting every error span ever
+# stored against an index that starts empty compares two different populations,
+# and the comparison passes on volume alone -- on the second run the table holds
+# twice the errors, the index holds one run's, and "N spans collapsed to 1 issue"
+# is printed with an N that was never folded. Baseline it the way step 4 does.
+Q_BUSIEST="SELECT max(c) FROM (SELECT sum(error_count) AS c FROM tracing.exceptions GROUP BY fingerprint)"
+Q_FOLDED="SELECT sum(error_count) FROM tracing.exceptions"
+wait_for 120 "the error-issue index to hold every error span this run stored" \
+  'ge "$Q_BUSIEST" "$FORCED_ERRORS" && [ "$(CH_COUNT "$Q_FOLDED")" = "$(( $(CH_COUNT "$Q_ERRSPANS") - ERR_BEFORE ))" ]'
+RAW_ERR=$(( $(CH --query "$Q_ERRSPANS") - ERR_BEFORE ))
+FPS=$(CH --query "SELECT uniqExact(fingerprint) FROM tracing.exceptions")
+FOLDED=$(CH --query "$Q_FOLDED")
+[ "$FOLDED" = "$RAW_ERR" ] \
+  || fail "the index folded $FOLDED spans but this run stored $RAW_ERR error spans; the two are not the same population, so the collapse below would be arithmetic across two different sets"
+TOPCOUNT=$(CH --query "SELECT sum(error_count) FROM tracing.exceptions GROUP BY fingerprint ORDER BY sum(error_count) DESC LIMIT 1")
+TOPFRAME=$(CH --query "SELECT any(top_frame) FROM tracing.exceptions GROUP BY fingerprint ORDER BY sum(error_count) DESC LIMIT 1")
+TEMPLATE=$(CH --query "SELECT any(msg_template) FROM tracing.exceptions GROUP BY fingerprint ORDER BY sum(error_count) DESC LIMIT 1")
 [ -n "$TOPFRAME" ] \
   || fail "the busiest issue has an empty top_frame, so the fingerprint is hashing over nothing"
 [ "$RAW_ERR" -gt "$FPS" ] \
@@ -168,7 +178,7 @@ TEMPLATE=$(CH --query "SELECT any(msg_template) FROM exceptions GROUP BY fingerp
   || fail "the busiest issue folds only $TOPCOUNT span; the normalization regex is not collapsing the varying message"
 echo "   template: $TEMPLATE"
 echo "   frame:    $TOPFRAME"
-pass "$RAW_ERR raw error spans collapsed to $FPS issue(s); the busiest folds $TOPCOUNT"
+pass "this run's $RAW_ERR raw error spans collapsed to $FPS issue(s); the busiest folds $TOPCOUNT"
 
 echo "== 7. section 9.2.4: the post error rate reads higher than the pre error rate =="
 Q_PRE="sum(pre_calls_total{service_name=\"$SVC\",span_name=\"$SPAN\"})"
@@ -239,8 +249,8 @@ print(len({s['stream'].get('trace_id') for s in d if s['stream'].get('trace_id')
 pass "$LOKI_TIDS distinct trace ids present on log lines in Loki"
 
 echo "== 11. cleanup: put the store back the way a fresh stack starts =="
-CH --query "DROP VIEW IF EXISTS exc_mv"
-CH --query "DROP TABLE IF EXISTS exceptions"
+CH --query "DROP VIEW IF EXISTS tracing.exc_mv"
+CH --query "DROP TABLE IF EXISTS tracing.exceptions"
 echo "dropped the listing 9.2 view and index, so this suite re-runs from any state"
 
 echo

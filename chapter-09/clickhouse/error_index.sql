@@ -3,7 +3,7 @@
 -- Apply this by hand against the running store, BEFORE driving the traffic you
 -- want indexed:
 --
---   docker compose exec -T clickhouse clickhouse-client --database tracing \
+--   docker compose exec -T clickhouse clickhouse-client \
 --     --multiquery < clickhouse/error_index.sql
 --
 -- Standard materialized-view caveat: the view fires on INSERT and never

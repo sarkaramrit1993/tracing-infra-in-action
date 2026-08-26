@@ -3,7 +3,7 @@
 The keystone gateway config runs span metrics twice: `spanmetrics/pre` counts
 100% of spans before the tail sampler, `spanmetrics/post` counts only the
 survivors and weighs each as 1. The tail sampler keeps every error trace but only
-a tenth of the successes, so the POST error rate reads inflated against the PRE
+one success in a hundred, so the POST error rate reads inflated against the PRE
 error rate, which is the ground truth. That divergence is the whole reason
 chapter 9 says: derive insights from stream-time aggregates computed before you
 sample, never from the sampled survivors.
@@ -92,7 +92,7 @@ def run():
     stamp = datetime.now(timezone.utc)
     out_dir = Path(__file__).parent / "results"
     out_dir.mkdir(exist_ok=True)
-    out = out_dir / f"sampler-divergence-{stamp.strftime('%Y-%m-%d')}.json"
+    out = out_dir / f"sampler-divergence-{stamp.strftime('%Y-%m-%dT%H%M%S')}.json"
     out.write_text(json.dumps({
         "benchmark": "sampler_divergence",
         "measured_at_utc": stamp.isoformat(),

@@ -64,11 +64,13 @@ processors:
           - set(span.attributes["exception.stacktrace"], attributes["exception.stacktrace"])
               where name == "exception" and attributes["exception.stacktrace"] != nil
 
-  # Keep every trace that carries an error span, plus a 10% probabilistic
-  # sample of the rest. Plain probabilistic sampling: it does NOT stamp a
-  # W3C tracestate ot.th probability threshold on kept spans, so the post
-  # connector cannot reconstruct the pre population from a sampled span. That
-  # is deliberate. It is what makes the pre/post divergence visible.
+  # Keep every trace that carries an error span, plus a 1% probabilistic
+  # sample of the rest. One in a hundred is the rate the book uses throughout,
+  # and the opening story's 50x inflation is arithmetic on it. Plain
+  # probabilistic sampling: it does NOT stamp a W3C tracestate ot.th
+  # probability threshold on kept spans, so the post connector cannot
+  # reconstruct the pre population from a sampled span. That is deliberate. It
+  # is what makes the pre/post divergence visible.
   tail_sampling:
     decision_wait: 5s
     num_traces: 50000
@@ -78,15 +80,21 @@ processors:
         type: status_code
         status_code:
           status_codes: [ERROR]
-      - name: probabilistic-10-percent
+      - name: probabilistic-1-percent
         type: probabilistic
         probabilistic:
-          sampling_percentage: 10
+          sampling_percentage: 1
 
   batch:
     send_batch_size: 8192
     timeout: 1s
 
+# ---- Listing 9.1: spanmetrics and servicegraph before the sampler ----
+# Listing 9.1 is this file's back half read as one question: what is counted, and
+# on which side of the sampler. Listing 9.3's fence sits inside it, over the same
+# connectors plus the exporters, read as a different question: which signal can
+# be reached from which. Two listings, one config, no duplicate file to drift.
+# ---- Listing 9.3: The three bridges, declared ----
 connectors:
   # Span metrics BEFORE the sampler: every span counted, the ground truth.
   spanmetrics/pre:
@@ -180,6 +188,8 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 
+# ---- end listing 9.3 ----
+
 extensions:
   health_check: {}
 
@@ -188,8 +198,17 @@ service:
   pipelines:
     # 100% of spans reach the metric connectors here. This is the correctness
     # point: metrics are truth because nothing has been dropped yet.
+    #
+    # memory_limiter runs here as well as on traces/sampled, and it has to. It
+    # is the first processor on every pipeline that touches the receiver, so a
+    # batch it refuses is refused before spanmetrics/pre has counted it. Left
+    # off, the connector counts a batch, memory_limiter downstream rejects it,
+    # the SDK retries the same spans, and pre_calls_total counts them again.
+    # The series the chapter calls ground truth would inflate under exactly the
+    # pressure that makes ground truth worth having.
     traces/in:
       receivers: [otlp]
+      processors: [memory_limiter]
       exporters: [spanmetrics/pre, servicegraph, forward]
 
     # Only this pipeline samples. memory_limiter stays FIRST. The transform runs
@@ -229,3 +248,4 @@ service:
                 port: 8888
                 without_type_suffix: false
                 without_units: false
+# ---- end listing 9.1 ----

@@ -8,7 +8,8 @@
 #
 # Path:  checkout-service
 #          -> otel-collector   (spanmetrics/pre over 100% of spans, then a tail
-#                               sampler, then spanmetrics/post over survivors)
+#                               sampler at one in a hundred, then
+#                               spanmetrics/post over survivors)
 #          -> kafka(otlp_spans)
 #          -> consumer-clickhouse
 #          -> ClickHouse tracing.otel_traces
@@ -197,6 +198,11 @@ services:
         condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
+    # Same policy as kafka. Nothing supervises this process: it is a plain
+    # Python loop with no HTTP surface and no compose healthcheck, so a crash
+    # leaves the stack looking healthy while otel_traces silently stops
+    # growing. Restarting it replays from the last committed offset.
+    restart: unless-stopped
 
   # --- Prometheus ---
   # exemplar-storage keeps the trace-id exemplars the spanmetrics connector

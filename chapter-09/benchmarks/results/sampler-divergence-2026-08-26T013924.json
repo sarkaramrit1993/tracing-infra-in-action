@@ -1,0 +1,21 @@
+{
+  "benchmark": "sampler_divergence",
+  "measured_at_utc": "2026-08-26T01:39:24.560285+00:00",
+  "prometheus": "http://localhost:9090",
+  "grain": {
+    "service": "checkout-service",
+    "span": "fraud.score"
+  },
+  "pre": {
+    "total": 306.0,
+    "errors": 9.0,
+    "error_rate": 0.029412
+  },
+  "post": {
+    "total": 14.0,
+    "errors": 9.0,
+    "error_rate": 0.642857
+  },
+  "inflation_ratio": 21.857,
+  "note": "Direction is the claim: post error rate > pre error rate, and pre total > post total. The magnitude is a function of the injected error ratio and the sample rate, not a universal constant."
+}
