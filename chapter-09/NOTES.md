@@ -43,7 +43,7 @@ ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "
 `clickhouse-client` reads standard input when it is given one. Inside a shell
 loop that also owns stdin, a client without `< /dev/null` sits there forever
 waiting on an EOF that never comes, producing no output and no error. That is
-the trap that hung both of chapter 7's scripts for a reviewer.
+the trap that hung both of chapter 7's scripts for readers running them.
 
 They cannot be one helper. `ch_file` needs its stdin for the file it is piping
 in, so it cannot redirect from `/dev/null`; `ch` must redirect or it hangs.

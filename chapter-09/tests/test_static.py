@@ -592,7 +592,7 @@ def _shell_commands(text):
 
 @test
 def test_every_clickhouse_helper_closes_stdin():
-    """The trap that hung both of chapter 7's scripts for a reviewer."""
+    """The trap that hung both of chapter 7's scripts for readers running them."""
     offenders = []
     for path in (sorted(CHAPTER.glob("*.md")) + sorted(CHAPTER.glob("exercises/*.md"))
                  + sorted(CHAPTER.glob("benchmarks/*.md"))
