@@ -72,11 +72,12 @@ with `docker compose down -v` before starting another.
 | 16686 | Jaeger UI |
 | 9090 | Prometheus (chapters 3, 4, 5, 7, 9) |
 | 8123 | ClickHouse HTTP (chapters 5, 7, 8, 9) |
-| 9000, 9363 | ClickHouse native and metrics (chapters 7, 8, 9) |
+| 9000 | ClickHouse native (chapters 7, 8, 9) |
+| 9363 | ClickHouse metrics (chapters 7, 9) |
 | 8888 | Collector metrics (chapters 7, 9) |
 | 9001, 9002 | MinIO console and API (chapter 7) |
 | 3200, 4417 | Tempo query and OTLP (chapter 7) |
-| 8889 | Collector span-metrics and service-graph scrape endpoint (chapter 9) |
+| 8889 | Collector Prometheus exporter; span metrics and service graph in chapter 9 (chapters 2, 3, 4, 5, 7, 8, 9) |
 | 3100 | Loki HTTP (chapter 9) |
 
 ## Verifying a chapter
