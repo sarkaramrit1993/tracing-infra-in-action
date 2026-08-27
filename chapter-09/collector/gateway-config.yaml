@@ -236,8 +236,8 @@ service:
       level: detailed
       # The Collector's own metrics, including
       # otelcol_receiver_accepted_spans_total, which is the "received" half of
-      # listing 9.5. The reader has to be declared: recent Collector releases
-      # bind internal telemetry to localhost by default, so from another
+      # the ingest-gap rule. The reader has to be declared: recent Collector
+      # releases bind internal telemetry to localhost by default, so from another
       # container the scrape is refused and the ingest-gap rule reads a 100%
       # gap that is really just an unreachable endpoint.
       readers:

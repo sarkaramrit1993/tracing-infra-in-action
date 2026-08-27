@@ -35,8 +35,6 @@ opening when something surprises you.
 | 9.1 | `collector/gateway-config.yaml` | Span metrics and the service graph derived before the sampler runs |
 | 9.2 | `clickhouse/error_index.sql` | An error-issue index as a materialized view, fingerprinting on a normalized message |
 | 9.3 | `collector/gateway-config.yaml` | The three bridges between signals, declared in one config |
-| 9.4 | `rules/burn_rate.yml` | A multi-window multi-burn-rate rule over the pre-sample error ratio |
-| 9.5 | `rules/span_ingest_gap.yml` | The expected-versus-received recording rule, from two counters that took different paths |
 
 Listings 9.1 and 9.3 name the same file, and that is deliberate rather than an
 oversight. They are two readings of one Collector config: 9.1 asks what gets
@@ -291,11 +289,26 @@ you ran another and none leaves a mess behind.
 If you only do one, do divergence: it is the chapter's thesis, and it is the one
 whose wrong answer is most likely to already be on a dashboard somewhere.
 
-## Listing 9.4, the burn-rate rule
+## Beyond the book's listings
 
-Loaded automatically. `rules/` is mounted into Prometheus and `prometheus.yml`
-globs it, so the four recording rules and two alerts are live from the moment
-the stack is up:
+Three things here back no printed listing: `rules/burn_rate.yml`,
+`rules/span_ingest_gap.yml`, and the span counter in `app/checkout.py` that
+feeds the second of them. They ship anyway, and the reason is the same in both
+cases. The chapter's argument is that a pre-sample series and a post-sample
+series disagree and that only one of them is the truth. That argument is worth
+nothing until something reads the right series and pages a human when it moves,
+and these two files are that something.
+
+They are also where the argument got expensive. Each file had an earlier version
+that parsed, loaded clean, evaluated without error, and was wrong: one needed a
+10.1% request failure rate before it would fire, under a label promising 99.9%
+availability, and the other reported every span in a healthy stack lost.
+NOTES.md, under "Before you change either rule file", has both measurements.
+Read it before you edit either one. Neither defect announces itself.
+
+Both files load automatically. `rules/` is mounted into Prometheus and
+`prometheus.yml` globs it, so the seven recording rules and three alerts are
+live from the moment the stack is up:
 
 ```bash
 curl -s http://localhost:9090/api/v1/rules \
@@ -319,8 +332,12 @@ span_ingest_gap recording spans:ingest_gap:ratio5m ok
 span_ingest_gap alerting SpanIngestGap ok
 ```
 
-Ten rules, all `ok`. Two things in that file are worth reading, and both are
-about what the ratio is a ratio of.
+Ten rules, all `ok`.
+
+### The burn-rate rule
+
+Two things in `rules/burn_rate.yml` are worth reading, and both are about what
+the ratio is a ratio of.
 
 It burns against `pre_calls_total`, never `post_calls_total`. On this stack the
 post error rate reads twenty-five times the true one, so a burn-rate alert built
@@ -336,15 +353,16 @@ server span is opened once per request, which is what makes the selector count
 requests. It is also why `app/checkout.py` marks that span failed rather than
 leaving the error on `fraud.score` alone.
 
-The book prints the 5m and 1h windows to keep the listing readable. The file
-carries all four, because a Prometheus alert whose expression names a recording
-rule that does not exist does not error. It evaluates to an empty vector and
-never fires, which is the quietest possible way for an alert to be broken.
+All four windows are here, not just the 5m and 1h pair you would keep if you
+were trimming this for print. Both alerts read a short window against a long
+one, and a Prometheus alert whose expression names a recording rule that does
+not exist does not error. It evaluates to an empty vector and never fires, which
+is the quietest possible way for an alert to be broken.
 
-## Listing 9.5, the ingest gap
+### The ingest gap
 
-Also loaded automatically, and the useful thing about it is where its two numbers
-come from. The expected side is read a minute behind the received side, so the
+The useful thing about `rules/span_ingest_gap.yml` is where its two numbers come
+from. The expected side is read a minute behind the received side, so the
 poll waits for a minute of producer history to exist before there is anything to
 read:
 
@@ -380,8 +398,9 @@ system is on the floor.
 
 ## Run tests
 
-Offline, no Docker needed: the schema carries `parent_span_id`, the five listings
-match what the book prints, the connectors sit on the right side of the sampler,
+Offline, no Docker needed: the schema carries `parent_span_id`, the three
+listings match what the book prints, both rule files still say what the stack
+needs them to say, the connectors sit on the right side of the sampler,
 the histograms are explicit rather than exponential, and every window an alert
 names is a rule that exists. It reads YAML, so it needs PyYAML:
 
@@ -402,8 +421,8 @@ bash tests/test_correlation.sh
 `test_stack.sh` checks all eight services, then walks the chapter's claims: that
 `record_exception` detail reaches the span attributes, that the listing 9.2 index
 folds many raw error spans into one issue, that the post error rate reads above
-the pre one, that the service graph has edges, and that both sides of listing 9.5
-report. `test_correlation.sh` fires one request with a trace id it chose itself
+the pre one, that the service graph has edges, and that both sides of the
+ingest-gap rule report. `test_correlation.sh` fires one request with a trace id it chose itself
 and walks all three of section 9.3's crossings for that one id. Both poll for
 every condition rather than sleeping, and both put the store back the way a fresh
 stack starts, so either can be run in any order and re-run from any state.
@@ -425,24 +444,24 @@ rm -rf .venv
 
 ## Notes on running the book's listings
 
-Three of the five printed listings differ from the file that backs them in a way
-worth knowing before you paste one into your own stack. All three are in
-[NOTES.md](NOTES.md) under "Running the book's listings verbatim", and the short
-version is:
+Listing 9.2 differs from the file that backs it in a way worth knowing before
+you paste it into your own stack, and both rule files differ from the version
+you would write straight from the chapter's description. All of it is in
+[NOTES.md](NOTES.md), and the short version is:
 
 - **Listing 9.2's `top_frame`.** The book slices the first line off the
   stacktrace. On a Python traceback that line is `Traceback (most recent call
   last):`, identical for every exception ever raised, so every issue in the
   service folds into one. The file parses the innermost frame instead.
-- **Listing 9.4's series name.** The book reads
-  `traces_span_metrics_calls_total`, the connector's default. This stack sets
+- **The burn-rate rule's series name.** `traces_span_metrics_calls_total` is
+  what the connector emits with no `namespace` set. This stack sets
   `namespace: pre` and `namespace: post`, so the two series are `pre_calls_total`
-  and `post_calls_total`. A rule naming the default here matches nothing and
-  never fires.
-- **Listing 9.5's `expected`.** The book baselines against the same hour a week
-  earlier. A stack you brought up ten minutes ago has no week of history, so the
-  file uses the other input the chapter names, an upstream emit counter. The
-  alert arithmetic is identical.
+  and `post_calls_total`. A rule naming the connector default here matches
+  nothing and never fires.
+- **The ingest gap's `expected` side.** Baselining against the same hour a week
+  earlier is the better input for a system that has been running a week. A stack
+  you brought up ten minutes ago has no week of history, so the file uses an
+  upstream emit counter. The alert arithmetic is identical.
 
 ## Reference
 
@@ -454,7 +473,7 @@ Nothing below is needed to run anything above it.
 |---|---|
 | 8080 | `checkout-service`, and its own `/metrics` |
 | 4317, 4318 | Collector OTLP gRPC and HTTP |
-| 8888 | Collector internal telemetry, the `received` half of listing 9.5 |
+| 8888 | Collector internal telemetry, the `received` half of the ingest gap |
 | 8889 | Collector span-metrics and service-graph scrape endpoint |
 | 8123, 9000 | ClickHouse HTTP and native |
 | 9363 | ClickHouse Prometheus endpoint |
@@ -471,7 +490,7 @@ reachable from another machine on your network.
 | OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` | span metrics before and after the sampler, service graph, tail sampling, the logs path to Loki |
 | ClickHouse | `clickhouse/clickhouse-server:25.8` (LTS) | the span store and the listing 9.2 error-issue index |
 | Apache Kafka | `apache/kafka:4.3.0` | the `otlp_spans` topic between Collector and consumer, single-broker KRaft |
-| Prometheus | `prom/prometheus:v3.12.0` | span metrics, exemplar storage, listings 9.4 and 9.5 |
+| Prometheus | `prom/prometheus:v3.12.0` | span metrics, exemplar storage, the two rule files under `rules/` |
 | Loki | `grafana/loki:3.7.6` | logs, with `trace_id` as structured metadata |
 | Python | 3.12 in the app image, 3 on the host for benchmarks | producer, storage consumer, benchmark scripts |
 
@@ -505,8 +524,8 @@ chapter-09/
 │   └── loki.yaml                structured metadata on, so trace_id survives
 ├── prometheus.yml
 ├── rules/
-│   ├── burn_rate.yml            listing 9.4
-│   └── span_ingest_gap.yml      listing 9.5
+│   ├── burn_rate.yml            burn-rate alerting on the pre-sample series
+│   └── span_ingest_gap.yml      emitted against received, two separate paths
 ├── exercises/
 │   ├── divergence.md            listing 9.1: what the survivors' error rate is
 │   ├── fingerprints.md          listing 9.2: what normalization is worth

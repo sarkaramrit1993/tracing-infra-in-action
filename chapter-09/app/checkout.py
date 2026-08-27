@@ -22,9 +22,9 @@ can learn without the application telling it anything special:
 
   2. THE PROCESS COUNTS ITS OWN SPANS. A SpanProcessor increments a Prometheus
      counter as each span ends, and /metrics publishes it. Prometheus scrapes
-     that counter directly, never through the Collector, so listing 9.5 can
-     compare what was emitted against what was received. Two counts that
-     travelled the same path cannot detect that path losing spans.
+     that counter directly, never through the Collector, so the ingest-gap
+     rule can compare what was emitted against what was received. Two counts
+     that travelled the same path cannot detect that path losing spans.
 
   3. LOGS CARRY TRACE CONTEXT BECAUSE THEY SHARE A PROCESS WITH THE SPAN. The
      OTel logs SDK bridges the stdlib logger, so a log written inside a span
@@ -58,12 +58,13 @@ resource = Resource.create({
     "deployment.environment": "development",
 })
 
-# ---- Listing 9.5 (producer half): the process counts the spans it finished ----
-# This counter is the independent "expected" input. It is incremented in-process
-# as each span ends, which is the last moment the application knows about a span
-# for certain, and Prometheus reads it off this container. Deriving it from
-# anything the Collector reports would make it agree with the Collector by
-# construction, which is exactly the agreement listing 9.5 is trying to test.
+# ---- The producer half of the ingest gap: the process counts its own spans ----
+# This counter is the independent "expected" input to rules/span_ingest_gap.yml.
+# It is incremented in-process as each span ends, which is the last moment the
+# application knows about a span for certain, and Prometheus reads it off this
+# container. Deriving it from anything the Collector reports would make it agree
+# with the Collector by construction, which is exactly the agreement the rule is
+# trying to test. The book does not print this counter or the rule it feeds.
 SPANS_EMITTED = Counter(
     "checkout_spans_emitted",
     "Spans this process finished and handed to the exporter.",
@@ -110,7 +111,7 @@ log.addHandler(LoggingHandler(level=logging.INFO, logger_provider=logger_provide
 app = Flask(__name__)
 # /health and /metrics are excluded so a liveness probe and a Prometheus scrape
 # do not each produce a span. Left in, every 15s scrape adds a span to the store,
-# to the span metrics, and to both sides of the listing 9.5 comparison.
+# to the span metrics, and to both sides of the ingest-gap comparison.
 FlaskInstrumentor().instrument_app(app, excluded_urls="health,metrics")
 
 # Deterministic demo error injection: every 100th checkout (~1%) fails at the

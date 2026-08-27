@@ -17,6 +17,10 @@ minted on the wrong side of the sampler, a Loki selector on a field that is not
 a label, and a gap alert whose two counters came down the same pipe. Each of
 those has a test below, because the stack cannot report them itself.
 
+The two files under rules/ back no printed listing. They are held here anyway,
+and to the same standard: what these tests pin is what the stack needs, and
+every one of those needs was paid for once already.
+
 Usage:  python3 tests/test_static.py
 """
 import ast
@@ -50,6 +54,22 @@ def listing_body(rel, number):
     m = re.search(rf"^(?:--|#) -+ Listing {n}:.*?$\n(.*?)^(?:--|#) -+ end listing {n}",
                   text, re.S | re.M)
     assert m, f"{rel} has no fenced block for listing {number}"
+    return m.group(1)
+
+
+def rules_body(rel, name):
+    """Pull the text between the ---- <name> ---- fences in a rules/ file.
+
+    Same shape as listing_body, different fence. The two rule files back no
+    printed listing, so they carry a plain descriptive fence: a listing anchor
+    in them would make scripts/check_listing_anchors.py demand a README row for
+    a listing the book does not print.
+    """
+    text = read(rel)
+    n = re.escape(name)
+    m = re.search(rf"^(?:--|#) -+ {n}:.*?$\n(.*?)^(?:--|#) -+ end {n}",
+                  text, re.S | re.M)
+    assert m, f"{rel} has no fenced block named {name}"
     return m.group(1)
 
 
@@ -320,8 +340,8 @@ def test_listing_9_3_loki_accepts_structured_metadata():
 
 
 @test
-def test_listing_9_4_burn_rate_exact():
-    body = normalize(listing_body("rules/burn_rate.yml", "9.4"))
+def test_burn_rate_rule_keeps_its_rules_and_both_alerts():
+    body = normalize(rules_body("rules/burn_rate.yml", "burn-rate rules"))
     for fragment in (
             "- record: slo:checkout_errors:ratio_rate5m",
             "- record: slo:checkout_errors:ratio_rate1h",
@@ -331,24 +351,24 @@ def test_listing_9_4_burn_rate_exact():
             "- alert: CheckoutErrorBudgetBurnSlow",
             "for: 15m",
             "severity: ticket"):
-        assert normalize(fragment) in body, f"listing 9.4 lost: {fragment}"
+        assert normalize(fragment) in body, f"the burn-rate rule lost: {fragment}"
 
 
 @test
-def test_listing_9_4_thresholds_are_the_budget_arithmetic():
+def test_burn_rate_thresholds_are_the_budget_arithmetic():
     """1.44% and 0.6% are 14.4x and 6x of a 0.1% budget. Written as the product
     rather than as 0.0144, so changing the objective changes both thresholds."""
-    body = normalize(listing_body("rules/burn_rate.yml", "9.4"))
+    body = normalize(rules_body("rules/burn_rate.yml", "burn-rate rules"))
     assert "(14.4 * 0.001)" in body, "the fast threshold must show its burn rate and budget"
     assert "(6 * 0.001)" in body, "the slow threshold must show its burn rate and budget"
 
 
 @test
-def test_listing_9_4_burns_against_the_pre_sample_series():
+def test_burn_rate_burns_against_the_pre_sample_series():
     """post_calls_total is the sampler's survivors, and the sampler keeps every
     error. An error ratio computed from post reads tens of times too high on this
     stack, so this alert would page on a healthy service."""
-    body = listing_body("rules/burn_rate.yml", "9.4")
+    body = rules_body("rules/burn_rate.yml", "burn-rate rules")
     assert "post_calls_total" not in body, \
         "a burn rate over the sampled survivors pages on a healthy service"
     assert body.count("pre_calls_total") >= 8, \
@@ -356,21 +376,21 @@ def test_listing_9_4_burns_against_the_pre_sample_series():
 
 
 @test
-def test_listing_9_4_counts_requests_and_not_spans():
+def test_burn_rate_counts_requests_and_not_spans():
     """spanmetrics counts spans and a checkout makes seven of them. Divide error
     spans by all spans and the ratio comes out a seventh of the request error
     rate, under a label that promises 99.9% availability. The SERVER span is
     opened once per request, so selecting it is what makes the ratio a request
     rate, and app/checkout.py marking that span failed is what gives the
     selector something to count."""
-    body = listing_body("rules/burn_rate.yml", "9.4")
+    body = rules_body("rules/burn_rate.yml", "burn-rate rules")
     assert body.count('span_kind="SPAN_KIND_SERVER"') >= 8, \
         "every numerator and denominator has to be pinned to the server span"
     producer = ast.parse(read("app/checkout.py"))
     calls = {ast.unparse(node) for node in ast.walk(producer) if isinstance(node, ast.Call)}
     assert "trace.get_current_span()" in calls, \
         ("nothing reaches for the server span, so the request-grain selector in "
-         "listing 9.4 counts a flat zero and the burn-rate alert never fires")
+         "burn_rate.yml counts a flat zero and the burn-rate alert never fires")
     assert "span.set_status(Status(StatusCode.ERROR, str(failure)))" in calls, \
         "the server span is never marked failed, so no span of kind SERVER carries an error status"
     assert "span.record_exception(failure)" in calls, \
@@ -380,10 +400,10 @@ def test_listing_9_4_counts_requests_and_not_spans():
 
 
 @test
-def test_listing_9_4_every_window_an_alert_names_is_recorded():
+def test_burn_rate_every_window_an_alert_names_is_recorded():
     """A Prometheus alert whose expression names a rule that does not exist does
-    not error. It evaluates to an empty vector and never fires. The book prints
-    two windows to stay readable; the runnable file has to carry all four."""
+    not error. It evaluates to an empty vector and never fires. Both alerts read
+    a short window against a long one, so the file has to carry all four."""
     doc = yaml.safe_load(read("rules/burn_rate.yml"))
     rules = doc["groups"][0]["rules"]
     recorded = {r["record"] for r in rules if "record" in r}
@@ -395,8 +415,9 @@ def test_listing_9_4_every_window_an_alert_names_is_recorded():
 
 
 @test
-def test_listing_9_5_ingest_gap_exact():
-    body = normalize(listing_body("rules/span_ingest_gap.yml", "9.5"))
+def test_ingest_gap_rule_keeps_both_sides_and_its_alert():
+    body = normalize(rules_body("rules/span_ingest_gap.yml",
+                                "ingest-gap rules"))
     for fragment in (
             "- record: spans:received:rate5m",
             "sum(otelcol_receiver_accepted_spans_total)",
@@ -404,15 +425,16 @@ def test_listing_9_5_ingest_gap_exact():
             "- record: spans:expected:rate5m",
             "- alert: SpanIngestGap",
             "for: 10m"):
-        assert normalize(fragment) in body, f"listing 9.5 lost: {fragment}"
+        assert normalize(fragment) in body, f"the ingest-gap rule lost: {fragment}"
 
 
 @test
-def test_listing_9_5_counts_two_things_that_took_different_paths():
+def test_ingest_gap_counts_two_things_that_took_different_paths():
     """The point of the rule. Comparing the Collector's received count against a
     number that also travelled through the Collector proves nothing: an outage
     takes both to zero and the ratio holds at 1.0."""
-    body = normalize(listing_body("rules/span_ingest_gap.yml", "9.5"))
+    body = normalize(rules_body("rules/span_ingest_gap.yml",
+                                "ingest-gap rules"))
     assert "checkout_spans_emitted_total" in body, \
         "the expected side must come off the producer, not off the Collector"
     assert "otelcol_receiver_accepted_spans_total" in body
@@ -423,19 +445,20 @@ def test_listing_9_5_counts_two_things_that_took_different_paths():
 
 
 @test
-def test_listing_9_5_survives_a_total_collector_outage():
+def test_ingest_gap_survives_a_total_collector_outage():
     """The failure this alert exists for takes the received series stale, and
     rate() over a stale series returns an empty vector. An alert over an empty
     vector never fires, so the one case that matters most is the one it would
     miss. `or vector(0)` on each side is what keeps the arithmetic defined."""
-    body = normalize(listing_body("rules/span_ingest_gap.yml", "9.5"))
+    body = normalize(rules_body("rules/span_ingest_gap.yml",
+                                "ingest-gap rules"))
     assert body.count("or vector(0)") >= 2, \
         "both counters need an empty-vector fallback or a total outage never pages"
     assert "clamp_min" in body, "a zero denominator makes the ratio NaN, which never alerts"
 
 
 @test
-def test_listing_9_5_counters_are_compared_from_the_same_starting_point():
+def test_ingest_gap_counters_are_compared_from_the_same_starting_point():
     """The failure this rule shipped with. rate() measures from a series' first
     sample INSIDE the window. checkout_spans_emitted_total is published at zero
     from the producer's first scrape; otelcol_receiver_accepted_spans_total does
@@ -444,7 +467,8 @@ def test_listing_9_5_counters_are_compared_from_the_same_starting_point():
     healthy stack whose counters read 2142 and 2142 reported every span lost.
     Subtracting the value five minutes ago, with `or vector(0)` for a series
     that did not exist then, counts them on both sides."""
-    body = normalize(listing_body("rules/span_ingest_gap.yml", "9.5"))
+    body = normalize(rules_body("rules/span_ingest_gap.yml",
+                                "ingest-gap rules"))
     assert "rate(" not in body, \
         ("rate() drops the first sample of a series that was born non-zero, which is "
          "the whole defect: the two counters do not come into existence the same way")
@@ -485,12 +509,13 @@ def test_compose_parses_and_pins_one_tag_per_image():
 
 @test
 def test_compose_mounts_the_rule_files_into_prometheus():
-    """rules/*.yml is where listings 9.4 and 9.5 live. Unmounted, Prometheus
+    """rules/*.yml is where the burn-rate and ingest-gap rules live. Unmounted,
+    Prometheus
     starts clean and every rule this chapter prints is simply absent."""
     compose = yaml.safe_load(read("docker-compose.yml"))
     mounts = compose["services"]["prometheus"]["volumes"]
     assert any(m.startswith("./rules:") for m in mounts), \
-        "listings 9.4 and 9.5 are not mounted, so Prometheus loads neither"
+        "rules/ is not mounted, so Prometheus loads neither rule file"
     prometheus = yaml.safe_load(read("prometheus.yml"))
     assert prometheus["rule_files"] == ["rules/*.yml"], \
         "the rule_files glob must match the mount point"
@@ -599,7 +624,7 @@ def test_the_stdin_check_sees_a_continued_invocation():
 @test
 def test_every_readme_listing_row_names_a_file_that_exists():
     rows = re.findall(r"^\|\s*(9\.\d)\s*\|\s*`([^`]+)`", read("README.md"), re.M)
-    assert len(rows) == 5, f"the listing table has {len(rows)} rows, expected 9.1 to 9.5"
+    assert len(rows) == 3, f"the listing table has {len(rows)} rows, expected 9.1 to 9.3"
     for number, rel in rows:
         assert (CHAPTER / rel).exists(), f"listing {number} names {rel}, which is not here"
         listing_body(rel, number)

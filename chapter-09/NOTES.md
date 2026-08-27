@@ -10,6 +10,7 @@ The short list, if you are here because something surprised you:
 - A Loki query that returns nothing and no error: [trace_id is not a label](#trace_id-is-not-a-label).
 - An exemplar that points at nothing: [why exemplars come off the post connector](#why-exemplars-come-off-the-post-connector).
 - `histogram_quantile` returning `+Inf`: [why the buckets are explicit](#why-the-histogram-buckets-are-explicit).
+- About to simplify something in `rules/`: [before you change either rule file](#before-you-change-either-rule-file).
 
 ## Why span metrics run twice
 
@@ -204,6 +205,50 @@ The same asymmetry runs the other way. A view is a trigger on insert, and a
 folded into the index forever. `tests/test_stack.sh` drops the view and the
 target table at the end for that reason, so the suite re-runs from any state.
 
+## Before you change either rule file
+
+Neither `rules/burn_rate.yml` nor `rules/span_ingest_gap.yml` backs a printed
+listing, so nothing outside this directory complains if one of them quietly goes
+back to a simpler form. Both have been simpler. Both were wrong in that form,
+and neither was wrong in a way that surfaced as an error. What follows is what
+it cost to find that out, so the next person can decide against a revert on
+evidence rather than rediscovering it.
+
+**The burn-rate ratio has to be request-grain, and it takes two changes to get
+there.** `spanmetrics` counts spans and one checkout produces seven of them, so
+an error ratio over every span comes out around a seventh of the request error
+rate. Under a 99.9% objective the fast threshold of 1.44% then needs a real
+request failure rate of **10.1%** before it fires, which is an outage nobody
+needs an alert to find. Two things fix it and neither half works alone: the
+selectors carry `span_kind="SPAN_KIND_SERVER"`, because the server span is
+opened once per request, and `app/checkout.py` marks that server span failed
+instead of leaving the exception on `fraud.score` where it was thrown. Drop the
+selector and the ratio is span-grain again; drop the status on the server span
+and the selector counts a flat zero. Measured on this stack at nine failures in
+306 requests: **2.9638% recorded against 2.9412% driven**, where the span-grain
+expression read **0.84%** on the same data.
+
+**The ingest gap needs two counters that took different paths, and the drain is
+where a fix goes wrong.** `spans:expected:rate5m` reads the producer's own emit
+counter, scraped straight off the application container; `spans:received:rate5m`
+reads the Collector's. The obvious simplification, baselining the received
+counter against its own history, compares a series to itself and proves nothing:
+a Collector that drops every span takes both terms to zero and the ratio sits at
+1.0 while the store goes empty. The second trap is quieter. The first attempt at
+curing the startup ramp offset one window a minute against the other. It fixed
+the ramp and broke the drain: on a burst-then-idle cycle the gap climbed to
+**1.0, a reported 100% loss, and held there for a full minute with both counters
+sitting at 4,998**. `min_over_time` on the expected side has no such edge.
+
+So any change to the ingest-gap arithmetic has to be watched across a full
+burst-then-idle cycle and not only at startup. Drive a burst, then let the stack
+sit idle until both five-minute windows have drained, sampling
+`spans:ingest_gap:ratio5m` every ten seconds the whole way through. An
+expression that reads correctly for the first minute of traffic is exactly the
+shape of the one that already shipped and was wrong. The reading to match is a
+peak of 3.7% while the windows drain, with `SpanIngestGap` never leaving
+`inactive`.
+
 ## Why the ingest gap needs two unrelated counters
 
 `spans:received:rate5m` reads `otelcol_receiver_accepted_spans_total`, the
@@ -268,7 +313,7 @@ Counting requests instead would compare a request count against a span count and
 need a spans-per-request constant to bridge them, which is a number that changes
 the moment anyone adds instrumentation. Counting successful exports would make
 the counter agree with the Collector by construction, which is precisely the
-agreement listing 9.5 exists to test.
+agreement `rules/span_ingest_gap.yml` exists to test.
 
 ## Why three of the images carry no healthcheck
 
@@ -319,8 +364,8 @@ number rather than compared against a direction.
 
 The book prints a readable excerpt and this repository ships a runnable file, so
 they differ in small ways throughout: qualified table names, callout markers,
-YAML that has to satisfy a real schema. Three of the differences are worth
-knowing before you paste a printed listing into your own stack.
+YAML that has to satisfy a real schema. One of the differences is worth knowing
+before you paste a printed listing into your own stack.
 
 ### Listing 9.2's top frame
 
@@ -354,43 +399,49 @@ of which is marked "first seen in this deploy". `benchmarks/fingerprint_compress
 varies the raise line across three values per code path to stand in for three
 deploys, so dropping the strip triples the issue count, measurably.
 
-### Listing 9.4's series name
+## Where the rule files depart from the obvious version
 
-The book reads `traces_span_metrics_calls_total`, which is what the connector
-emits with no `namespace` set. This stack sets `namespace: pre` and
-`namespace: post` so that the two connectors produce distinguishable series, and
-that setting is what renames the counter. The rules therefore read
-`pre_calls_total`.
+Neither file under `rules/` is printed in the book, so there is no page to
+differ from. What they differ from is the version you would write from the
+chapter's description, and in three places that is deliberate.
 
-If you copy the printed rule into a stack whose connector does set a namespace,
-the expression matches nothing. It will not error. It will evaluate to an empty
-vector, record an empty series, and the alert built on it will never fire.
+### The burn-rate rule's series name
 
-### Listing 9.5's expected side
+`traces_span_metrics_calls_total` is what the connector emits with no
+`namespace` set. This stack sets `namespace: pre` and `namespace: post` so that
+the two connectors produce distinguishable series, and that setting is what
+renames the counter. The rules therefore read `pre_calls_total`.
 
-The book baselines the expected rate against the same hour one week earlier:
+Copy these rules into a stack whose connector sets no namespace, or copy the
+connector default into this one, and the expression matches nothing. It will not
+error. It will evaluate to an empty vector, record an empty series, and the alert
+built on it will never fire.
+
+### The ingest gap's expected side
+
+The obvious expected side baselines against the same hour one week earlier:
 
 ```
 avg_over_time(spans:received:rate5m[1h] offset 1w)
 ```
 
-That is the better choice for a system that has been running a week, and section
-9.4.4 names it first. It is unusable on a stack you brought up ten minutes ago:
-the offset window is empty, the recording rule produces nothing, and the ratio is
-undefined. So the file uses the other input the same paragraph names, an upstream
-emit counter, which is available immediately and has the additional property of
-not having travelled through the Collector.
+That is the better choice for a system that has been running a week. It is
+unusable on a stack you brought up ten minutes ago: the offset window is empty,
+the recording rule produces nothing, and the ratio is undefined. So the file uses
+an upstream emit counter, which is available immediately and has the additional
+property of not having travelled through the Collector.
 
-The alert arithmetic, thresholds and `for:` duration are unchanged. Swapping one
-`expr` swaps the file back to the printed version once you have a week of data.
+The alert arithmetic, thresholds and `for:` duration are the same either way.
+Swapping one `expr` moves the file onto the week-ago baseline once you have a
+week of data.
 
-### Listing 9.5's received side
+### The ingest gap's received side
 
-The book prints `sum(rate(otelcol_receiver_accepted_spans_total[5m]))`. The file
-subtracts the value five minutes ago and divides by 300, which is the same
+The obvious form is `sum(rate(otelcol_receiver_accepted_spans_total[5m]))`. The
+file subtracts the value five minutes ago and divides by 300, which is the same
 quantity in the same unit and is not the same measurement when the two counters
 were born at different times. The ratio rule then reads the expected side through
 `min_over_time`. "Why the ingest gap needs two unrelated counters"
-above has the arithmetic. Copy the printed line into a stack where both counters
-start at zero together and it behaves; copy it into this one and a healthy stack
-reads a permanent gap.
+above has the arithmetic. Put `rate()` back in a stack where both counters start
+at zero together and it behaves; put it back here and a healthy stack reads a
+permanent gap.

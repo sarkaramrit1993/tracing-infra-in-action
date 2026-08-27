@@ -1,5 +1,10 @@
-# Chapter 9, listing 9.4: multi-window multi-burn-rate alerting on an SLO whose
-# error ratio is derived from spans before they are sampled.
+# Multi-window multi-burn-rate alerting on an SLO whose error ratio is derived
+# from spans before they are sampled. The book does not print this file. It is
+# here because the pre-versus-post argument the chapter makes is only worth
+# something if you can alert on the right one of the two, and because the two
+# decisions below are the kind that fail without erroring.
+#
+# Read NOTES.md, "Before you change either rule file", before touching either.
 #
 # Two decisions here are the chapter's, not Prometheus's:
 #
@@ -12,12 +17,12 @@
 # what puts the counter under this name rather than the connector default
 # traces_span_metrics_calls_total.
 #
-# ALL FOUR RECORDING RULES ARE HERE. The chapter prints the 5m and 1h pair to
-# keep the listing readable. Both alerts below reference all four, and a
+# ALL FOUR RECORDING RULES ARE HERE. Both alerts below reference all four, and a
 # Prometheus alert whose expression names a rule that does not exist does not
 # error: it evaluates to an empty vector and never fires. A burn-rate alert that
-# silently never fires is worse than no alert, so the runnable file carries the
-# whole set.
+# silently never fires is worse than no alert, so trimming this file down to the
+# 5m and 1h pair, which is all a readable excerpt would show, leaves two alerts
+# that load clean and never fire.
 #
 # The windows are the Google SRE workbook's: a fast burn at 14.4x checked over
 # 1h and confirmed over 5m, a slow burn at 6x over 6h confirmed over 30m. The
@@ -35,7 +40,7 @@
 # 500 does, which is what gives the selector something to count. Measured on
 # this stack at nine failures in 306 requests: 2.96% recorded against a driven
 # 2.94%, where the span-grain ratio read 0.84%.
-# ---- Listing 9.4: A multi-window multi-burn-rate rule on span metrics ----
+# ---- burn-rate rules: multi-window multi-burn-rate on span metrics ----
 groups:
   - name: checkout_slo_burn_rate
     interval: 15s
@@ -99,4 +104,4 @@ groups:
           description: >-
             The pre-sample request error ratio is above 0.6% over both the
             last six hours and the last thirty minutes.
-# ---- end listing 9.4 ----
+# ---- end burn-rate rules ----

@@ -8,7 +8,8 @@ rule_files:
 
 scrape_configs:
   # The Collector's own internal telemetry. otelcol_receiver_accepted_spans_total
-  # lives here, and it is the "received" half of listing 9.5.
+  # lives here, and it is the "received" half of the ingest-gap rule in
+  # rules/span_ingest_gap.yml.
   - job_name: otel-collector
     static_configs:
       - targets: ["otel-collector:8888"]
@@ -22,12 +23,12 @@ scrape_configs:
 
   # The producer's OWN span counter, and the reason it has its own job.
   #
-  # This is the "expected" half of listing 9.5, and it is scraped straight off
-  # the application container. It never travels through the Collector. That is
-  # the entire point: a count of what should have arrived is only evidence if it
-  # took a different path from the count of what did. Route this through the
-  # Collector and a Collector that drops spans drops the proof along with them,
-  # and the ratio stays at 1.0 while the store goes empty.
+  # This is the "expected" half of the ingest-gap rule, and it is scraped
+  # straight off the application container. It never travels through the
+  # Collector, and that is the entire point: a count of what should have arrived
+  # is only evidence if it took a different path from the count of what did.
+  # Route this through the Collector and a Collector that drops spans drops the
+  # proof along with them, and the ratio stays at 1.0 while the store goes empty.
   - job_name: checkout-producer
     metrics_path: /metrics
     static_configs:

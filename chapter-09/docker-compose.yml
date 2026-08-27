@@ -25,9 +25,9 @@
 #      connectors are in the same Collector.
 #
 #   2. PROMETHEUS SCRAPES THE PRODUCER DIRECTLY, never through the Collector.
-#      Listing 9.5 compares spans received against spans expected, and an
-#      expected count that travels the same path as the received count cannot
-#      detect that path dropping spans. The independence is the whole signal.
+#      rules/span_ingest_gap.yml compares spans received against spans expected,
+#      and an expected count that travels the same path as the received count
+#      cannot detect that path dropping spans. The independence is the signal.
 #
 #   3. LOGS AND TRACES SHARE ONE PIPELINE. The producer emits logs through the
 #      OTel logs SDK, so TraceId and SpanId come from the active span context
@@ -79,8 +79,9 @@ volumes:
 
 services:
   # --- Application: checkout producer, traces AND logs ---
-  # Publishes its own span counter on :8080/metrics. That counter is listing
-  # 9.5's "expected" input and Prometheus reads it straight off this container.
+  # Publishes its own span counter on :8080/metrics. That counter is the
+  # "expected" input to rules/span_ingest_gap.yml and Prometheus reads it
+  # straight off this container.
   checkout-service:
     build: ./app
     networks: [ch9]

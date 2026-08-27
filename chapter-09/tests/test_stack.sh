@@ -17,7 +17,8 @@
 #      one success in a hundred, so the post error rate reads inflated against
 #      the pre rate, which is the truth.
 #   6. The service graph has edges, derived from the pre-sample stream.
-#   7. Listing 9.5's two counters exist and were reached by two different paths.
+#   7. The ingest-gap rule's two counters exist and were reached by two
+#      different paths.
 #   8. Logs arrived in Loki carrying the trace context of the span they were
 #      written inside.
 #
@@ -211,15 +212,15 @@ wait_for 90 "service graph edges" 'gt0 "sum(traces_service_graph_request_total)"
 EDGES=$(PROMQ "sum(traces_service_graph_request_total)")
 pass "traces_service_graph_request_total sums to $EDGES"
 
-echo "== 9. listing 9.5: two span counts that took different paths =="
+echo "== 9. the ingest gap: two span counts that took different paths =="
 UPJOBS=$(curl -s http://localhost:9090/api/v1/targets \
   | python3 -c "import sys,json;print(sum(1 for t in json.load(sys.stdin)['data']['activeTargets'] if t['health']=='up'))")
 [ "$UPJOBS" -ge 4 ] || fail "only $UPJOBS Prometheus targets are up; expected 4"
 PRODUCER_UP=$(curl -s http://localhost:9090/api/v1/targets \
   | python3 -c "import sys,json;print(next((t['health'] for t in json.load(sys.stdin)['data']['activeTargets'] if t['labels']['job']=='checkout-producer'), 'absent'))")
 [ "$PRODUCER_UP" = "up" ] \
-  || fail "the checkout-producer job is '$PRODUCER_UP'. Listing 9.5 needs the producer scraped DIRECTLY, not through the Collector"
-wait_for 120 "both listing 9.5 recording rules to evaluate" 'gt0 "spans:expected:rate5m" && gt0 "spans:received:rate5m"'
+  || fail "the checkout-producer job is '$PRODUCER_UP'. The ingest-gap rule needs the producer scraped DIRECTLY, not through the Collector"
+wait_for 120 "both ingest-gap recording rules to evaluate" 'gt0 "spans:expected:rate5m" && gt0 "spans:received:rate5m"'
 EXPECTED=$(PROMQ "spans:expected:rate5m")
 RECEIVED=$(PROMQ "spans:received:rate5m")
 RULE_ERRS=$(curl -s http://localhost:9090/api/v1/rules \
@@ -230,7 +231,7 @@ RULE_COUNT=$(curl -s http://localhost:9090/api/v1/rules \
 [ "$RULE_COUNT" -ge 7 ] \
   || fail "only $RULE_COUNT recording rules loaded; burn_rate.yml must carry all four windows or its alerts reference nothing"
 echo "   expected=$EXPECTED spans/s (producer, scraped directly)   received=$RECEIVED spans/s (collector)"
-pass "$RULE_COUNT recording rules healthy, both sides of listing 9.5 reporting"
+pass "$RULE_COUNT recording rules healthy, both sides of the ingest gap reporting"
 
 echo "== 10. logs reached Loki carrying the trace context of their span =="
 Q_LOGS="{service_name=\"checkout-service\"}"

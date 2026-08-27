@@ -1,4 +1,8 @@
-# Chapter 9, listing 9.5: the emit-to-ingest gap.
+# The emit-to-ingest gap. The book does not print this file. It ships because
+# nothing else in the stack can see the failure it watches for, and because the
+# arithmetic below looks like fussiness until you know what it cost.
+#
+# Read NOTES.md, "Before you change either rule file", before touching either.
 #
 # RED panels cannot catch this book's signature failure, a dashboard staying
 # green while spans quietly vanish, because a panel computed over the spans that
@@ -58,7 +62,7 @@
 #   the lower recent reading of the expected side is conservative while the
 #   rate climbs and costs nothing once it is flat, because a five-minute
 #   increase over a steady rate is the same number wherever it is sampled.
-# ---- Listing 9.5: The expected-versus-received recording rule ----
+# ---- ingest-gap rules: the expected-versus-received comparison ----
 groups:
   - name: span_ingest_gap
     interval: 15s
@@ -99,4 +103,4 @@ groups:
             The producer reports emitting more spans than the Collector reports
             accepting, by more than 5% over five minutes. Every aggregate
             downstream is losing its denominator while the RED panels stay flat.
-# ---- end listing 9.5 ----
+# ---- end ingest-gap rules ----
