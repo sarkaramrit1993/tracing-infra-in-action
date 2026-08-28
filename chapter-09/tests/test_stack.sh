@@ -54,6 +54,19 @@ PROMQ() {
 # as a timeout on data that was there the whole time.
 gt0() { awk -v v="$(PROMQ "$1")" 'BEGIN { exit !(v > 0) }'; }
 
+# PROMQ answers 0 both for a series reading zero and for a selector that matches
+# nothing, and those are opposite facts: the first is a healthy counter before
+# anything happened, the second is a rule wired to a name that does not exist.
+# SERIES counts matching series instead, so the two can be told apart.
+SERIES() {
+  curl -s -G http://localhost:9090/api/v1/series \
+    --data-urlencode "match[]=$1" \
+    --data-urlencode "start=$(( $(date +%s) - 900 ))" \
+    --data-urlencode "end=$(date +%s)" \
+  | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('data',[])))"
+}
+has_series() { [ "$(SERIES "$1")" -gt 0 ]; }
+
 CH_COUNT() { CH --query "$1"; }
 ge() { [ "$(CH_COUNT "$1")" -ge "$2" ]; }
 
@@ -232,6 +245,66 @@ RULE_COUNT=$(curl -s http://localhost:9090/api/v1/rules \
   || fail "only $RULE_COUNT recording rules loaded; burn_rate.yml must carry all four windows or its alerts reference nothing"
 echo "   expected=$EXPECTED spans/s (producer, scraped directly)   received=$RECEIVED spans/s (collector)"
 pass "$RULE_COUNT recording rules healthy, both sides of the ingest gap reporting"
+
+echo "== 9b. every recording rule reads from a selector that matches something =="
+# A rule whose selector matches nothing evaluates to 0, reports health ok, and
+# counts toward RULE_COUNT above. It is indistinguishable from a rule reporting
+# good news. Checking the rules' INPUTS is what separates them: a rule may
+# legitimately compute zero, but it may never legitimately read from a name that
+# does not exist. This is how the connector-namespace trap gets caught, where a
+# rule written against traces_span_metrics_calls_total matches nothing here
+# because the connectors are namespaced pre and post.
+DEAD=$(curl -s http://localhost:9090/api/v1/rules \
+  | python3 - "$(date +%s)" <<'PYEOF'
+import json, re, sys, urllib.parse, urllib.request
+now = int(sys.argv[1])
+groups = json.load(sys.stdin)["data"]["groups"]
+# Metric names this stack records; anything a rule reads that is not one of
+# these and not a recorded name has to exist as a raw series.
+recorded = {r["name"] for g in groups for r in g["rules"] if r["type"] == "recording"}
+selectors = set()
+for g in groups:
+    for r in g["rules"]:
+        if r["type"] != "recording":
+            continue
+        for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)(\{[^}]*\})?', r["query"]):
+            name, labels = m.group(1), m.group(2) or ""
+            if name in recorded or name in {
+                "sum", "rate", "clamp_min", "clamp_max", "vector", "or", "and",
+                "unless", "by", "without", "min_over_time", "max_over_time",
+                "avg_over_time", "increase", "offset", "on", "ignoring", "le",
+            }:
+                continue
+            selectors.add(name + labels)
+dead = []
+for sel in sorted(selectors):
+    q = urllib.parse.urlencode(
+        {"match[]": sel, "start": now - 900, "end": now})
+    with urllib.request.urlopen(
+            "http://localhost:9090/api/v1/series?" + q, timeout=10) as fh:
+        if not json.load(fh).get("data"):
+            dead.append(sel)
+print(" ".join(dead))
+PYEOF
+)
+[ -z "$DEAD" ] \
+  || fail "recording rules read from selectors that match nothing: $DEAD"
+pass "every recording-rule selector matches at least one live series"
+
+echo "== 9c. the burn-rate ratio is per request, not per span =="
+# spanmetrics counts spans, and one checkout produces seven of them, so a ratio
+# over every span divides the failures by seven times the request count. The
+# span_kind selector is what makes it a request error rate again. Without it a
+# 1.44 percent threshold does not fire until real requests fail at about ten
+# percent, under a label promising 99.9 percent availability.
+has_series 'pre_calls_total{service_name="checkout-service",span_kind="SPAN_KIND_SERVER"}' \
+  || fail "no pre_calls_total series carries span_kind=SPAN_KIND_SERVER; the burn-rate selector matches nothing and every window records a constant 0"
+wait_for 180 "the burn-rate ratio to carry the driven errors" 'gt0 "slo:checkout_errors:ratio_rate5m"'
+RATIO=$(PROMQ "slo:checkout_errors:ratio_rate5m")
+SPAN_GRAIN=$(PROMQ 'sum(rate(pre_calls_total{status_code="STATUS_CODE_ERROR"}[5m])) / sum(rate(pre_calls_total[5m]))')
+awk -v r="$RATIO" 'BEGIN { exit !(r > 0.015 && r < 0.06) }' \
+  || fail "burn-rate ratio is $RATIO, outside the request-grain band; the same errors at span grain read about $SPAN_GRAIN, so a ratio down there means the span_kind selector stopped matching"
+pass "burn-rate ratio $RATIO is request grain (span grain reads $SPAN_GRAIN)"
 
 echo "== 10. logs reached Loki carrying the trace context of their span =="
 Q_LOGS="{service_name=\"checkout-service\"}"

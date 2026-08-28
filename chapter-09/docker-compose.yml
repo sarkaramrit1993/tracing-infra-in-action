@@ -146,6 +146,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        set -e
         echo "Creating otlp_spans topic..."
         /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic otlp_spans \
           --partitions 16 --replication-factor 1 \

@@ -362,9 +362,9 @@ is the quietest possible way for an alert to be broken.
 ### The ingest gap
 
 The useful thing about `rules/span_ingest_gap.yml` is where its two numbers come
-from. The expected side is read a minute behind the received side, so the
-poll waits for a minute of producer history to exist before there is anything to
-read:
+from. Both sides are five-minute rates over counters that come from opposite ends
+of the pipeline, so the poll waits for a window of producer history to exist
+before there is anything to read:
 
 ```bash
 await 'spans:expected:rate5m' 1

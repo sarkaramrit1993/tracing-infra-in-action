@@ -170,7 +170,7 @@ status: success  lines: 2
 
 Two lines, from a request that finished moments ago, retrieved by an id chosen
 before it existed. Promoting `trace_id` to a real label would make the first
-selector work and would also be the one thing section 9.3.3 says never to do: a
+selector work and would also be the one thing section 9.3.2 says never to do: a
 label per trace id is one stream per trace, and the cardinality bill multiplies
 instead of adding.
 
@@ -472,7 +472,7 @@ out on the table's 15-day TTL, so there is nothing to delete.
 
 `collector/gateway-config.yaml` is listings 9.1 and 9.3 with their annotations,
 including why the logs pipeline has no sampler of its own. That is the coherence
-question from section 9.3.3 answered in the direction the chapter recommends for
+question from section 9.3.2 answered in the direction the chapter recommends for
 a tail decision: keep every log, accept that some exemplars dangle, and rely on
 the log join as the fallback that still works.
 

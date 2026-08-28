@@ -31,6 +31,18 @@
 # on. Substituting zero turns a missing series into a 100% gap, which is what
 # it actually is.
 #
+# A THIRD EDGE CASE, MEASURED 2026-08-27: A COLLECTOR RESTART.
+#   otelcol_receiver_accepted_spans_total resets to zero on restart, and a delta
+#   against the value five minutes ago cannot see that, so for the whole five
+#   minutes after a restart it subtracts a large number from a small one and goes
+#   negative. Measured across a restart, then a burst, then idle, sampling every
+#   ten seconds: the ratio peaked at 3.39, was negative in 19 of 35 samples, read
+#   above 50 percent loss in 29 of them, and drove SpanIngestGap to pending.
+#   rate() is NOT the fix, for the reason immediately below. The gap simply is not
+#   measurable across a reset, so spans:ingest_gap:measurable records whether the
+#   window is clean and the alert is gated on it. The ratio still tells the truth
+#   about what it can see; the page no longer fires on what it cannot.
+#
 # TWO THINGS BELOW ARE NOT rate(), AND BOTH ARE MEASURED RATHER THAN STYLISTIC.
 #
 #   THE INCREASE IS TAKEN AGAINST THE VALUE FIVE MINUTES AGO. rate() measures
@@ -92,8 +104,17 @@ groups:
       # absorbs a restart, which resets the Collector's counter and reads as a
       # gap until it falls out of the five-minute window. Neither absorbs a pipe
       # that is actually leaking.
+      # Across a Collector restart the gap is not measurable at all. See the
+      # header for what that costs and why the arithmetic is not the thing to
+      # change. This records whether the window is clean; the alert asks first.
+      - record: spans:ingest_gap:measurable
+        expr: |
+          sum(resets(otelcol_receiver_accepted_spans_total[5m])) == bool 0
+
       - alert: SpanIngestGap
-        expr: spans:ingest_gap:ratio5m > 0.05
+        expr: |
+          spans:ingest_gap:ratio5m > 0.05
+            and on() spans:ingest_gap:measurable == 1
         for: 10m
         labels:
           severity: page
