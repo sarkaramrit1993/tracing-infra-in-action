@@ -113,7 +113,7 @@ survive ingestion at all. Turn it off and Loki accepts the write and discards
 the field, which produces the same empty result from the correct selector.
 
 Promoting `trace_id` to a real label would make the first selector work and would
-also be the exact mistake section 9.3.3 forbids: a label per trace id is a
+also be the exact mistake section 9.3.2 forbids: a label per trace id is a
 cardinality explosion, one series per trace. Structured metadata is the bounded
 place for it, the log-side equivalent of the exemplar buffer.
 
