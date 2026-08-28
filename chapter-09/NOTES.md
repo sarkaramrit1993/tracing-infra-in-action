@@ -249,6 +249,28 @@ shape of the one that already shipped and was wrong. The reading to match is a
 peak of 3.7% while the windows drain, with `SpanIngestGap` never leaving
 `inactive`.
 
+## The third edge case: a counter reset
+
+The two traps recorded above are about windows. This one is about the counter
+underneath them, and it is the most routine of the three: the Collector restarts.
+
+`otelcol_receiver_accepted_spans_total` resets to zero on restart. A manual delta
+of the form `sum(X) - sum(X offset 5m)` cannot see that, so for the whole five
+minutes after a restart it subtracts a large pre-restart number from a small
+post-restart one and returns a negative rate. `spans:ingest_gap:ratio5m` then
+reads above 1.0, a span loss of more than 100 percent, and `SpanIngestGap`
+starts counting toward its ten-minute page.
+
+Measured across a restart, then a burst, then idle, sampling every ten seconds:
+the manual form peaked at **3.39**, was negative in 19 of 35 samples, and read
+above 50 percent loss in 29 of them. `rate()` is reset-aware by definition, and
+over the same cycle it stayed within a few percent and never went negative.
+
+Both sides now use `rate()`. The `min_over_time` smoothing on the expected side
+stays, because that is what fixed the drain, and the ramp behaviour is unchanged.
+So there are three cycles any future change here has to survive, not two: the
+startup ramp, the burst-then-idle drain, and a Collector restart.
+
 ## Why the ingest gap needs two unrelated counters
 
 `spans:received:rate5m` reads `otelcol_receiver_accepted_spans_total`, the
@@ -315,7 +337,7 @@ the moment anyone adds instrumentation. Counting successful exports would make
 the counter agree with the Collector by construction, which is precisely the
 agreement `rules/span_ingest_gap.yml` exists to test.
 
-## Why three of the images carry no healthcheck
+## Why four of the services carry no healthcheck
 
 `otel-collector`, `prometheus`, `loki` and `consumer-clickhouse` show a blank
 health column in `docker compose ps`. For the first three the reason is that

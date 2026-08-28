@@ -30,6 +30,11 @@ SERVICE = os.environ.get("SERVICE", "checkout-service")
 # fraud.score is the deepest span, where checkout.py injects the 1-in-100 error,
 # so the divergence is cleanest there. Set SPAN="" to measure the whole service.
 SPAN = os.environ.get("SPAN", "fraud.score")
+# The burn-rate rule selects SPAN_KIND_SERVER so its ratio is per request rather
+# than per span. Nothing recorded here exercised that selector, so the figure the
+# rule is justified by had no artifact behind it. Set KIND=SPAN_KIND_SERVER with
+# SPAN="" to measure at the grain the rule actually runs at.
+KIND = os.environ.get("KIND", "")
 
 
 def promq(query: str) -> float:
@@ -44,6 +49,8 @@ def _selector(status: str = "") -> str:
     parts = [f'service_name="{SERVICE}"']
     if SPAN:
         parts.append(f'span_name="{SPAN}"')
+    if KIND:
+        parts.append(f'span_kind="{KIND}"')
     if status:
         parts.append(f'status_code="{status}"')
     return "{" + ",".join(parts) + "}"
@@ -51,6 +58,8 @@ def _selector(status: str = "") -> str:
 
 def run():
     grain = f"{SERVICE}/{SPAN}" if SPAN else SERVICE
+    if KIND:
+        grain = f"{grain} [{KIND}]"
     print(f"[divergence] Prometheus={PROM} grain={grain}")
 
     sel, sel_err = _selector(), _selector("STATUS_CODE_ERROR")
@@ -97,7 +106,8 @@ def run():
         "benchmark": "sampler_divergence",
         "measured_at_utc": stamp.isoformat(),
         "prometheus": PROM,
-        "grain": {"service": SERVICE, "span": SPAN or "(all spans)"},
+        "grain": {"service": SERVICE, "span": SPAN or "(all spans)",
+                  "span_kind": KIND or "(all kinds)"},
         "pre": {"total": pre_total, "errors": pre_err, "error_rate": round(pre_rate, 6)},
         "post": {"total": post_total, "errors": post_err, "error_rate": round(post_rate, 6)},
         "inflation_ratio": round(inflation, 3) if inflation else None,

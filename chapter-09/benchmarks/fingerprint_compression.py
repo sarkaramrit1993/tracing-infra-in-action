@@ -64,6 +64,10 @@ CHAPTER = Path(__file__).resolve().parent.parent
 
 PATHS = int(os.environ.get("PATHS", "1200"))
 SPANS = int(os.environ.get("SPANS", "2000000"))
+# The exercise sends the reader to read the truth table for themselves. Dropping
+# it on the way out makes that read fail on a correct stack, so KEEP_SCRATCH
+# leaves the three scratch tables in place for exactly that.
+KEEP_SCRATCH = os.environ.get("KEEP_SCRATCH", "") not in ("", "0", "false")
 
 # Zipf exponent s = 1 + ALPHA. At 0.5 the busiest path takes about 30% of the
 # volume and the top ten about 70%, which is the shape an error tracker sees.
@@ -360,8 +364,12 @@ def run():
     }, indent=2) + "\n")
     print(f"[fingerprint] wrote {out}")
 
-    drop_scratch()
-    print("[fingerprint] scratch tables dropped; the live store was never touched")
+    if KEEP_SCRATCH:
+        print(f"[fingerprint] KEEP_SCRATCH set; {SCRATCH_TRUTH} and the two scratch "
+              "tables were left in place. Drop them with DROP TABLE when done.")
+    else:
+        drop_scratch()
+        print("[fingerprint] scratch tables dropped; the live store was never touched")
 
 
 if __name__ == "__main__":

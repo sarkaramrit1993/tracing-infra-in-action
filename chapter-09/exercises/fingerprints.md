@@ -156,7 +156,20 @@ is modelled here rather than assumed: volume is distributed Zipf across the path
 by the number of paths this generator seeded, so quoting it for a real service
 would be the same unsupported claim in a new font.
 
-Read the truth table yourself, which is the point of it being a table:
+Read the truth table yourself, which is the point of it being a table. The run
+drops its scratch tables on the way out, so ask it not to:
+
+```bash
+KEEP_SCRATCH=1 python3 benchmarks/fingerprint_compression.py
+ch --query "SELECT * FROM tracing.fp_bench_truth FORMAT Vertical"
+```
+
+That row is written before any measuring query runs, which is what makes it
+truth rather than a second opinion. Drop the scratch tables when you are done:
+
+```bash
+ch --query "DROP TABLE tracing.fp_bench_truth"
+```
 
 The two expressions it measures are the two the book prints, read straight out
 of the listing:
