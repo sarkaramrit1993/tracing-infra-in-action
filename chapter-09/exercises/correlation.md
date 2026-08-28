@@ -241,8 +241,7 @@ ae282b8d98020e0ca35faae9af5ef844 -> 7 spans
 
 Thirty-five exemplars on the run that produced this file, abridged here because
 the interesting part is the tally rather than the ids: ten resolved and
-twenty-five pointed at nothing. That is the second silent failure and it is
-contrib issue #38878. A pre-sampler exemplar is minted before the sampler has
+twenty-five pointed at nothing. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
 decided anything, and the sampler then throws away ninety-nine successful traces
 in every hundred. The pointer is still a valid trace id. `query_exemplars`
 returns it without complaint, the drill-down runs, and the trace viewer says the

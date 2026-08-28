@@ -218,7 +218,7 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 306 calls became 12. The sampler dropped the other 294. But the error counts are
 identical, 9 against 9, because the `keep-errors` policy keeps every trace that
 carries an error and drops nothing from that class. So the numerator survived
-whole while the denominator was cut by a factor of twenty-five, and the two error
+whole while the denominator was cut by a factor of twenty-two, and the two error
 rates come out:
 
 ```bash
@@ -231,7 +231,7 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 0.75
 ```
 
-2.9 percent against 75. One of those is the service's error rate and the other is
+2.9 percent against 64. One of those is the service's error rate and the other is
 an artifact of how the traces were selected. Seventy-five is loud enough to
 disbelieve; the dangerous version is the opener's, where the same arithmetic over
 a service failing one request in a hundred lands on 50 and reads as a real outage
@@ -282,7 +282,7 @@ you ran another and none leaves a mess behind.
 
 | Exercise | Listing | The question |
 |---|---|---|
-| [exercises/divergence.md](exercises/divergence.md) | 9.1 | Two series over one workload disagree by a factor of twenty-five. Which one is lying, and what does the survivors' version look like on a dashboard? |
+| [exercises/divergence.md](exercises/divergence.md) | 9.1 | Two series over one workload disagree by a factor of twenty-two. Which one is lying, and what does the survivors' version look like on a dashboard? |
 | [exercises/fingerprints.md](exercises/fingerprints.md) | 9.2 | Normalization turns two million error spans into a triage list. Graded against the number of bugs the generator was told to seed. |
 | [exercises/correlation.md](exercises/correlation.md) | 9.3 | One trace id, three signals, three joins. All three break silently, and each one breaks differently. |
 
@@ -340,7 +340,7 @@ Two things in `rules/burn_rate.yml` are worth reading, and both are about what
 the ratio is a ratio of.
 
 It burns against `pre_calls_total`, never `post_calls_total`. On this stack the
-post error rate reads twenty-five times the true one, so a burn-rate alert built
+post error rate reads twenty-two times the true one, so a burn-rate alert built
 on the survivors would page on a healthy service every time the sampler did its
 job. That is not a hypothetical: it is the 2.9-against-75 above, wired to a
 pager.
