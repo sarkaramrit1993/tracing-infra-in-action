@@ -45,6 +45,8 @@ Settings, Resources before starting it.
 | 4 | ~1.9 GB (approximate) | three Kafka brokers; allow 60 to 90 seconds for controller election before the stack settles |
 | 5 | ~6 GB at the published Flink sizing | the heaviest stack. On a 3.8 GB allocation the Flink taskmanager gets OOM-killed partway through a run, and the stack still looks healthy while it is gone. It does fit in about 2.8 GB if you shrink Flink; both the symptom and that workaround are in `troubleshooting.md` |
 | 7 | ~1.7 GB settled, ~2.1 GB peak during the benchmarks | eight containers (ClickHouse, Kafka, Collector, MinIO, Tempo, Prometheus, checkout service, consumer); measured with `docker stats --no-stream` after the stack settled and again mid-benchmark. Tempo is about 85 MB of that. Allow about 45 seconds to settle, longer on a first run while the images pull and the app image builds |
+| 8 | ~1 GB settled | one container, ClickHouse alone. The generated population is 38 MB on disk and the server settles under 1 GB once it is loaded. About 20 seconds to healthy |
+| 9 | ~2.2 GB settled, ~3.9 GB peak during the fingerprint benchmark | seven running containers (ClickHouse, Kafka, Collector, Prometheus, Loki, checkout service, consumer) plus a one-shot topic creator; measured with `docker stats --no-stream` with traffic driven, and again while `benchmarks/fingerprint_compression.py` built its two million rows. ClickHouse is 1.2 GB of the settled figure and 2.9 GB of the peak, Kafka about 700 MB. Give Docker 5 GB: at the settled figure the benchmark OOM-kills ClickHouse partway through and reads as a query that hung. Allow about 90 seconds to settle, and another 30 for the first span-metric series to reach Prometheus |
 
 ## Apple Silicon
 
@@ -65,15 +67,18 @@ with `docker compose down -v` before starting another.
 
 | Port | Service |
 |---|---|
-| 8080 | checkout-service |
+| 8080 | checkout-service (chapters 2, 3, 4, 5, 7, 9) |
 | 4317, 4318 | OTLP gRPC and HTTP |
 | 16686 | Jaeger UI |
-| 9090 | Prometheus (chapters 3, 4, 5, 7) |
-| 8123 | ClickHouse HTTP (chapters 5, 7) |
-| 9000, 9363 | ClickHouse native and metrics (chapter 7) |
-| 8888 | Collector metrics (chapter 7) |
+| 9090 | Prometheus (chapters 3, 4, 5, 7, 9) |
+| 8123 | ClickHouse HTTP (chapters 5, 7, 8, 9) |
+| 9000 | ClickHouse native (chapters 7, 8, 9) |
+| 9363 | ClickHouse metrics (chapters 7, 9) |
+| 8888 | Collector metrics (chapters 7, 9) |
 | 9001, 9002 | MinIO console and API (chapter 7) |
 | 3200, 4417 | Tempo query and OTLP (chapter 7) |
+| 8889 | Collector Prometheus exporter; span metrics and service graph in chapter 9 (chapters 2, 3, 4, 5, 7, 8, 9) |
+| 3100 | Loki HTTP (chapter 9) |
 
 ## Verifying a chapter
 

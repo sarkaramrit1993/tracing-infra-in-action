@@ -1,0 +1,19 @@
+{
+  "benchmark": "fingerprint_compression",
+  "measured_at_utc": "2026-08-26T01:53:57.864892+00:00",
+  "generated": {
+    "code_paths_recorded": 1200,
+    "raw_error_spans": 2000000,
+    "zipf_alpha": 0.5,
+    "template_space": 1200
+  },
+  "measured": {
+    "distinct_unnormalized": 2000000,
+    "distinct_unnormalized_share_of_n": 1.0,
+    "distinct_fingerprints": 1200,
+    "compression_ratio": 1666.7,
+    "top10_share_of_error_volume": 0.7185,
+    "busiest_issue_share": 0.3015
+  },
+  "note": "What generalizes is the mechanism and the result F == P: the listing 9.2 normalization recovers the seeded code-path count exactly, from raw messages that were 100.0% distinct before it ran. What does not generalize is the 1,667x ratio. That is N divided by the number of code paths seeded here, so it is a property of this generator and not a figure to quote for a service. Line numbers vary across three values per path to stand in for three deploys; dropping the line-number strip from the listing forks each issue into three."
+}

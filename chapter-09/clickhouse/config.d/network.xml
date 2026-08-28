@@ -1,0 +1,5 @@
+<clickhouse>
+    <!-- Listen on all interfaces; the image default binds localhost only and
+         refuses cross-container connections. -->
+    <listen_host>0.0.0.0</listen_host>
+</clickhouse>

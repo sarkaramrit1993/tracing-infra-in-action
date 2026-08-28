@@ -67,8 +67,9 @@ def test_every_note_field_is_reproduced():
     # benchmark may ever be measured twice.
     from render_results import load_results
 
-    out = render_chapter("07") + render_chapter("05")
-    for entries in load_results().values():
+    results = load_results()
+    out = "".join(render_chapter(chapter) for chapter in sorted(results))
+    for entries in results.values():
         for _name, data, filename in entries:
             note = data.get("note")
             if note:

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# Result files you generate by running the benchmarks. Every run stamps its
+# filename to the second, so a run of your own never lands on the name of a
+# committed reference file: it is a new path, and this pattern keeps it out of
+# git. A gitignore entry cannot protect a file that is already tracked, which
+# is why the guarantee has to come from the filename rather than from here.
+results/*.json

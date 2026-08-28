@@ -1,0 +1,106 @@
+# The emit-to-ingest gap. The book does not print this file. It ships because
+# nothing else in the stack can see the failure it watches for, and because the
+# arithmetic below looks like fussiness until you know what it cost.
+#
+# Read NOTES.md, "Before you change either rule file", before touching either.
+#
+# RED panels cannot catch this book's signature failure, a dashboard staying
+# green while spans quietly vanish, because a panel computed over the spans that
+# arrived cannot know how many did not. Catching it needs a second number that
+# did not come down the same pipe.
+#
+# So there are two counters here and they are deliberately unrelated:
+#
+#   RECEIVED is otelcol_receiver_accepted_spans_total, the Collector's own
+#   internal telemetry, scraped from its :8888 endpoint. It counts spans the
+#   Collector took in.
+#
+#   EXPECTED is checkout_spans_emitted_total, a counter the producer increments
+#   from a SpanProcessor in its own process, scraped by Prometheus directly off
+#   the application container. It counts spans the application finished.
+#
+# The independence is the signal. Comparing the Collector's received count
+# against a number that also travelled through the Collector proves nothing: an
+# outage takes both to zero and the ratio holds at 1.0. Comparing it against a
+# number the Collector never touched is what makes a gap visible.
+#
+# `or vector(0)` on each side is not cosmetic. If the Collector stops exporting
+# entirely its series goes stale, an empty vector propagates through the
+# arithmetic, and an alert over an empty vector never fires: the total-outage
+# case, the one this alert exists for, would be the one case it stays silent
+# on. Substituting zero turns a missing series into a 100% gap, which is what
+# it actually is.
+#
+# TWO THINGS BELOW ARE NOT rate(), AND BOTH ARE MEASURED RATHER THAN STYLISTIC.
+#
+#   THE INCREASE IS TAKEN AGAINST THE VALUE FIVE MINUTES AGO. rate() measures
+#   from a series' FIRST SAMPLE INSIDE the window, and these two counters are
+#   not born the same way. checkout_spans_emitted_total is published at zero
+#   from the producer's first scrape, before any span exists.
+#   otelcol_receiver_accepted_spans_total does not exist until the Collector
+#   accepts its first batch, so its first sample is already in the hundreds.
+#   Under rate() those hundreds enter the expected side and can never enter the
+#   received side, and a healthy stack whose two counters read 2142 and 2142
+#   reports spans lost. Subtracting the value five minutes ago instead, with
+#   `or vector(0)` standing in for a series that did not exist then, counts
+#   them on both sides. Dividing by 300 keeps the unit the name promises,
+#   spans per second.
+#
+#   THE EXPECTED SIDE IS READ AT ITS LOW POINT OVER THE LAST NINETY SECONDS. A
+#   span counted at on_end has not reached the Collector yet: the batch
+#   processor holds it for up to five seconds, and Prometheus scrapes the two
+#   targets on schedules of their own, up to a scrape interval apart. Compared
+#   instant against instant, every span still in flight is charged to the gap,
+#   and the first minute of any burst reads as total loss.
+#
+#   Offsetting the expected window instead was measured and is wrong. Shifting
+#   one window a minute earlier than the other fixes the start of a burst and
+#   breaks the end of it: the expected window still holds traffic the received
+#   window has already dropped, and a stack whose counters both read 4,998
+#   reported a 100% gap for a minute while it drained. min_over_time is the
+#   version with no edge: both windows cover the same five minutes, and taking
+#   the lower recent reading of the expected side is conservative while the
+#   rate climbs and costs nothing once it is flat, because a five-minute
+#   increase over a steady rate is the same number wherever it is sampled.
+# ---- ingest-gap rules: the expected-versus-received comparison ----
+groups:
+  - name: span_ingest_gap
+    interval: 15s
+    rules:
+      - record: spans:received:rate5m
+        expr: |
+          (sum(otelcol_receiver_accepted_spans_total)
+             - (sum(otelcol_receiver_accepted_spans_total offset 5m) or vector(0))) / 300
+            or vector(0)
+
+      - record: spans:expected:rate5m
+        expr: |
+          (sum(checkout_spans_emitted_total)
+             - (sum(checkout_spans_emitted_total offset 5m) or vector(0))) / 300
+            or vector(0)
+
+      # The fraction of emitted spans that never reached the Collector. Around
+      # zero is healthy. The floor at 0 keeps ordinary scrape skew, where
+      # received briefly reads above expected, from showing as a negative gap.
+      - record: spans:ingest_gap:ratio5m
+        expr: |
+          clamp_min(min_over_time(spans:expected:rate5m[90s]) - spans:received:rate5m, 0)
+            /
+          clamp_min(spans:expected:rate5m, 1e-9)
+
+      # 5% for ten minutes. The tolerance absorbs scrape skew; the duration
+      # absorbs a restart, which resets the Collector's counter and reads as a
+      # gap until it falls out of the five-minute window. Neither absorbs a pipe
+      # that is actually leaking.
+      - alert: SpanIngestGap
+        expr: spans:ingest_gap:ratio5m > 0.05
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "spans are being lost between emit and ingest"
+          description: >-
+            The producer reports emitting more spans than the Collector reports
+            accepting, by more than 5% over five minutes. Every aggregate
+            downstream is losing its denominator while the RED panels stay flat.
+# ---- end ingest-gap rules ----

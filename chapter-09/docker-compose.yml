@@ -1,0 +1,244 @@
+# Chapter 9: Trace-Driven Insights.
+#
+# Chapter 7 asks where spans live and chapter 8 asks whether the answer is true.
+# Chapter 9 asks a different question: what do you learn from traces that you
+# could not learn from the metric alone. Answering it needs the whole path, not
+# just the store, because every claim in the chapter is about something that
+# happens BEFORE the sampler or ACROSS two signals.
+#
+# Path:  checkout-service
+#          -> otel-collector   (spanmetrics/pre over 100% of spans, then a tail
+#                               sampler at one in a hundred, then
+#                               spanmetrics/post over survivors)
+#          -> kafka(otlp_spans)
+#          -> consumer-clickhouse
+#          -> ClickHouse tracing.otel_traces
+#
+#        otel-collector logs pipeline -> Loki (OTLP native)
+#        prometheus scrapes the collector AND the producer directly
+#
+# Three things the layout is load-bearing for:
+#
+#   1. THE METRIC CONNECTORS SIT BEFORE THE SAMPLER. pre_calls_total counts
+#      every span; post_calls_total counts only what survived. The divergence
+#      between them is section 9.2.4, and it is only visible because both
+#      connectors are in the same Collector.
+#
+#   2. PROMETHEUS SCRAPES THE PRODUCER DIRECTLY, never through the Collector.
+#      rules/span_ingest_gap.yml compares spans received against spans expected,
+#      and an expected count that travels the same path as the received count
+#      cannot detect that path dropping spans. The independence is the signal.
+#
+#   3. LOGS AND TRACES SHARE ONE PIPELINE. The producer emits logs through the
+#      OTel logs SDK, so TraceId and SpanId come from the active span context
+#      rather than from a regex over a log file. There is no shipper sidecar.
+#
+# Dropped from chapter 7's stack on purpose: Tempo and MinIO (chapter 7's
+# object-store archetype, nothing here reads them) and Flink (chapter 10's
+# stream-time path). Chapter 9 is self-contained.
+#
+# Pinned versions (one tag per image, N1):
+#   apache/kafka                                  4.3.0
+#   otel/opentelemetry-collector-contrib          0.154.0
+#   clickhouse/clickhouse-server                  25.8
+#   prom/prometheus                               v3.12.0
+#   grafana/loki                                  3.7.6
+
+x-kafka-env: &kafka-env
+  KAFKA_NODE_ID: 1
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+  KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+  KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9093
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_NUM_PARTITIONS: 16
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+x-kafka-healthcheck: &kafka-healthcheck
+  test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9093"]
+  interval: 10s
+  timeout: 10s
+  retries: 10
+  start_period: 30s
+
+networks:
+  ch9:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  clickhouse-data:
+  loki-data:
+
+services:
+  # --- Application: checkout producer, traces AND logs ---
+  # Publishes its own span counter on :8080/metrics. That counter is the
+  # "expected" input to rules/span_ingest_gap.yml and Prometheus reads it
+  # straight off this container.
+  checkout-service:
+    build: ./app
+    networks: [ch9]
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      OTEL_SERVICE_NAME: checkout-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_BSP_SCHEDULE_DELAY: "5000"
+      OTEL_BLRP_SCHEDULE_DELAY: "2000"
+    command: ["python", "checkout.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  # --- OTel Collector: OTLP in; metrics before AND after the sampler; Kafka
+  #     out for traces, Loki out for logs ---
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch9]
+    volumes:
+      - ./collector/gateway-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:8889:8889"   # spanmetrics + servicegraph scrape endpoint
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # service_started, not service_healthy: the grafana/loki image is
+      # distroless, so it carries no shell and no HTTP client and a compose
+      # healthcheck has nothing to run. The otlphttp exporter retries, so a Loki
+      # that is still coming up costs a few retries and no logs.
+      loki:
+        condition: service_started
+
+  # --- Kafka (single-broker KRaft, no ZooKeeper) ---
+  kafka:
+    image: apache/kafka:4.3.0
+    networks: [ch9]
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    environment:
+      <<: *kafka-env
+    healthcheck: *kafka-healthcheck
+    restart: unless-stopped
+
+  kafka-init:
+    image: apache/kafka:4.3.0
+    networks: [ch9]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Creating otlp_spans topic..."
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic otlp_spans \
+          --partitions 16 --replication-factor 1 \
+          --config retention.ms=86400000 \
+          --config cleanup.policy=delete \
+          --config min.insync.replicas=1 \
+          --bootstrap-server kafka:9093
+        echo "Topics created."
+
+  # --- ClickHouse: the span store, chapter 7's listing 7.1 table plus
+  #     parent_span_id (chapter 8's addition, and chapter 9 needs it too) ---
+  # Bound to loopback deliberately, same reasoning as chapter 8: publishing a
+  # bare "8123:8123" binds every interface, and Docker's own iptables rules sit
+  # in front of most host firewalls, which hands an unauthenticated admin
+  # ClickHouse to the local network. Nothing here needs more than localhost.
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    networks: [ch9]
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9363:9363"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./clickhouse/users.d/z-allow-network.xml:/etc/clickhouse-server/users.d/z-allow-network.xml
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # --- Storage-time consumer: Kafka otlp_spans -> ClickHouse otel_traces ---
+  consumer-clickhouse:
+    build: ./app
+    networks: [ch9]
+    command: ["python", "consumer_clickhouse.py"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9093
+      KAFKA_TOPIC: otlp_spans
+      KAFKA_GROUP: trace-storage-clickhouse
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    # Same policy as kafka. Nothing supervises this process: it is a plain
+    # Python loop with no HTTP surface and no compose healthcheck, so a crash
+    # leaves the stack looking healthy while otel_traces silently stops
+    # growing. Restarting it replays from the last committed offset.
+    restart: unless-stopped
+
+  # --- Prometheus ---
+  # exemplar-storage keeps the trace-id exemplars the spanmetrics connector
+  # exports alongside its counters. Section 9.3's metric-to-trace jump reads
+  # them back through /api/v1/query_exemplars, so without this flag the bridge
+  # is silently a dead end.
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    networks: [ch9]
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--enable-feature=exemplar-storage"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./rules:/etc/prometheus/rules:ro
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  # --- Loki: the log store, and the other half of every correlation in
+  #     section 9.3 ---
+  # Receives OTLP directly from the Collector. There is no promtail, no
+  # filelog receiver and no sidecar, because there is no log FILE: the producer
+  # emits log records through the OTel logs SDK, so TraceId and SpanId are read
+  # off the active span context in-process. Nothing downstream has to recover a
+  # trace id by pattern-matching a line, which is the failure mode that makes
+  # log-to-trace correlation approximate everywhere it is bolted on afterwards.
+  loki:
+    image: grafana/loki:3.7.6
+    networks: [ch9]
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"

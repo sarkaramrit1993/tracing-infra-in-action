@@ -1,0 +1,251 @@
+# Chapter 9 Collector path.
+#
+# Four things this config makes true, all of them load-bearing for the chapter:
+#
+#   1. METRIC CONNECTORS SIT BEFORE THE SAMPLER. Span metrics and the service
+#      graph are derived from 100% of spans in the traces/in pipeline, then a
+#      forward connector hands the same spans to traces/sampled where the tail
+#      sampler drops most of them. A second spanmetrics connector runs AFTER the
+#      sampler. Comparing the pre and post series is the point: pre counts every
+#      span, post counts only the survivors and weights each as 1, so its error
+#      rate reads inflated. That divergence is what motivates deriving metrics
+#      before you sample rather than after (listing 9.1).
+#
+#   2. EXCEPTION DETAIL IS MOVED OFF THE EVENT AND ONTO THE SPAN. The OTel SDK
+#      records an exception as a span EVENT named "exception" carrying
+#      exception.type, exception.message and exception.stacktrace. The
+#      storage-time consumer writes span attributes, not span events, so
+#      untouched that detail never reaches ClickHouse and the listing 9.2
+#      error-issue index indexes nothing. The transform processor below copies
+#      the three fields onto the span's attribute map. Nothing in the
+#      application code knows this happened, which is the honest version: the
+#      producer calls record_exception() the way any instrumented service does.
+#
+#   3. SPAN METRICS CARRY http.route. Without it every HTTP span in a service
+#      aggregates into one series and section 9.1's per-route RED breakdown has
+#      nothing to break down. It is on BOTH connectors so pre and post stay
+#      comparable at the same grain.
+#
+#   4. LOGS TRAVEL THE SAME PIPELINE AS TRACES. The producer emits logs through
+#      the OTel logs SDK, so each record already carries the TraceId and SpanId
+#      of the span that was active when it was written. The Collector forwards
+#      them to Loki over OTLP. There is no shipper sidecar and no regex over a
+#      log file, which is why the trace-to-log jump in section 9.3 is exact
+#      rather than approximate.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Flatten the exception event onto its span. Runs in the spanevent context, so
+  # `attributes` is the EVENT's map and `span.attributes` is the span's. Guarded
+  # on the event name because a span may carry other events, and error_mode is
+  # ignore so a span event missing one of the three fields is skipped rather
+  # than failing the batch.
+  transform/exception_to_span:
+    error_mode: ignore
+    trace_statements:
+      - context: spanevent
+        statements:
+          - set(span.attributes["exception.type"], attributes["exception.type"])
+              where name == "exception" and attributes["exception.type"] != nil
+          - set(span.attributes["exception.message"], attributes["exception.message"])
+              where name == "exception" and attributes["exception.message"] != nil
+          - set(span.attributes["exception.stacktrace"], attributes["exception.stacktrace"])
+              where name == "exception" and attributes["exception.stacktrace"] != nil
+
+  # Keep every trace that carries an error span, plus a 1% probabilistic
+  # sample of the rest. One in a hundred is the rate the book uses throughout,
+  # and the opening story's 50x inflation is arithmetic on it. Plain
+  # probabilistic sampling: it does NOT stamp a W3C tracestate ot.th
+  # probability threshold on kept spans, so the post connector cannot
+  # reconstruct the pre population from a sampled span. That is deliberate. It
+  # is what makes the pre/post divergence visible.
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 50000
+    expected_new_traces_per_sec: 200
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: probabilistic-1-percent
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 1
+
+  batch:
+    send_batch_size: 8192
+    timeout: 1s
+
+# ---- Listing 9.1: spanmetrics and servicegraph before the sampler ----
+# Listing 9.1 is this file's back half read as one question: what is counted, and
+# on which side of the sampler. Listing 9.3's fence sits inside it, over the same
+# connectors plus the exporters, read as a different question: which signal can
+# be reached from which. Two listings, one config, no duplicate file to drift.
+# ---- Listing 9.3: The three bridges, declared ----
+connectors:
+  # Span metrics BEFORE the sampler: every span counted, the ground truth.
+  spanmetrics/pre:
+    namespace: pre
+    dimensions:
+      - name: http.route
+    # Explicit buckets, not exponential. The Collector's prometheus exporter
+    # renders classic bucket lines, and an exponential histogram has none to
+    # render: it comes out as a single le="+Inf" bucket, which makes
+    # histogram_quantile useless AND leaves the exemplars with no bucket to hang
+    # off, so /api/v1/query_exemplars comes back empty. Section 9.3's jump from
+    # a latency bucket to a trace depends on both.
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s]
+    exemplars:
+      enabled: true
+    aggregation_cardinality_limit: 5000
+    metrics_flush_interval: 15s
+
+  # Span metrics AFTER the sampler: only the kept spans, each weighed as 1.
+  # Same connector type, same dimensions, different namespace, so its series are
+  # distinct but line up one-for-one against pre.
+  spanmetrics/post:
+    namespace: post
+    dimensions:
+      - name: http.route
+    # Explicit buckets, not exponential. The Collector's prometheus exporter
+    # renders classic bucket lines, and an exponential histogram has none to
+    # render: it comes out as a single le="+Inf" bucket, which makes
+    # histogram_quantile useless AND leaves the exemplars with no bucket to hang
+    # off, so /api/v1/query_exemplars comes back empty. Section 9.3's jump from
+    # a latency bucket to a trace depends on both.
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s]
+    exemplars:
+      enabled: true
+    aggregation_cardinality_limit: 5000
+    metrics_flush_interval: 15s
+
+  # Service graph derived from the full pre-sample span stream.
+  servicegraph:
+    store:
+      ttl: 2s
+      max_items: 1000
+
+  # Hands the full span stream from traces/in to traces/sampled unchanged.
+  forward: {}
+
+exporters:
+  # ClickHouse ingest route: partition by trace_id so every span for a trace
+  # lands on one Kafka partition, topic otlp_spans.
+  kafka:
+    brokers:
+      - kafka:9093
+    protocol_version: "3.9.0"
+    traces:
+      topic: otlp_spans
+      encoding: otlp_proto
+    partition_traces_by_id: true
+    producer:
+      compression: lz4
+      required_acks: 1
+      max_message_bytes: 1000000
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+
+  # Loki's native OTLP ingest. Loki serves OTLP at /otlp, and the otlphttp
+  # exporter appends /v1/logs to whatever endpoint it is given, so this resolves
+  # to http://loki:3100/otlp/v1/logs. This is the stock otlphttp exporter, not a
+  # Loki-specific one: Loki speaks OTLP itself, so nothing here needs to know it
+  # is talking to Loki.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+
+  # Prometheus scrape endpoint for both spanmetrics namespaces and the service
+  # graph. enable_open_metrics exposes exemplars alongside the counters, which
+  # is what section 9.3's metric-to-trace jump reads.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    enable_open_metrics: true
+    resource_to_telemetry_conversion:
+      enabled: true
+
+# ---- end listing 9.3 ----
+
+extensions:
+  health_check: {}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # 100% of spans reach the metric connectors here. This is the correctness
+    # point: metrics are truth because nothing has been dropped yet.
+    #
+    # memory_limiter runs here as well as on traces/sampled, and it has to. It
+    # is the first processor on every pipeline that touches the receiver, so a
+    # batch it refuses is refused before spanmetrics/pre has counted it. Left
+    # off, the connector counts a batch, memory_limiter downstream rejects it,
+    # the SDK retries the same spans, and pre_calls_total counts them again.
+    # The series the chapter calls ground truth would inflate under exactly the
+    # pressure that makes ground truth worth having.
+    traces/in:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [spanmetrics/pre, servicegraph, forward]
+
+    # Only this pipeline samples. memory_limiter stays FIRST. The transform runs
+    # before the sampler so the flattened attributes are on the span whichever
+    # way the sampling decision goes.
+    traces/sampled:
+      receivers: [forward]
+      processors: [memory_limiter, transform/exception_to_span, tail_sampling, batch]
+      exporters: [kafka, spanmetrics/post]
+
+    # Both spanmetrics namespaces plus the service graph scrape out of :8889.
+    metrics:
+      receivers: [spanmetrics/pre, spanmetrics/post, servicegraph]
+      exporters: [prometheus]
+
+    # Logs in over OTLP, out to Loki over OTLP. No sampling: the trace-to-log
+    # jump has to work for the traces the sampler kept, and a log dropped by an
+    # independent decision would break it for no gain.
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
+  telemetry:
+    metrics:
+      level: detailed
+      # The Collector's own metrics, including
+      # otelcol_receiver_accepted_spans_total, which is the "received" half of
+      # the ingest-gap rule. The reader has to be declared: recent Collector
+      # releases bind internal telemetry to localhost by default, so from another
+      # container the scrape is refused and the ingest-gap rule reads a 100%
+      # gap that is really just an unreachable endpoint.
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_type_suffix: false
+                without_units: false
+# ---- end listing 9.1 ----
