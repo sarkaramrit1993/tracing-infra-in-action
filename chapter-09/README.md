@@ -232,7 +232,7 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 ```
 
 2.9 percent against 64. One of those is the service's error rate and the other is
-an artifact of how the traces were selected. Seventy-five is loud enough to
+an artifact of how the traces were selected. Sixty-four is loud enough to
 disbelieve; the dangerous version is the opener's, where the same arithmetic over
 a service failing one request in a hundred lands on 50 and reads as a real outage
 rather than as a broken denominator. Either way the panel has an axis, a line and
