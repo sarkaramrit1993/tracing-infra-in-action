@@ -191,7 +191,9 @@ ch --query "DROP VIEW IF EXISTS tracing.red_no_populate"
 ch --query "
 CREATE MATERIALIZED VIEW tracing.red_no_populate
 ENGINE = SummingMergeTree
-ORDER BY (service_name, status_code, minute)
+PARTITION BY toYYYYMM(minute)
+ORDER BY (minute, service_name, status_code)
+TTL minute + INTERVAL 90 DAY
 AS SELECT service_name, status_code, toStartOfMinute(timestamp) AS minute,
           sum(adjusted_count) AS requests
 FROM tracing.otel_traces WHERE parent_span_id = ''
@@ -254,7 +256,9 @@ ch --query "DROP VIEW IF EXISTS tracing.red_no_root"
 ch --query "
 CREATE MATERIALIZED VIEW tracing.red_no_root
 ENGINE = SummingMergeTree
-ORDER BY (service_name, status_code, minute)
+PARTITION BY toYYYYMM(minute)
+ORDER BY (minute, service_name, status_code)
+TTL minute + INTERVAL 90 DAY
 POPULATE
 AS SELECT service_name, status_code, toStartOfMinute(timestamp) AS minute,
           sum(adjusted_count) AS requests

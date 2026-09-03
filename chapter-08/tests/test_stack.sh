@@ -114,9 +114,17 @@ echo "== 5. listing 8.2: the bloom index prunes granules the primary key left ==
 # the difference between proving the index prunes and proving it merely appears,
 # and an index that appears while pruning nothing is exactly the failure listing
 # 8.2 warns about.
+#
+# The two SETTINGS are the ones listing 8.2 sets, and they are not optional here
+# either. Both default on, so without them the second EXPLAIN can answer from
+# state the server already holds, the granule count does not move, and the check
+# below reports an index that pruned nothing. That failure would be the test's
+# own omission wearing the costume of the defect it exists to catch.
 EXPLAIN_8_2() {
   CH --query "EXPLAIN indexes = 1 SELECT * FROM tracing.otel_traces
-              WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'"
+              WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'
+              SETTINGS use_query_condition_cache = 0,
+                       use_skip_indexes_on_data_read = 0"
 }
 SURVIVORS() { EXPLAIN_8_2 | grep -oE 'Granules: [0-9]+' | tail -1 | grep -oE '[0-9]+' || true; }
 

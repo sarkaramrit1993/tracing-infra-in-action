@@ -23,7 +23,9 @@ ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id;
 -- ---- Listing 8.2: Add a bloom-filter skip index and verify the pruning ----
 EXPLAIN indexes = 1
 SELECT * FROM tracing.otel_traces
-WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736';
+WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'
+SETTINGS use_query_condition_cache = 0,
+         use_skip_indexes_on_data_read = 0;
 
 ALTER TABLE tracing.otel_traces
   ADD INDEX idx_trace_id trace_id
@@ -35,5 +37,14 @@ ALTER TABLE tracing.otel_traces
 
 EXPLAIN indexes = 1
 SELECT * FROM tracing.otel_traces
-WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736';
+WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'
+SETTINGS use_query_condition_cache = 0,
+         use_skip_indexes_on_data_read = 0;
+
+EXPLAIN indexes = 1
+SELECT * FROM tracing.otel_traces
+WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'
+  AND timestamp >= now() - INTERVAL 1 HOUR
+SETTINGS use_query_condition_cache = 0,
+         use_skip_indexes_on_data_read = 0;
 -- ---- end listing 8.2 ----

@@ -9,6 +9,18 @@
 -- The root-span filter is not decoration. This table stores one row per span and
 -- a request is seven of them, so a count without it answers a question about
 -- spans while calling the answer "requests".
+--
+-- The weight in the fourth query is rounded before the cast, not after, and the
+-- order is the whole point. quantileExactWeighted() takes an integer weight and
+-- a bare toUInt64() truncates rather than rounds. Every weight this generator
+-- produces is a whole number, 100, 2 or 1, so nothing here moves either way and
+-- the hazard is invisible in the output. It shows up the moment a keep rate does
+-- not divide: a limiter admitting 37 of 500 requests gives a weight of 13.5135,
+-- a bare cast makes that 13, and the row stands for 3.8 percent fewer requests
+-- than it should. The loss only runs one way, because truncation only ever goes
+-- down, so a query applying the sampling rule correctly still reads low. Change
+-- the rates in generate/generate.py to something that does not divide and the
+-- gap between round() and no round() is measurable in the weighted p99.
 
 -- ---- Listing 8.1: Biased and unbiased aggregates over sampled data ----
 SELECT service_name, count() AS requests

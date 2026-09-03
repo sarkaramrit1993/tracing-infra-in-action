@@ -477,6 +477,38 @@ weight argument to `quantileExactWeighted()` is rounded before the cast rather
 than after. `clickhouse/init.sql` explains why this table carries
 `parent_span_id` when listing 7.1 does not.
 
+That annotation says the hazard is invisible in this data, because every weight
+the generator produces is a whole number. One query shows it anyway:
+
+```bash
+ch --query "
+SELECT round(500./37, 4) AS exact_weight,
+       toUInt64(500./37) AS bare_cast,
+       toUInt64(round(500./37)) AS rounded,
+       round(100 * (500./37 - toUInt64(500./37))
+             / (500./37), 1) AS pct_light
+FORMAT Vertical"
+```
+
+```
+exact_weight: 13.5135
+bare_cast:    13
+rounded:      14
+pct_light:    3.8
+```
+
+A limiter admitting 37 of every 500 requests gives each survivor a weight of
+13.5135. The bare cast takes that to 13 and the row now stands for 3.8 percent
+fewer requests than it represents. Truncation only ever goes down, so every row
+leans the same way and the shortfall accumulates rather than cancelling out.
+
+Scaling this chapter's weights by that rate does not reproduce it. The total
+moves 0.04 percent and the p99 stays at 180, because the weight-100 class
+dominates and 1351.35 truncates to 1351, which is a rounding error rather than a
+hazard. The 3.8 percent is what a store sees when the awkward rate is the keep
+rate itself. Getting there means changing the rates in `generate/generate.py`,
+and every number printed in this chapter and its README moves with them.
+
 `exercises/rollup.md` takes the same weight into a materialized view, where
 getting it wrong is quieter, because the rollup keeps answering at full speed
 with a number that no longer matches the raw scan.
