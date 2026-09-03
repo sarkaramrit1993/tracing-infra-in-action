@@ -253,7 +253,7 @@ first reading is a real before and not a formality:
 ch_file clickhouse/skipindex.sql
 ```
 
-Two `EXPLAIN` blocks come back around the `ALTER`. The first, from one real run:
+Three `EXPLAIN` blocks come back around the `ALTER`. The first, from one real run:
 
 ```
       PrimaryKey
@@ -294,6 +294,36 @@ does not move, apart from a run between 00:00 and 00:20 that can report 133, and
 neither does the bloom's 0. That 0 is the strongest reading available. NOTES has
 the long version of both.
 
+The third bounds the same lookup with `AND timestamp >= now() - INTERVAL 1 HOUR`,
+so the primary key gets a time predicate to work with as well as the trace ID:
+
+```
+      PrimaryKey
+        Keys:
+          toStartOfHour(timestamp)
+          trace_id
+        Condition: and((toStartOfHour(timestamp) in [1788321600, +Inf)), (trace_id in [...]))
+        Parts: 1/1
+        Granules: 27/132
+        Search Algorithm: generic exclusion search
+      Skip
+        Name: idx_trace_id
+        Granules: 0/27
+```
+
+On this data that reading matches the second one, and the reason is the
+generator rather than the index. Every row it writes falls in the twenty minutes
+before it ran, so a one-hour window already covers all of them and there is
+nothing outside it to prune. Narrowing the window does not reliably help
+either, and the `Condition` line above says why: the primary key holds time as
+`toStartOfHour(timestamp)`, so a predicate prunes whole hour buckets and nothing
+finer. Those twenty minutes sit inside one bucket, or straddle two, depending on
+the minute you run at. Inside one bucket no window of any width cuts a single
+granule. Straddling, a window whose lower bound lands in the later bucket cuts to
+13 of 132, and that is where both the 27 and the 13 readings come from. On a
+real store, where the data is older than the window, the hour predicate is what
+keeps a trace-ID lookup from touching every bucket in retention.
+
 Put the table back when you are done:
 
 ```bash
@@ -303,9 +333,11 @@ ch --query "ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id"
 ## Run the tests
 
 Offline, no Docker needed: that the schema carries `parent_span_id` and ships
-without the trace-ID bloom, that the three `.sql` files hold listings 8.1, 8.2
-and 8.3 exactly as the book prints them, and that the generator's arithmetic
-closes on ten million. It reads YAML, so it needs PyYAML:
+without the trace-ID bloom, that the generator's arithmetic closes on ten
+million, and that the `.sql` files and the exercises still carry the shapes the
+chapter argues for, listing 8.2's three `EXPLAIN`s with both caches off on every
+one of them and listing 8.3's minute-leading sort key. It reads YAML, so it
+needs PyYAML:
 
 ```bash
 python3 -m venv .venv
@@ -313,6 +345,17 @@ source .venv/bin/activate
 pip install -r tests/requirements.txt
 python3 tests/test_static.py
 ```
+
+Given the book, the same run makes the stronger claim: it reads listings 8.1,
+8.2 and 8.3 out of the chapter's own source and compares them to the three
+`.sql` files line for line. The manuscript lives in its own repository rather
+than this one, so for anyone who cloned the code and not the book those three
+checks skip and everything else still runs. To run them, name a manuscript
+checkout, or the chapter file itself, in `TRACING_MANUSCRIPT`, or write the path
+into `tests/manuscript.path`, which is untracked and read when the variable is
+unset. A machine holding several checkouts of the book is asked which one counts
+rather than being picked for: they do not have to agree, and a comparison
+against a copy nobody is editing proves nothing.
 
 Live, so the stack must be up and `generate/generate.py` must have run:
 
@@ -355,11 +398,16 @@ The stack binds host ports 8123 (HTTP) and 9000 (native protocol).
 
 | Component | Version | Role |
 |---|---|---|
-| ClickHouse | `clickhouse/clickhouse-server:25.8` (LTS) | the whole stack: query tier, storage, and the tables all three listings run against |
+| ClickHouse | `clickhouse/clickhouse-server:26.1` | the whole stack: query tier, storage, and the tables all three listings run against |
 | Python | 3 on the host, standard library only | `generate/generate.py`, which shells out to `clickhouse-client` in the container |
 
-The tag matches `chapter-07/`, so the differences between the two chapters are in
-the schema and not in the server.
+`chapter-07/` runs 25.8. This one does not, and listing 8.2 is the reason.
+`use_skip_indexes_on_data_read` does not exist before 25.9, so the listing's
+`SETTINGS` clause fails there with `UNKNOWN_SETTING`. The setting arrives off by
+default in 25.9 and on from 26.1, and the listing turns it off because 26.1 is
+the state worth turning off. Everything else in this directory runs on either
+tag, and the differences between the two chapters are still in the schema rather
+than in the server.
 
 ### File tree
 

@@ -21,7 +21,9 @@ DROP VIEW IF EXISTS tracing.red_by_service;
 -- ---- Listing 8.3: A materialized view that pre-aggregates request and error rates ----
 CREATE MATERIALIZED VIEW tracing.red_by_service
 ENGINE = SummingMergeTree
-ORDER BY (service_name, status_code, minute)
+PARTITION BY toYYYYMM(minute)
+ORDER BY (minute, service_name, status_code)
+TTL minute + INTERVAL 90 DAY
 POPULATE
 AS SELECT
   service_name,

@@ -268,13 +268,29 @@ report anything else.
 
 132 has one exception, and it is worth knowing before it puzzles you. Granules
 are counted per part, and the table is `PARTITION BY toYYYYMMDD(timestamp)`, so
-a generator run between 00:00 and 00:20 writes rows either side of midnight and
-gets two partitions. `OPTIMIZE TABLE ... FINAL` cannot merge across a partition
-boundary, so the total becomes the sum of two ceilings rather than one, and each
-partition wastes part of a granule on its remainder. Measured: a run at 00:01 or
-00:19 reports 133, a run at 00:10 splits evenly enough to still report 132.
+a generator run between 00:00 and 00:20 UTC writes rows either side of midnight
+and gets two partitions. `OPTIMIZE TABLE ... FINAL` cannot merge across a
+partition boundary, so the total becomes the sum of two ceilings rather than
+one.
+
+Two ceilings do not always cost an extra granule, and which way it falls has
+nothing to do with how evenly the split lands. 1,079,400 rows is 131 whole
+granules with 6,248 rows left over. Split them across two partitions and the two
+remainders either add up to 6,248, which leaves both partitions short of a full
+granule and reports 133, or to 6,248 plus a whole 8,192, which fills one of
+those two part-granules and reports 132. So a run reports 133 unless the
+after-midnight partition holds 6,248 or more rows past a multiple of 8,192.
+
+Measured on tables carrying the same 1,079,400 rows anchored at fixed instants
+instead of `now()`: runs at 00:00:00, 00:01:00, 00:10:00 and 00:19:00 all report
+133, and 00:20:00 reports 132 because every row is back inside one partition.
+Runs at 00:00:06, 00:10:05 and 00:19:50 report 132. That is the shape across the
+whole window: about one second in four reports 132, in runs of two or three
+seconds out of every nine, and every minute from 00:00 to 00:19 contains both.
+The second decides it, not the minute.
+
 Nothing is wrong when this happens and nothing needs fixing; the number just
-moved by one for twenty minutes a day.
+moves by one for twenty minutes a day.
 
 The survivor count is the one that moves, and the sort key is why.
 `service_name` is one value here and `span_name` is seven, but the third

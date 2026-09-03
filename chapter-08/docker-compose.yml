@@ -12,7 +12,7 @@
 
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.1
     networks: [ch8]
     # Bound to loopback deliberately. Publishing a bare "8123:8123" binds every
     # interface on the host, and Docker writes its own iptables rules in front of
