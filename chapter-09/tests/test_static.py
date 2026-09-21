@@ -508,6 +508,34 @@ def test_compose_parses_and_pins_one_tag_per_image():
 
 
 @test
+def test_readme_version_manifest_matches_the_compose_pins():
+    """The manifest table is the only place a reader checks a version without
+    opening the compose file, so a tag that drifts in one and not the other
+    sends them after a difference that is not there."""
+    compose = yaml.safe_load(read("docker-compose.yml"))
+    pinned = {svc["image"] for svc in compose["services"].values() if "image" in svc}
+    readme = read("README.md")
+    for image in sorted(pinned):
+        assert f"`{image}`" in readme, \
+            f"{image} runs in the compose file and is not in the version manifest"
+
+
+@test
+def test_the_clickhouse_tag_matches_chapter_8():
+    """N1, asserted against the sibling chapter rather than claimed in prose.
+    Chapter 8's listing 8.2 needs use_skip_indexes_on_data_read, which does not
+    exist before 25.9, so 26.1 is the floor and chapter 9 follows it."""
+    def clickhouse_tag(chapter):
+        compose = yaml.safe_load((CHAPTER.parent / chapter / "docker-compose.yml").read_text())
+        image = compose["services"]["clickhouse"]["image"]
+        return image.rsplit(":", 1)[1]
+
+    ours, theirs = clickhouse_tag("chapter-09"), clickhouse_tag("chapter-08")
+    assert ours == theirs, \
+        f"chapter-09 runs ClickHouse {ours} against chapter-08's {theirs}"
+
+
+@test
 def test_compose_mounts_the_rule_files_into_prometheus():
     """rules/*.yml is where the burn-rate and ingest-gap rules live. Unmounted,
     Prometheus

@@ -44,11 +44,14 @@ ENGINE = AggregatingMergeTree
 ORDER BY fingerprint;
 
 -- ---- Listing 9.2: An error-issue index as a materialized view -------------------
--- #A The hash of type, normalized template, and top frame is the issue identity
--- #B replaceRegexpAll collapses ids and numbers to one template
--- #C The innermost frame is where it was raised; the line number is dropped so
---    an edit above it does not fork the issue in two
--- #D trace_id preserves the drill-down join back to the full trace
+-- The book prints listing 9.2 in two pieces and hangs six callouts over them.
+-- The first lands on the target table above; the other five land below.
+-- #A error_count sums the adjusted count, not the rows   (on the table above)
+-- #B type, template and top frame hash to the identity
+-- #C each error span's adjusted count feeds that sum
+-- #D trace_id keeps the drill-down join to the trace
+-- #E replaceRegexpAll collapses ids and numbers
+-- #F innermost frame, line number dropped
 CREATE MATERIALIZED VIEW IF NOT EXISTS tracing.exc_mv TO tracing.exceptions AS
 SELECT
     cityHash64(error_type, msg_template, top_frame) AS fingerprint,

@@ -38,11 +38,11 @@
 # stream-time path). Chapter 9 is self-contained.
 #
 # Pinned versions (one tag per image, N1):
-#   apache/kafka                                  4.3.0
+#   apache/kafka                                  4.3.1
 #   otel/opentelemetry-collector-contrib          0.154.0
-#   clickhouse/clickhouse-server                  25.8
-#   prom/prometheus                               v3.12.0
-#   grafana/loki                                  3.7.6
+#   clickhouse/clickhouse-server                  26.1
+#   prom/prometheus                               v3.14.0
+#   grafana/loki                                  3.7.8
 
 x-kafka-env: &kafka-env
   KAFKA_NODE_ID: 1
@@ -128,7 +128,7 @@ services:
 
   # --- Kafka (single-broker KRaft, no ZooKeeper) ---
   kafka:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch9]
     volumes:
       - kafka-data:/var/lib/kafka/data
@@ -138,7 +138,7 @@ services:
     restart: unless-stopped
 
   kafka-init:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch9]
     depends_on:
       kafka:
@@ -163,7 +163,7 @@ services:
   # in front of most host firewalls, which hands an unauthenticated admin
   # ClickHouse to the local network. Nothing here needs more than localhost.
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.1
     networks: [ch9]
     ports:
       - "127.0.0.1:8123:8123"
@@ -212,7 +212,7 @@ services:
   # them back through /api/v1/query_exemplars, so without this flag the bridge
   # is silently a dead end.
   prometheus:
-    image: prom/prometheus:v3.12.0
+    image: prom/prometheus:v3.14.0
     networks: [ch9]
     ports:
       - "127.0.0.1:9090:9090"
@@ -235,7 +235,7 @@ services:
   # trace id by pattern-matching a line, which is the failure mode that makes
   # log-to-trace correlation approximate everywhere it is bolted on afterwards.
   loki:
-    image: grafana/loki:3.7.6
+    image: grafana/loki:3.7.8
     networks: [ch9]
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:

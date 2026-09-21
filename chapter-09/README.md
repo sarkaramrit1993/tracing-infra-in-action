@@ -488,14 +488,16 @@ reachable from another machine on your network.
 | Component | Version | Role |
 |---|---|---|
 | OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` | span metrics before and after the sampler, service graph, tail sampling, the logs path to Loki |
-| ClickHouse | `clickhouse/clickhouse-server:25.8` (LTS) | the span store and the listing 9.2 error-issue index |
-| Apache Kafka | `apache/kafka:4.3.0` | the `otlp_spans` topic between Collector and consumer, single-broker KRaft |
-| Prometheus | `prom/prometheus:v3.12.0` | span metrics, exemplar storage, the two rule files under `rules/` |
-| Loki | `grafana/loki:3.7.6` | logs, with `trace_id` as structured metadata |
+| ClickHouse | `clickhouse/clickhouse-server:26.1` | the span store and the listing 9.2 error-issue index |
+| Apache Kafka | `apache/kafka:4.3.1` | the `otlp_spans` topic between Collector and consumer, single-broker KRaft |
+| Prometheus | `prom/prometheus:v3.14.0` | span metrics, exemplar storage, the two rule files under `rules/` |
+| Loki | `grafana/loki:3.7.8` | logs, with `trace_id` as structured metadata |
 | Python | 3.12 in the app image, 3 on the host for benchmarks | producer, storage consumer, benchmark scripts |
 
-The ClickHouse tag matches `chapter-07/` and `chapter-08/`, so any difference
-between the three chapters is in the schema and the queries, never in the server.
+The ClickHouse tag matches `chapter-08/`. `chapter-07/` is still on 25.8, which
+predates the `use_skip_indexes_on_data_read` setting listing 8.2 needs, so chapter 8
+set the floor at 26.1 and chapter 9 follows it. Every difference between the three
+chapters that the text turns on is in the schema and the queries, not in the server.
 
 ### File tree
 
