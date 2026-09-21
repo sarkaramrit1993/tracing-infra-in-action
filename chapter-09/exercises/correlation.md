@@ -435,8 +435,15 @@ backs up the same file, so an abandoned run of either exercise leaves the same
 `.bak` behind, and the remedy is the same either way.
 
 ```bash
-mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+if [ -f collector/gateway-config.yaml.bak ]; then
+  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+  docker compose restart otel-collector
+fi
 ```
+
+The guard matters because the block above just told you the count was zero. A
+bare `mv` on a path that is not there fails with `No such file or directory`,
+which reads like a broken instruction rather than the all-clear it is.
 
 Then confirm all three bridges are back, with one request and one id:
 
@@ -494,7 +501,7 @@ PY
 docker compose restart otel-collector
 await_collector
 for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
-await 'sum(pre_calls_total{service_name="checkout-service"})' 1400
+await 'sum(pre_calls_total{service_name="checkout-service"})' 1050
 curl -s -G http://localhost:9090/api/v1/query \
   --data-urlencode 'query=post_duration_milliseconds_bucket' \
   | python3 -c "

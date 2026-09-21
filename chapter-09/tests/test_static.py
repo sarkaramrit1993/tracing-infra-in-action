@@ -581,6 +581,135 @@ def test_every_scrape_target_is_a_service_in_the_compose_file():
                 f"job {job['job_name']} scrapes {host}, which no service provides"
 
 
+def _bash_fences(rel):
+    """Yield (first line number, list of lines) for every ```bash fence."""
+    lines = read(rel).splitlines()
+    fence, start = None, 0
+    for n, line in enumerate(lines, 1):
+        s = line.strip()
+        if s.startswith("```"):
+            if fence is None and (s.startswith("```bash") or s.startswith("```sh")):
+                fence, start = [], n + 1
+            elif fence is not None:
+                yield start, fence
+                fence = None
+            continue
+        if fence is not None:
+            fence.append(line)
+
+
+EXERCISES = ("exercises/divergence.md", "exercises/correlation.md",
+             "exercises/fingerprints.md")
+
+ERROR_SELECTOR = 'status_code="STATUS_CODE_ERROR"'
+
+# checkout.py opens one server span and six children per request.
+SPANS_PER_CHECKOUT = 7
+
+
+@test
+def test_an_error_read_is_gated_on_an_error_series():
+    """The rule each exercise states and one of them then broke.
+
+    The totals reach Prometheus a scrape ahead of the status breakdown, so a
+    poll that releases on a total reads the errors a scrape short. It does not
+    read them as obviously wrong, which is the whole problem: the committed
+    capture behind this check printed 1173 and 579 against a deterministic 1200
+    and 606, both light by exactly one scrape.
+    """
+    offenders = []
+    for rel in EXERCISES:
+        for start, body in _bash_fences(rel):
+            reads = [ln for ln in body if ln.lstrip().startswith("promq ")
+                     and ERROR_SELECTOR in ln]
+            if not reads:
+                continue
+            gates = [ln for ln in body if ln.lstrip().startswith("await ")]
+            if gates and not any(ERROR_SELECTOR in ln for ln in gates):
+                offenders.append(f"{rel}:{start}")
+    assert not offenders, \
+        "an error series read behind a poll that waits on a total: " + ", ".join(offenders)
+
+
+@test
+def test_no_poll_sits_at_its_own_arithmetic_ceiling():
+    """A gate set to exactly what the traffic can produce has no slack.
+
+    Restarting the Collector zeroes the connector counters, so a fence that
+    restarts it and then drives N checkouts can reach at most N times seven
+    spans. Gate on all of them and one span lost anywhere in the chain turns
+    into a six-minute poll and a `timed out`, which is the reader's first
+    reading of an edit they were told would break something.
+    """
+    offenders = []
+    for rel in EXERCISES:
+        for start, body in _bash_fences(rel):
+            if not any("restart otel-collector" in ln for ln in body):
+                continue
+            driven = sum(int(m) for ln in body
+                         for m in re.findall(r"for _ in \$\(seq 1 (\d+)\); do curl", ln))
+            if not driven:
+                continue
+            ceiling = driven * SPANS_PER_CHECKOUT
+            for ln in body:
+                m = re.match(r"""\s*await 'sum\(pre_calls_total\{service_name="checkout-service"\}\)' (\d+)""", ln)
+                if m and int(m.group(1)) >= ceiling:
+                    offenders.append(
+                        f"{rel}:{start} gates at {m.group(1)} against a ceiling of {ceiling}")
+    assert not offenders, "; ".join(offenders)
+
+
+@test
+def test_cleanup_restores_are_guarded():
+    """A cleanup block that just reported zero backups cannot then move one.
+
+    The reader pastes it, `mv` exits `No such file or directory`, and the
+    all-clear reads like a broken instruction.
+    """
+    offenders = []
+    for rel in EXERCISES:
+        text = read(rel)
+        sections = re.split(r"^## ", text, flags=re.M)
+        for section in sections:
+            if not section.startswith("Clean up"):
+                continue
+            for line in section.splitlines():
+                if re.match(r"\s*mv \S+\.bak ", line) and "[ -f" not in section:
+                    offenders.append(f"{rel}: unguarded {line.strip()}")
+    assert not offenders, "unguarded restore in a Clean up block: " + "; ".join(offenders)
+
+
+@test
+def test_the_scratch_cleanup_drops_every_scratch_table():
+    """`KEEP_SCRATCH=1` keeps four objects and the exercise dropped one.
+
+    The one it left behind is the two-million-row span table, and the cleanup
+    check further down then reports it as the wreckage of a run killed partway.
+    """
+    bench = read("benchmarks/fingerprint_compression.py")
+    created = set(re.findall(r'"(tracing\.fp_bench_\w+)"', bench))
+    assert len(created) == 4, f"expected four scratch objects, found {sorted(created)}"
+    told = set(re.findall(r"DROP (?:TABLE|VIEW) IF EXISTS (tracing\.fp_bench_\w+)",
+                          read("exercises/fingerprints.md")))
+    assert created == told, \
+        f"the exercise never drops {sorted(created - told)}"
+
+
+@test
+def test_the_exception_index_gate_matches_what_the_page_prints():
+    """A gate that releases below the printed number hands the reader a
+    different number from the one on the page, with nothing saying why."""
+    text = read("exercises/fingerprints.md")
+    m = re.search(r'await_rows "SELECT sum\(error_count\) FROM tracing\.exceptions" (\d+)',
+                  text)
+    assert m, "the exceptions index is no longer gated at all"
+    gate = int(m.group(1))
+    printed = re.search(r"^TimeoutError\s+.*?\s(\d+)\s+[0-9a-f]{32}$", text, re.M)
+    assert printed, "the index output block no longer prints an error count"
+    assert gate == int(printed.group(1)), \
+        f"the poll releases at {gate} where the page prints {printed.group(1)}"
+
+
 @test
 def test_no_hash_comments_inside_bash_blocks():
     """A reader pastes the whole block. zsh turns a bare # into an argument."""

@@ -54,18 +54,27 @@ fires on insert and never backfills. Order matters: the view has to exist before
 the spans do.
 
 ```bash
+docker compose restart checkout-service
 ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
 ch --query "DROP TABLE IF EXISTS tracing.exceptions"
 ch_file clickhouse/error_index.sql
 for _ in $(seq 1 150); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await_rows "SELECT sum(error_count) FROM tracing.exceptions" 7
+await_rows "SELECT sum(error_count) FROM tracing.exceptions" 14
 ```
 
-Seven, not six: the 1-in-100 cadence throws one of its own inside 150 requests.
-The poll is on the index rather than on a clock, because a span has to clear the
-exporter's batch, the tail sampler, Kafka and the storage consumer before the
-materialized view has anything to fire on.
+The restart is what makes the counts below exact. The app numbers its checkouts
+off a counter that lives in the process, the 1-in-100 cadence fires on every
+hundredth of them, and `docker compose up -d --build` leaves a container that is
+already running alone. Carried over from another exercise the counter starts
+somewhere in the middle, 150 requests can span two hundreds instead of one, and
+the failure count comes out one higher than what is printed here.
+
+Fourteen error spans, not seven: a failed checkout records the exception twice,
+on the span that threw and on the server span that reports the failure to the
+caller. The poll is on the index rather than on a clock, because a span has to
+clear the exporter's batch, the tail sampler, Kafka and the storage consumer
+before the materialized view has anything to fire on.
 
 ## What the index holds
 
@@ -168,8 +177,16 @@ That row is written before any measuring query runs, which is what makes it
 truth rather than a second opinion. Drop the scratch tables when you are done:
 
 ```bash
-ch --query "DROP TABLE tracing.fp_bench_truth"
+ch --query "DROP VIEW IF EXISTS tracing.fp_bench_mv"
+ch --query "DROP TABLE IF EXISTS tracing.fp_bench_issues"
+ch --query "DROP TABLE IF EXISTS tracing.fp_bench_spans"
+ch --query "DROP TABLE IF EXISTS tracing.fp_bench_truth"
 ```
+
+All four, because `KEEP_SCRATCH=1` keeps all four: the truth table, the two
+million-row span table, the issue table and the view over them. Dropping only
+the truth table leaves the largest one behind, and the cleanup check further
+down then reports a table it blames on a run that was killed partway.
 
 The two expressions it measures are the two the book prints, read straight out
 of the listing:

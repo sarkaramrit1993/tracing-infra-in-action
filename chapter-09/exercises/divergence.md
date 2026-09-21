@@ -225,7 +225,8 @@ docker compose restart otel-collector
 await_collector
 for _ in $(seq 1 600); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 600); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})' 8
+await 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 606
+await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 3
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
@@ -242,6 +243,16 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 0.4936061381074169
 0.4444444444444444
 ```
+
+Both polls wait on an error series, and the first one waits on the pre side.
+Twelve hundred requests with 606 of them failing are both deterministic: 600 are
+forced, and the 1-in-100 cadence adds exactly six more inside the 600 plain ones.
+Waiting on a total here would release a scrape early, for the reason this file
+gave the first time it polled, and every number in the block would read short by
+one scrape rather than wrong in a way you could see. The second poll is a
+readiness gate rather than a count. It waits only until the post side has a
+status breakdown at all, because what the post side settles on is a sample and
+there is no deterministic number to wait for.
 
 49.4 percent against 44.4, an inflation of 0.90. The error count fell from 579 to
 4 along with everything else, and the ratio survived. This is the case section
@@ -293,8 +304,15 @@ backs up the same file, so an abandoned run of either exercise leaves the same
 `.bak` behind, and the remedy is the same either way.
 
 ```bash
-mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+if [ -f collector/gateway-config.yaml.bak ]; then
+  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+  docker compose restart otel-collector
+fi
 ```
+
+The guard matters because the block above just told you the count was zero. A
+bare `mv` on a path that is not there fails with `No such file or directory`,
+which reads like a broken instruction rather than the all-clear it is.
 
 Then confirm the Collector is running the file that shipped:
 
