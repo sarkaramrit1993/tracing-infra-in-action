@@ -279,9 +279,89 @@ mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
 docker compose restart otel-collector
 ```
 
+## Going deeper
+
+`collector/gateway-config.yaml` is listings 9.1 and 9.3 with their annotations,
+including why the tail sampler is plain probabilistic and does not stamp a
+`tracestate` threshold on what it keeps. NOTES covers what would change if it
+did: a downstream that can read the threshold can weight its counts back up, and
+the divergence disappears.
+
+**Cause the failure on purpose.** Move the `spanmetrics/pre` connector to the
+sampled fork. This is the mistake the whole listing exists to prevent, and it is
+one line in each of two pipelines:
+
+```bash
+cp collector/gateway-config.yaml collector/gateway-config.yaml.bak
+python3 - <<'PY'
+from pathlib import Path
+p = Path("collector/gateway-config.yaml")
+t = p.read_text()
+t = t.replace("exporters: [spanmetrics/pre, servicegraph, forward]",
+              "exporters: [servicegraph, forward]")
+t = t.replace("exporters: [kafka, spanmetrics/post]",
+              "exporters: [kafka, spanmetrics/post, spanmetrics/pre]")
+p.write_text(t)
+PY
+docker compose restart otel-collector
+await_collector
+for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
+for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
+await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
+promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+python3 benchmarks/sampler_divergence.py
+echo "exit $?"
+```
+
+```
+14
+14
+0.6428571428571429
+0.6428571428571429
+[divergence] Prometheus=http://localhost:9090 grain=checkout-service/fraud.score
+[divergence] pre : total=14 errors=9 rate=64.286%
+[divergence] post: total=14 errors=9 rate=64.286%
+[divergence] expected pre total 14 > post total 14 (the sampler drops spans)
+exit 1
+```
+
+Both series identical, both at 64 percent, and the Collector booted clean. The
+config is valid YAML, every component name resolves, and no log line complains.
+The benchmark is the only thing anywhere that notices, which is why the block
+runs it: its direction assertion is the one statement in this repository that a
+connector on the wrong side of the sampler cannot satisfy.
+
+That is the shape worth carrying away. A connector on the wrong side of a
+processor is not a syntax error and not a runtime error. It produces a dashboard
+that agrees with itself, and two series matching looks like corroboration when it
+is the strongest available evidence that both are measuring the sample. Restore:
+
+```bash
+mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+docker compose restart otel-collector
+```
+
+Two more if the sampler itself interests you.
+
+Set `decision_wait` below the p99 of a checkout, around 150ms, and the sampler
+starts deciding on traces before their last span arrives. Late spans arrive after
+the verdict and are dropped whatever the verdict was, so the post series loses
+spans from traces it decided to keep, and the two error counts stop matching for
+a reason that has nothing to do with the error rate.
+
+And add a second `probabilistic` policy alongside the first. Tail-sampling
+policies are ORed rather than ANDed, so two 1-percent policies keep roughly 1.99
+percent and not 0.01 percent. It is the most common way a sampling config ends up
+keeping far more than its author intended, and the only visible symptom is a
+storage bill.
+
 ## Clean up
 
-Both edits above restore in place, so this is a confirmation rather than a step:
+Every edit above restores in place, so this is a confirmation rather than a
+step:
 
 ```bash
 grep -c 'keep-errors' collector/gateway-config.yaml
@@ -335,74 +415,3 @@ reached, so it depends on how much traffic this Collector process has seen since
 it last restarted.
 
 This exercise never wrote to ClickHouse, so there is nothing to delete there.
-
-## Going deeper
-
-`collector/gateway-config.yaml` is listings 9.1 and 9.3 with their annotations,
-including why the tail sampler is plain probabilistic and does not stamp a
-`tracestate` threshold on what it keeps. NOTES covers what would change if it
-did: a downstream that can read the threshold can weight its counts back up, and
-the divergence disappears.
-
-**Cause the failure on purpose.** Move the `spanmetrics/pre` connector to the
-sampled fork. This is the mistake the whole listing exists to prevent, and it is
-one line in each of two pipelines:
-
-```bash
-cp collector/gateway-config.yaml collector/gateway-config.yaml.bak
-python3 - <<'PY'
-from pathlib import Path
-p = Path("collector/gateway-config.yaml")
-t = p.read_text()
-t = t.replace("exporters: [spanmetrics/pre, servicegraph, forward]",
-              "exporters: [servicegraph, forward]")
-t = t.replace("exporters: [kafka, spanmetrics/post]",
-              "exporters: [kafka, spanmetrics/post, spanmetrics/pre]")
-p.write_text(t)
-PY
-docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-```
-
-```
-14
-14
-0.6428571428571429
-0.6428571428571429
-```
-
-Both series identical, both at 64 percent, and the Collector booted clean. The
-config is valid YAML, every component name resolves, no log line complains, and
-`benchmarks/sampler_divergence.py` is the only thing anywhere that notices: it
-exits non-zero with "expected pre total above post total".
-
-That is the shape worth carrying away. A connector on the wrong side of a
-processor is not a syntax error and not a runtime error. It produces a dashboard
-that agrees with itself, and two series matching looks like corroboration when it
-is the strongest available evidence that both are measuring the sample. Restore:
-
-```bash
-mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
-docker compose restart otel-collector
-```
-
-Two more if the sampler itself interests you.
-
-Set `decision_wait` below the p99 of a checkout, around 150ms, and the sampler
-starts deciding on traces before their last span arrives. Late spans arrive after
-the verdict and are dropped whatever the verdict was, so the post series loses
-spans from traces it decided to keep, and the two error counts stop matching for
-a reason that has nothing to do with the error rate.
-
-And add a second `probabilistic` policy alongside the first. Tail-sampling
-policies are ORed rather than ANDed, so two 1-percent policies keep roughly 1.99
-percent and not 0.01 percent. It is the most common way a sampling config ends up
-keeping far more than its author intended, and the only visible symptom is a
-storage bill.

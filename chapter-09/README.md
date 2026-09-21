@@ -210,12 +210,12 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 
 ```
 306
-12
+14
 9
 9
 ```
 
-306 calls became 12. The sampler dropped the other 294. But the error counts are
+306 calls became 14. The sampler dropped the other 292. But the error counts are
 identical, 9 against 9, because the `keep-errors` policy keeps every trace that
 carries an error and drops nothing from that class. So the numerator survived
 whole while the denominator was cut by a factor of twenty-two, and the two error
@@ -228,7 +228,7 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 
 ```
 0.029411764705882353
-0.75
+0.6428571428571429
 ```
 
 2.9 percent against 64. One of those is the service's error rate and the other is
@@ -307,7 +307,7 @@ NOTES.md, under "Before you change either rule file", has both measurements.
 Read it before you edit either one. Neither defect announces itself.
 
 Both files load automatically. `rules/` is mounted into Prometheus and
-`prometheus.yml` globs it, so the seven recording rules and three alerts are
+`prometheus.yml` globs it, so the eight recording rules and three alerts are
 live from the moment the stack is up:
 
 ```bash
@@ -329,10 +329,11 @@ checkout_slo_burn_rate alerting CheckoutErrorBudgetBurnSlow ok
 span_ingest_gap recording spans:received:rate5m ok
 span_ingest_gap recording spans:expected:rate5m ok
 span_ingest_gap recording spans:ingest_gap:ratio5m ok
+span_ingest_gap recording spans:ingest_gap:measurable ok
 span_ingest_gap alerting SpanIngestGap ok
 ```
 
-Ten rules, all `ok`.
+Eleven rules, all `ok`.
 
 ### The burn-rate rule
 
@@ -342,7 +343,7 @@ the ratio is a ratio of.
 It burns against `pre_calls_total`, never `post_calls_total`. On this stack the
 post error rate reads twenty-two times the true one, so a burn-rate alert built
 on the survivors would page on a healthy service every time the sampler did its
-job. That is not a hypothetical: it is the 2.9-against-75 above, wired to a
+job. That is not a hypothetical: it is the 2.9-against-64 above, wired to a
 pager.
 
 It also selects `span_kind="SPAN_KIND_SERVER"`. `spanmetrics` counts spans and a

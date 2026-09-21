@@ -410,71 +410,6 @@ mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
 docker compose restart otel-collector
 ```
 
-## Clean up
-
-Both edits restore in place, so this is a confirmation:
-
-```bash
-grep -c 'strip_trace_id' collector/gateway-config.yaml
-grep -o 'max_items: [0-9]*' collector/gateway-config.yaml
-ls collector/*.bak collector/*.tmp 2>/dev/null | wc -l
-```
-
-```
-0
-max_items: 1000
-       0
-```
-
-No `strip_trace_id` processor anywhere, the service-graph store back at 1,000,
-and nothing with a `.bak` or `.tmp` suffix left in `collector/`.
-
-If the last number is not zero, some edit was interrupted between its `cp` and
-its `mv`. It does not have to have been one of yours: `exercises/divergence.md`
-backs up the same file, so an abandoned run of either exercise leaves the same
-`.bak` behind, and the remedy is the same either way.
-
-```bash
-if [ -f collector/gateway-config.yaml.bak ]; then
-  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
-  docker compose restart otel-collector
-fi
-```
-
-The guard matters because the block above just told you the count was zero. A
-bare `mv` on a path that is not there fails with `No such file or directory`,
-which reads like a broken instruction rather than the all-clear it is.
-
-Then confirm all three bridges are back, with one request and one id:
-
-```bash
-docker compose restart otel-collector
-await_collector
-TID=$(python3 -c 'import os;print(os.urandom(16).hex())')
-SID=$(python3 -c 'import os;print(os.urandom(8).hex())')
-curl -s -o /dev/null -H "traceparent: 00-$TID-$SID-01" "http://localhost:8080/checkout?fail=1"
-await_rows "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'" 7
-ch --query "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'"
-loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
-```
-
-```
-7
-status: success  lines: 2
-    fraud scoring failed for cart-9255: fraud scoring backend timed out after 30793ms (req b98179c5)
-    checkout complete cart=cart-9255 order=ord-12190 amount=30.14 fraud_failed=True
-```
-
-Seven spans in the store and two log lines reachable from the same id. Or run the
-packaged version, which walks all three crossings and cleans up after itself:
-
-```bash
-bash tests/test_correlation.sh
-```
-
-This exercise wrote nothing to ClickHouse beyond the traffic it drove, which ages
-out on the table's 15-day TTL, so there is nothing to delete.
-
 ## Going deeper
 
 `collector/gateway-config.yaml` is listings 9.1 and 9.3 with their annotations,
@@ -543,18 +478,155 @@ mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
 docker compose restart otel-collector
 ```
 
-Two more if the bridges themselves interest you.
+**Turn the exemplar store off.** `--enable-feature=exemplar-storage` is what
+makes Prometheus keep the exemplars it is handed. Without it Prometheus keeps
+accepting them on every scrape and stores none, and there is no setting anywhere
+that reads as "off".
 
-Take `--enable-feature=exemplar-storage` off the Prometheus command in
-`docker-compose.yml`. Prometheus keeps accepting exemplars on every scrape and
-stores none of them, `query_exemplars` returns an empty list, and there is no
-setting anywhere that reads as "off". It is the same empty result as a connector
-with exemplars disabled, from the other end of the wire.
+This edit is the only one in this file that touches `docker-compose.yml`, so it
+is the only one that needs the container replaced rather than restarted, and
+replacing Prometheus destroys its TSDB. Every counter you have read in this
+exercise goes back to zero and the rate windows start refilling from empty:
 
-And set `allow_structured_metadata: false` in `loki/loki.yaml`. This one does not
-fail silently, which makes it the useful contrast: Loki rejects the entire write
-with a 400, the Collector logs `not retryable error` and drops the batch, and
-every log line disappears rather than just the join. Read
-`docker compose logs otel-collector` to see it, then put the setting back. A
-bridge that breaks loudly is the easy case, and it is the only one of the four
-failures in this file that anybody would catch the same day.
+```bash
+cp docker-compose.yml docker-compose.yml.bak
+sed -i.tmp '/--enable-feature=exemplar-storage/d' docker-compose.yml
+rm -f docker-compose.yml.tmp
+docker compose up -d prometheus
+for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
+await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})' 1
+curl -s -G http://localhost:9090/api/v1/query_exemplars \
+  --data-urlencode 'query=post_duration_milliseconds_bucket' \
+  --data-urlencode "start=$(python3 -c 'import time;print(time.time()-900)')" \
+  --data-urlencode "end=$(python3 -c 'import time;print(time.time())')" \
+  | python3 -c "
+import sys,json
+d = json.load(sys.stdin).get('data', [])
+print('exemplar series:', len(d), ' exemplars:', sum(len(s.get('exemplars', [])) for s in d))"
+```
+
+```
+exemplar series: 0  exemplars: 0
+```
+
+The same empty list as the previous edit produced, from the other end of the
+wire: there, the connector minted no exemplar; here, it minted one per scrape
+and Prometheus dropped every one. Restore, which replaces the container a second
+time and wipes the TSDB again:
+
+```bash
+mv docker-compose.yml.bak docker-compose.yml
+docker compose up -d prometheus
+```
+
+**And break one loudly, for the contrast.** Set `allow_structured_metadata` to
+`false` in `loki/loki.yaml`. This one does not fail silently, which is the whole
+point of ending on it:
+
+```bash
+cp loki/loki.yaml loki/loki.yaml.bak
+sed -i.tmp 's/allow_structured_metadata: true/allow_structured_metadata: false/' loki/loki.yaml
+rm -f loki/loki.yaml.tmp
+docker compose restart loki
+for _ in $(seq 1 20); do curl -s -o /dev/null http://localhost:8080/checkout; done
+sleep 20
+docker compose logs --tail 20 otel-collector | grep -c 'not retryable error'
+```
+
+Loki rejects the entire write with a 400, the Collector logs `not retryable
+error` and drops the batch, and every log line disappears rather than just the
+join. A bridge that breaks loudly is the easy case, and it is the only one of the
+four failures in this file that anybody would catch the same day. Restore:
+
+```bash
+mv loki/loki.yaml.bak loki/loki.yaml
+docker compose restart loki
+```
+
+## Clean up
+
+Every edit above restores in place, so this is a confirmation rather than a
+step:
+
+```bash
+grep -c 'strip_trace_id' collector/gateway-config.yaml
+grep -o 'max_items: [0-9]*' collector/gateway-config.yaml
+grep -c 'explicit:' collector/gateway-config.yaml
+grep -c 'exemplar-storage' docker-compose.yml
+grep -c 'allow_structured_metadata: true' loki/loki.yaml
+ls collector/*.bak collector/*.tmp docker-compose.yml.bak loki/*.bak 2>/dev/null | wc -l
+```
+
+```
+0
+max_items: 1000
+2
+2
+1
+       0
+```
+
+No `strip_trace_id` processor anywhere, the service-graph store back at 1,000,
+both histograms back on explicit buckets, the exemplar-storage flag back on the
+Prometheus command, Loki accepting structured metadata again, and nothing with a
+`.bak` or `.tmp` suffix left behind.
+
+Three files rather than one. `collector/gateway-config.yaml` is the only file
+Try this touches, and Going deeper goes on to edit `docker-compose.yml` and
+`loki/loki.yaml` as well, so a check that greps `collector/` alone reports green
+over a stack with two bridges still broken.
+
+If the last number is not zero, some edit was interrupted between its `cp` and
+its `mv`. It does not have to have been one of yours: `exercises/divergence.md`
+backs up the same file, so an abandoned run of either exercise leaves the same
+`.bak` behind, and the remedy is the same either way. This restores whichever of
+the three is there and leaves the other two alone:
+
+```bash
+if [ -f collector/gateway-config.yaml.bak ]; then
+  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+  docker compose restart otel-collector
+fi
+if [ -f docker-compose.yml.bak ]; then
+  mv docker-compose.yml.bak docker-compose.yml
+  docker compose up -d prometheus
+fi
+if [ -f loki/loki.yaml.bak ]; then
+  mv loki/loki.yaml.bak loki/loki.yaml
+  docker compose restart loki
+fi
+```
+
+The guard matters because the block above just told you the count was zero. A
+bare `mv` on a path that is not there fails with `No such file or directory`,
+which reads like a broken instruction rather than the all-clear it is.
+
+Then confirm all three bridges are back, with one request and one id:
+
+```bash
+docker compose restart otel-collector
+await_collector
+TID=$(python3 -c 'import os;print(os.urandom(16).hex())')
+SID=$(python3 -c 'import os;print(os.urandom(8).hex())')
+curl -s -o /dev/null -H "traceparent: 00-$TID-$SID-01" "http://localhost:8080/checkout?fail=1"
+await_rows "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'" 7
+ch --query "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'"
+loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
+```
+
+```
+7
+status: success  lines: 2
+    fraud scoring failed for cart-9255: fraud scoring backend timed out after 30793ms (req b98179c5)
+    checkout complete cart=cart-9255 order=ord-12190 amount=30.14 fraud_failed=True
+```
+
+Seven spans in the store and two log lines reachable from the same id. Or run the
+packaged version, which walks all three crossings and cleans up after itself:
+
+```bash
+bash tests/test_correlation.sh
+```
+
+This exercise wrote nothing to ClickHouse beyond the traffic it drove, which ages
+out on the table's 15-day TTL, so there is nothing to delete.

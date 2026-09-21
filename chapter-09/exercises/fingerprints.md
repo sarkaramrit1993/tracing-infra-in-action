@@ -282,36 +282,6 @@ PATHS=2400 python3 benchmarks/fingerprint_compression.py
 `F == P` at 2,400 as well as at 1,200, which is worth confirming once: it tells
 you the identity is about the normalization and not about the size of the run.
 
-## Clean up
-
-Drop the live index, and check the listing is the one that shipped:
-
-```bash
-ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
-ch --query "DROP TABLE IF EXISTS tracing.exceptions"
-ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
-grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
-grep -o "'\[0-9a-f\]{8,}|\[0-9\]+'" clickhouse/error_index.sql
-ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l
-```
-
-```
-otel_traces
-1
-'[0-9a-f]{8,}|[0-9]+'
-       0
-```
-
-One table, which is what a fresh stack has. The three-input hash is back, the
-token class is back to hex, and nothing with a `.bak` or `.tmp` suffix is left in
-`clickhouse/`. Nothing with an `fp_bench_` prefix should appear in that table
-list either; the benchmark drops its own scratch tables at the end of every run
-and again at the start of the next, so an interrupted run costs nothing.
-
-Drop the view before the target table, in that order. While the view exists it is
-watching inserts, and a table that vanishes underneath a live view leaves the
-next insert into `otel_traces` failing rather than silently unindexed.
-
 ## Going deeper
 
 `clickhouse/error_index.sql` is listing 9.2 with its annotations, including why
@@ -363,18 +333,66 @@ highest-signal one that falls out of fingerprinting. Restore:
 mv clickhouse/error_index.sql.bak clickhouse/error_index.sql
 ```
 
-Two more if the storage engine interests you rather than the argument.
+Two more if the storage engine interests you rather than the argument. Both read
+the live index, and the one armed at the top of this exercise has had its merges
+run long ago, so re-arm it and put a handful of fresh batches in:
+
+```bash
+ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
+ch --query "DROP TABLE IF EXISTS tracing.exceptions"
+ch_file clickhouse/error_index.sql
+for _ in $(seq 1 12); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
+await_rows "SELECT count() FROM tracing.exceptions" 1
+```
 
 The target table is an `AggregatingMergeTree` with `SimpleAggregateFunction`
 columns, and the read query in the listing's trailing comment does a `GROUP BY
 fingerprint` even though the table is already keyed on it. Take the `GROUP BY`
-out and read the raw rows: before a background merge runs you get one row per
-insert batch rather than one per issue, and the counts read low. `OPTIMIZE TABLE
-tracing.exceptions FINAL` collapses them, but a merge that has not happened yet
-is not a bug to wait out, it is a reason to always re-aggregate on read.
+out and read the raw rows:
+
+```bash
+ch --query "SELECT fingerprint, error_count FROM tracing.exceptions"
+ch --query "SELECT fingerprint, sum(error_count) FROM tracing.exceptions GROUP BY fingerprint"
+```
+
+Before a background merge runs you get one row per insert batch rather than one
+per issue, and each row's count reads low. `OPTIMIZE TABLE tracing.exceptions
+FINAL` collapses them, but a merge that has not happened yet is not a bug to wait
+out, it is a reason to always re-aggregate on read.
 
 And point the view at `first_seen` as `min` and `last_seen` as `max` over spans
 that arrive out of order, which is the normal case with a batch processor in the
 path. The window is correct in either order because both are aggregates over the
 whole fingerprint rather than over the arrival sequence. Replace either with
 `anyLast` and it starts reporting whichever span the merge happened to see last.
+
+## Clean up
+
+Drop the live index this exercise armed, and check the listing is the one
+that shipped:
+
+```bash
+ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
+ch --query "DROP TABLE IF EXISTS tracing.exceptions"
+ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
+grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
+grep -o "'\[0-9a-f\]{8,}|\[0-9\]+'" clickhouse/error_index.sql
+ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l
+```
+
+```
+otel_traces
+1
+'[0-9a-f]{8,}|[0-9]+'
+       0
+```
+
+One table, which is what a fresh stack has. The three-input hash is back, the
+token class is back to hex, and nothing with a `.bak` or `.tmp` suffix is left in
+`clickhouse/`. Nothing with an `fp_bench_` prefix should appear in that table
+list either; the benchmark drops its own scratch tables at the end of every run
+and again at the start of the next, so an interrupted run costs nothing.
+
+Drop the view before the target table, in that order. While the view exists it is
+watching inserts, and a table that vanishes underneath a live view leaves the
+next insert into `otel_traces` failing rather than silently unindexed.

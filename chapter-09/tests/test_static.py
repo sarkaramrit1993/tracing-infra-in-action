@@ -24,6 +24,7 @@ every one of those needs was paid for once already.
 Usage:  python3 tests/test_static.py
 """
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -508,6 +509,55 @@ def test_compose_parses_and_pins_one_tag_per_image():
 
 
 @test
+def test_the_readme_rule_inventory_matches_the_rule_files():
+    """Both counts and the printed block were one short of what loads.
+
+    `spans:ingest_gap:measurable` was added to fix a rule that read from
+    nothing, and the README kept the inventory it had before.
+    """
+    records, alerts, names = 0, 0, []
+    for rel in sorted((CHAPTER / "rules").glob("*.yml")):
+        for group in yaml.safe_load(rel.read_text())["groups"]:
+            for rule in group["rules"]:
+                kind = "recording" if "record" in rule else "alerting"
+                name = rule.get("record") or rule["alert"]
+                names.append(f"{group['name']} {kind} {name} ok")
+                if kind == "recording":
+                    records += 1
+                else:
+                    alerts += 1
+
+    readme = read("README.md")
+    words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+             8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve"}
+    assert f"the {words[records]} recording rules and {words[alerts]} alerts" in readme, \
+        f"the README does not say {words[records]} recording rules and {words[alerts]} alerts"
+    assert f"{words[records + alerts].capitalize()} rules, all `ok`." in readme, \
+        f"the README does not total {records + alerts} rules"
+    for line in names:
+        assert line in readme, f"the rule listing block never shows: {line}"
+
+
+@test
+def test_the_readme_divergence_block_is_the_committed_measurement():
+    """Every number the README prints for this comparison is pinned by a JSON
+    in benchmarks/results/. A commit once fixed the sentences around these and
+    left the numbers from the run that had been discarded."""
+    results = sorted((CHAPTER / "benchmarks/results").glob("sampler-divergence-*.json"))
+    assert results, "no committed divergence measurement to check the README against"
+    data = json.loads(results[-1].read_text())
+    readme = read("README.md")
+    block = re.search(r"```\n(\d+)\n(\d+)\n(\d+)\n(\d+)\n```", readme)
+    assert block, "the README no longer prints the four-number divergence block"
+    got = [int(x) for x in block.groups()]
+    want = [int(data["pre"]["total"]), int(data["post"]["total"]),
+            int(data["pre"]["errors"]), int(data["post"]["errors"])]
+    assert got == want, f"the README prints {got} against a measured {want}"
+    assert str(data["post"]["errors"] / data["post"]["total"]) in readme, \
+        "the README's post error rate is not the one the measurement recorded"
+
+
+@test
 def test_readme_version_manifest_matches_the_compose_pins():
     """The manifest table is the only place a reader checks a version without
     opening the compose file, so a tag that drifts in one and not the other
@@ -657,6 +707,22 @@ def test_no_poll_sits_at_its_own_arithmetic_ceiling():
                     offenders.append(
                         f"{rel}:{start} gates at {m.group(1)} against a ceiling of {ceiling}")
     assert not offenders, "; ".join(offenders)
+
+
+@test
+def test_clean_up_is_the_last_section():
+    """Clean up ran before Going deeper in two of the three exercises.
+
+    correlation.md then edited two more files its cleanup check never looked
+    at, and fingerprints.md dropped `tracing.exceptions` and went on to tell
+    the reader to query it. A reader working top to bottom ends on a stack the
+    cleanup already certified.
+    """
+    for rel in EXERCISES:
+        sections = re.findall(r"^## (.+)$", read(rel), flags=re.M)
+        assert sections[-1] == "Clean up", \
+            f"{rel} ends on '{sections[-1]}', with Clean up at position " \
+            f"{sections.index('Clean up') + 1} of {len(sections)}"
 
 
 @test
