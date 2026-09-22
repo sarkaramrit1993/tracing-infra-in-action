@@ -120,12 +120,14 @@ place for it, the log-side equivalent of the exemplar buffer.
 ## Why exemplars come off the post connector
 
 Both connectors have `exemplars.enabled: true`, but `tests/test_correlation.sh`
-reads `post_duration_milliseconds_bucket` and not the pre one. Measured on this
-stack, resolving every exemplar trace id against the span store:
+reads `post_duration_milliseconds_bucket` and not the pre one.
+`benchmarks/exemplar_resolution.py` is what measures the difference, and its
+result file is the artifact behind every number below. On a cold stack driven
+with this chapter's own 411 requests:
 
 ```
-post: 17 of 17 resolve
-pre:  10 of 35 resolve
+post: 6 of 6 resolve  (100%)
+pre:  6 of 16 resolve  (38%)
 ```
 
 A pre-sampler exemplar is minted before the sampler has decided anything. The
@@ -134,6 +136,23 @@ the other ninety-nine is left aiming at a trace that was never stored. Nothing
 errors. `query_exemplars` returns a trace id, the drill-down runs, and the trace
 viewer says the trace does not exist. That is contrib issue #38878, and it is the
 dangling pointer section 9.3.2 names.
+
+**Read the pre-side rate carefully, because the obvious arithmetic gives the
+wrong answer.** Errors are about 2.9 percent of spans and the sampler keeps all
+of them; successes are kept at one percent. Put those together and you would
+predict about four percent of pre-sampler exemplars resolving. Measured is
+roughly thirty, nearly an order of magnitude more, and the reason is that an
+exemplar is minted **one per series per scrape, not one per span**. Error spans
+carry their own `status_code` label and land in their own buckets, so they hold
+series of their own, and those series are hugely over-represented against the
+2.9 percent of span volume they stand for. Every exemplar minted on an error
+series resolves, because the sampler kept that trace whole.
+
+So the rate is a statement about the series mix in the window, which is why the
+benchmark records `distinct_series` and `error_series` beside it and asserts
+only the direction. Five runs here put the pre side between 28 and 38 percent
+and the post side at 100 percent every time. The direction is the finding. The
+ratio is a draw.
 
 The post exemplars all resolve because they are minted from spans that already
 survived the decision. The cost is that they only describe the sample, which is

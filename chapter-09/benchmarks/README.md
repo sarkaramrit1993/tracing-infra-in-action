@@ -43,6 +43,44 @@ Drive traffic first and wait 15 seconds, or the series do not exist yet and the
 script exits telling you so. `SERVICE` and `SPAN` are environment variables;
 `SPAN=""` measures the whole service instead of one operation.
 
+## exemplar_resolution.py
+
+Reads the exemplars off both span-metrics histograms, resolves every trace id
+against the span store, and reports what share of each side still lands on a
+stored trace.
+
+```bash
+python3 benchmarks/exemplar_resolution.py
+```
+
+```
+[exemplar] Prometheus=http://localhost:9090 service=checkout-service window=900s
+[exemplar] pre : 6 of 16 resolve (37.5%) across 9 series, 2 of them error
+[exemplar] post: 6 of 6 resolve (100.0%) across 9 series, 2 of them error
+[exemplar] PASS: post resolves 100.0% against pre 37.5%; direction holds, magnitude is a draw
+[exemplar] wrote .../results/exemplar-resolution-2026-09-22T032115.json
+```
+
+Direction only again: a larger share of post-sampler exemplars resolve than
+pre-sampler ones, because the pointer behind the sampler is minted after the
+decision to keep. The ratio is a draw, and a wide one. Five runs here put the
+pre side between 28 and 38 percent with the post side at 100 percent every
+time.
+
+The series counts are printed and recorded beside the rates because without
+them the pre-side number reads impossible. Errors are about 2.9 percent of
+spans and all of them are kept, successes are kept at one percent, so the
+obvious arithmetic predicts about four percent resolving rather than thirty.
+The gap is that an exemplar is minted one per series per scrape, not one per
+span: error spans carry their own `status_code` label into their own buckets,
+hold series of their own, and every exemplar on one of those resolves. A rate
+here is a statement about the series mix in the window, which is why nothing
+asserts its size.
+
+`WINDOW` sets how far back to read, in seconds. Prometheus holds exemplars in
+a fixed-size in-memory ring, so a longer window reads more of the buffer rather
+than more history.
+
 ## fingerprint_compression.py
 
 Section 9.2.3 says the compression from fingerprinting is "dramatic and

@@ -248,9 +248,10 @@ def test_listing_9_1_histograms_are_explicit_not_exponential():
 @test
 def test_listing_9_1_the_post_connector_carries_exemplars():
     """A pre-sampler exemplar is minted before the drop decision, so it points at
-    a trace the sampler is still free to throw away. Measured on this stack:
-    10 of 35 pre-sampler exemplars resolved to a stored trace, against 17 of 17
-    post-sampler ones. The post connector is the one section 9.3 reads."""
+    a trace the sampler is still free to throw away. The difference is measured
+    by benchmarks/exemplar_resolution.py, which records it to a result file
+    rather than to a docstring; the post side resolves every time and the pre
+    side does not. The post connector is the one section 9.3 reads."""
     connectors = yaml.safe_load(read("collector/gateway-config.yaml"))["connectors"]
     assert connectors["spanmetrics/post"]["exemplars"]["enabled"] is True, \
         "without post exemplars the metric-to-trace jump has no pointer that survives"
@@ -561,6 +562,25 @@ def test_the_readme_divergence_block_is_the_committed_measurement():
     rate = float(recorded["post.errors"]) / float(recorded["post.total"])
     assert str(rate) in readme, \
         "the README's post error rate is not the one the measurement recorded"
+
+
+@test
+def test_every_benchmark_is_wired_into_the_results_renderer():
+    """A measurement with no artifact behind it is the defect this suite has
+    been worst at catching: the exemplar resolution figure lived in NOTES.md
+    prose and in a docstring in this file for a whole draft. A script that
+    writes a result file nobody renders is the same hole one step later."""
+    renderer = (CHAPTER.parent / "scripts" / "render_results.py").read_text()
+    chapters = re.search(r"BENCHMARK_CHAPTER = \{(.*?)\}", renderer, re.S).group(1)
+    titles = re.search(r"TITLES = \{(.*?)\}", renderer, re.S).group(1)
+    for script in sorted((CHAPTER / "benchmarks").glob("*.py")):
+        name = re.search(r'"benchmark": "(\w+)"', script.read_text())
+        assert name, f"{script.name} writes no self-describing benchmark name"
+        key = f'"{name.group(1)}"'
+        assert key in chapters, \
+            f"{name.group(1)} writes a result file no chapter claims, so it renders nowhere"
+        assert key in titles, \
+            f"{name.group(1)} renders with no section title"
 
 
 @test
