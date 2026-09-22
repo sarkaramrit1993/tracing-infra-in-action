@@ -265,19 +265,28 @@ with urllib.request.urlopen(
     groups = json.load(fh)["data"]["groups"]
 # Metric names this stack records; anything a rule reads that is not one of
 # these and not a recorded name has to exist as a raw series.
+#
+# Two things the name pattern has to get right. Colons are legal in a metric
+# name and every recorded name here uses them, so a pattern that stops at the
+# colon turns spans:expected:rate5m into the three names spans, expected and
+# rate5m, none of which is a series and all of which would be reported dead.
+# And a bare word in a query is as likely to be PromQL as a metric: a function
+# if a paren follows it, an operator keyword otherwise. Asking Prometheus for
+# a series named `bool` is not an empty answer, it is a 400. The word boundary
+# is load-bearing for a third reason: without it the m in a [5m] range matches
+# and gets looked up as a metric.
+KEYWORDS = {"and", "or", "unless", "by", "without", "on", "ignoring",
+            "group_left", "group_right", "offset", "bool", "le", "inf", "nan"}
 recorded = {r["name"] for g in groups for r in g["rules"] if r["type"] == "recording"}
 selectors = set()
 for g in groups:
     for r in g["rules"]:
         if r["type"] != "recording":
             continue
-        for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)(\{[^}]*\})?', r["query"]):
-            name, labels = m.group(1), m.group(2) or ""
-            if name in recorded or name in {
-                "sum", "rate", "clamp_min", "clamp_max", "vector", "or", "and",
-                "unless", "by", "without", "min_over_time", "max_over_time",
-                "avg_over_time", "increase", "offset", "on", "ignoring", "le",
-            }:
+        for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_:]*)\s*(\()?(\{[^}]*\})?',
+                             r["query"]):
+            name, call, labels = m.group(1), m.group(2), m.group(3) or ""
+            if call or name in KEYWORDS or name in recorded:
                 continue
             selectors.add(name + labels)
 dead = []
