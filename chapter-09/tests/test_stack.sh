@@ -254,11 +254,15 @@ echo "== 9b. every recording rule reads from a selector that matches something =
 # does not exist. This is how the connector-namespace trap gets caught, where a
 # rule written against traces_span_metrics_calls_total matches nothing here
 # because the connectors are namespaced pre and post.
-DEAD=$(curl -s http://localhost:9090/api/v1/rules \
-  | python3 - "$(date +%s)" <<'PYEOF'
+# The rules come down inside the script rather than through a pipe: the
+# heredoc that carries the program is already this process's stdin, so a
+# piped body would be discarded and json.load would read EOF.
+DEAD=$(python3 - "$(date +%s)" <<'PYEOF'
 import json, re, sys, urllib.parse, urllib.request
 now = int(sys.argv[1])
-groups = json.load(sys.stdin)["data"]["groups"]
+with urllib.request.urlopen(
+        "http://localhost:9090/api/v1/rules", timeout=10) as fh:
+    groups = json.load(fh)["data"]["groups"]
 # Metric names this stack records; anything a rule reads that is not one of
 # these and not a recorded name has to exist as a raw series.
 recorded = {r["name"] for g in groups for r in g["rules"] if r["type"] == "recording"}

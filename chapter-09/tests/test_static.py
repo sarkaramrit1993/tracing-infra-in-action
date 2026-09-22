@@ -24,7 +24,6 @@ every one of those needs was paid for once already.
 Usage:  python3 tests/test_static.py
 """
 import ast
-import json
 import re
 import sys
 from pathlib import Path
@@ -540,20 +539,27 @@ def test_the_readme_rule_inventory_matches_the_rule_files():
 
 @test
 def test_the_readme_divergence_block_is_the_committed_measurement():
-    """Every number the README prints for this comparison is pinned by a JSON
-    in benchmarks/results/. A commit once fixed the sentences around these and
-    left the numbers from the run that had been discarded."""
-    results = sorted((CHAPTER / "benchmarks/results").glob("sampler-divergence-*.json"))
-    assert results, "no committed divergence measurement to check the README against"
-    data = json.loads(results[-1].read_text())
+    """Every number the README prints for this comparison is pinned by the
+    committed measurement RESULTS.md was rendered from. A commit once fixed the
+    sentences around these and left the numbers from the run that had been
+    discarded.
+
+    Read through RESULTS.md rather than off the results directory: that
+    directory is gitignored and a reader who runs the benchmark drops their own
+    JSON into it, which is not a reason for this to go red.
+    """
+    recorded = dict(re.findall(r"^\| ((?:pre|post)\.\w+) \| ([\d.]+) \|$",
+                               read("RESULTS.md"), flags=re.M))
+    assert recorded, "RESULTS.md carries no divergence measurement to check against"
     readme = read("README.md")
     block = re.search(r"```\n(\d+)\n(\d+)\n(\d+)\n(\d+)\n```", readme)
     assert block, "the README no longer prints the four-number divergence block"
     got = [int(x) for x in block.groups()]
-    want = [int(data["pre"]["total"]), int(data["post"]["total"]),
-            int(data["pre"]["errors"]), int(data["post"]["errors"])]
-    assert got == want, f"the README prints {got} against a measured {want}"
-    assert str(data["post"]["errors"] / data["post"]["total"]) in readme, \
+    want = [int(float(recorded[k])) for k in
+            ("pre.total", "post.total", "pre.errors", "post.errors")]
+    assert got == want, f"the README prints {got} against a recorded {want}"
+    rate = float(recorded["post.errors"]) / float(recorded["post.total"])
+    assert str(rate) in readme, \
         "the README's post error rate is not the one the measurement recorded"
 
 
@@ -827,6 +833,35 @@ def test_every_clickhouse_helper_closes_stdin():
                 continue
             offenders.append(f"{path.relative_to(CHAPTER)}:{n}")
     assert not offenders, "clickhouse-client without stdin closed: " + ", ".join(offenders)
+
+
+@test
+def test_no_heredoc_program_also_reads_stdin():
+    """Same family as the clickhouse-client trap, one layer up.
+
+    `cmd | python3 - <<'PYEOF'` gives the heredoc to stdin, so the pipe is
+    discarded and `json.load(sys.stdin)` reads EOF. It fails as a JSON decode
+    error a long way from its cause, and only on a live stack.
+    """
+    offenders = []
+    for path in (sorted(CHAPTER.glob("tests/*.sh"))
+                 + sorted(CHAPTER.glob("*.md"))
+                 + sorted(CHAPTER.glob("exercises/*.md"))):
+        lines = path.read_text().splitlines()
+        for n, line in enumerate(lines):
+            m = re.search(r"python3 - .*<<'?(\w+)'?", line)
+            if not m:
+                continue
+            end = m.group(1)
+            body = []
+            for rest in lines[n + 1:]:
+                if rest.strip() == end:
+                    break
+                body.append(rest)
+            if any("sys.stdin" in b for b in body):
+                offenders.append(f"{path.relative_to(CHAPTER)}:{n + 1}")
+    assert not offenders, \
+        "a heredoc program that also reads stdin: " + ", ".join(offenders)
 
 
 @test
