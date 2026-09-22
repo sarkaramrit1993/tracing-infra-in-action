@@ -7,8 +7,8 @@ re-run the script.
 
 ## Error fingerprint compression
 
-Source: `fingerprint-compression-2026-08-26T015357.json`
-Measured: 2026-08-26
+Source: `fingerprint-compression-2026-09-21T225848.json`
+Measured: 2026-09-21
 
 | Metric | Value |
 |---|---|

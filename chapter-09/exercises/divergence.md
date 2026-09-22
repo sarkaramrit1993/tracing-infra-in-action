@@ -236,12 +236,12 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 ```
 
 ```
-1173
-9
-579
-4
-0.4936061381074169
-0.4444444444444444
+1200
+12
+606
+7
+0.505
+0.5833333333333334
 ```
 
 Both polls wait on an error series, and the first one waits on the pre side.
@@ -254,19 +254,21 @@ readiness gate rather than a count. It waits only until the post side has a
 status breakdown at all, because what the post side settles on is a sample and
 there is no deterministic number to wait for.
 
-49.4 percent against 44.4, an inflation of 0.90. The error count fell from 579 to
-4 along with everything else, and the ratio survived. This is the case section
-9.2.4 says does not break: a uniform sample scales numerator and denominator
-alike and cancels in the ratio, even though the absolute counts read low.
+50.5 percent against 58.3, an inflation of 1.15. The error count fell from 606 to
+7 along with everything else, and the ratio came back near where it started. This
+is the case section 9.2.4 says does not break: a uniform sample scales numerator
+and denominator alike and cancels in the ratio, even though the absolute counts
+read low.
 
 Two things about the numbers in that block are worth saying plainly. The traffic
 is half forced failures, which is not a service anyone would ship, and it is
 there because one in a hundred of a realistic error count is zero: with no
 `keep-errors` policy the survivors carry errors only if there were a great many
-errors to begin with. And nine surviving traces is a small sample, so 44.4
-against 49.4 is 0.90 rather than 1.00 for the same reason a coin lands heads five
-times in nine. What is being shown is the difference between an inflation near
-one and the 21.9 above, not a third decimal place.
+errors to begin with. And twelve surviving traces is a small sample, so 58.3
+against 50.5 is 1.15 rather than 1.00 for the same reason a coin lands heads
+seven times in twelve. Your own two rates will land somewhere either side of one.
+What is being shown is the difference between an inflation near one and the 21.9
+above, not a third decimal place.
 
 Which is the useful way to see what the first number was really measuring. The
 divergence was never caused by sampling. It was caused by sampling the two

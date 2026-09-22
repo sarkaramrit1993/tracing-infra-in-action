@@ -80,7 +80,7 @@ python3 benchmarks/fingerprint_compression.py
 [fingerprint] top-10 share of volume   : 71.9%  (busiest alone 30.2%)
 [fingerprint] busiest issue            : ConnectionResetError  |  payment.lookup failed for cart ?: deadline exceeded after ?ms (req ?)
 [fingerprint] PASS: F == P == 1,200; D is 100.0% of N; top ten carry 71.9%
-[fingerprint] wrote .../results/fingerprint-compression-2026-08-26T015357.json
+[fingerprint] wrote .../results/fingerprint-compression-2026-09-21T225848.json
 [fingerprint] scratch tables dropped; the live store was never touched
 ```
 

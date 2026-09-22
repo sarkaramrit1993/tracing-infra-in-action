@@ -88,7 +88,7 @@ FROM tracing.exceptions GROUP BY fingerprint ORDER BY errors DESC"
 ```
 
 ```
-TimeoutError  fraud scoring backend timed out after ?ms (req ?)  14  7961af7916503ef5573f44d400ae0e97
+TimeoutError  fraud scoring backend timed out after ?ms (req ?)  14  7b3fe72ed4203c5640b92e3ff849d968
 ```
 
 One row. Fourteen error spans from seven failed checkouts, one issue, and a
@@ -106,13 +106,16 @@ ORDER BY timestamp DESC LIMIT 3"
 ```
 
 ```
-fraud scoring backend timed out after 30462ms (req db673223)
-fraud scoring backend timed out after 30461ms (req 9871f9c4)
-fraud scoring backend timed out after 30461ms (req 9871f9c4)
+fraud scoring backend timed out after 30156ms (req 1ea82f48)
+fraud scoring backend timed out after 30156ms (req 1ea82f48)
+fraud scoring backend timed out after 30155ms (req 8310823f)
 ```
 
-Three rows, two distinct strings: the last two are the two spans of one failed
-checkout carrying the same text. Across failures they differ, and one template
+Three rows, two distinct strings: the first two are the two spans of one failed
+checkout carrying the same text, the child ahead of the server span that reports
+its failure. The deadline counts off the same request sequence the failure
+cadence does, so a run of this exercise from a restarted container ends on the
+150 plain requests plus six forced ones and reads `30156`, `30155` and down. Across failures they differ, and one template
 covers all of them. That is the whole mechanism, and at fourteen spans it is also
 unimpressive. The interesting question is what happens at two
 million, and whether the answer is right.
@@ -141,7 +144,7 @@ python3 benchmarks/fingerprint_compression.py
 [fingerprint] top-10 share of volume   : 71.9%  (busiest alone 30.2%)
 [fingerprint] busiest issue            : ConnectionResetError  |  payment.lookup failed for cart ?: deadline exceeded after ?ms (req ?)
 [fingerprint] PASS: F == P == 1,200; D is 100.0% of N; top ten carry 71.9%
-[fingerprint] wrote .../results/fingerprint-compression-2026-08-26T015357.json
+[fingerprint] wrote .../results/fingerprint-compression-2026-09-21T225848.json
 [fingerprint] scratch tables dropped; the live store was never touched
 ```
 
@@ -196,8 +199,8 @@ grep -n 'replaceRegexpAll(attributes\|extractAll(attributes' clickhouse/error_in
 ```
 
 ```
-70:        replaceRegexpAll(attributes['exception.message'],
-74:                extractAll(attributes['exception.stacktrace'],
+73:        replaceRegexpAll(attributes['exception.message'],
+77:                extractAll(attributes['exception.stacktrace'],
 ```
 
 The benchmark reads that file and substitutes three table names. Nothing in it
@@ -341,9 +344,16 @@ run long ago, so re-arm it and put a handful of fresh batches in:
 ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
 ch --query "DROP TABLE IF EXISTS tracing.exceptions"
 ch_file clickhouse/error_index.sql
-for _ in $(seq 1 12); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
+for wave in 1 2 3; do
+  for _ in $(seq 1 4); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
+  sleep 4
+done
 await_rows "SELECT count() FROM tracing.exceptions" 1
 ```
+
+The waves are what make this worth running. The storage consumer batches on a
+two-second timer, so twelve requests fired back to back arrive as a single insert
+and there is one part to read whatever the merge did.
 
 The target table is an `AggregatingMergeTree` with `SimpleAggregateFunction`
 columns, and the read query in the listing's trailing comment does a `GROUP BY
@@ -355,10 +365,12 @@ ch --query "SELECT fingerprint, error_count FROM tracing.exceptions"
 ch --query "SELECT fingerprint, sum(error_count) FROM tracing.exceptions GROUP BY fingerprint"
 ```
 
-Before a background merge runs you get one row per insert batch rather than one
-per issue, and each row's count reads low. `OPTIMIZE TABLE tracing.exceptions
-FINAL` collapses them, but a merge that has not happened yet is not a bug to wait
-out, it is a reason to always re-aggregate on read.
+How many rows the first query gives back is not a number to predict, which is why
+none is printed here: one per insert part that no merge has folded yet, two on
+one run of this and four on the next. The second gives one row whatever the first
+did. `OPTIMIZE TABLE tracing.exceptions FINAL` collapses the parts by hand, but a
+merge that has not happened yet is not a bug to wait out, it is a reason to
+always re-aggregate on read.
 
 And point the view at `first_seen` as `min` and `last_seen` as `max` over spans
 that arrive out of order, which is the normal case with a batch processor in the

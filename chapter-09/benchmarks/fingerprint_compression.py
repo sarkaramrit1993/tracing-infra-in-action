@@ -311,22 +311,31 @@ def run():
           f"  (busiest alone {busiest_share:.1%})")
     print(f"[fingerprint] busiest issue            : {sample}")
 
+    def fail(message):
+        # Drop the scratch tables on the way out. Two of the exercise's own
+        # edits are meant to trip these assertions, and a failure that left
+        # two million rows behind would contradict the promise the exercise
+        # makes about an interrupted run costing nothing.
+        if not KEEP_SCRATCH:
+            drop_scratch()
+        raise SystemExit(message)
+
     if folded != n:
-        raise SystemExit(f"[fingerprint] the index folded {folded:,} spans but the "
-                         f"table holds {n:,}; the view missed some of the insert")
+        fail(f"[fingerprint] the index folded {folded:,} spans but the "
+             f"table holds {n:,}; the view missed some of the insert")
     if f != p_truth:
         direction = "over-merging distinct bugs" if f < p_truth else \
                     "leaving a variable token in the template"
-        raise SystemExit(f"[fingerprint] F={f:,} against a recorded P={p_truth:,}. "
-                         f"The normalization is {direction}.")
+        fail(f"[fingerprint] F={f:,} against a recorded P={p_truth:,}. "
+             f"The normalization is {direction}.")
     if not d > 0.9 * n:
-        raise SystemExit(f"[fingerprint] D={d:,} is not above 90% of N={n:,}, so the "
-                         "raw messages were already near-duplicates and the "
-                         "compression below is the generator's, not the regex's.")
+        fail(f"[fingerprint] D={d:,} is not above 90% of N={n:,}, so the "
+             "raw messages were already near-duplicates and the "
+             "compression below is the generator's, not the regex's.")
     if not top10_share > 0.5:
-        raise SystemExit(f"[fingerprint] the top ten issues carry {top10_share:.1%} of "
-                         "the volume; the population is too flat to model an "
-                         "error tracker's workload")
+        fail(f"[fingerprint] the top ten issues carry {top10_share:.1%} of "
+             "the volume; the population is too flat to model an "
+             "error tracker's workload")
 
     print(f"[fingerprint] PASS: F == P == {f:,}; D is {d / n:.1%} of N; "
           f"top ten carry {top10_share:.1%}")

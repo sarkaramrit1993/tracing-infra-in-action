@@ -102,7 +102,7 @@ await_rows "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'" 7
 ```
 
 ```
-3f90e0804176e99a4753224139b33ac0
+38e87ef840d698ab8276ad4a2e937870
 ```
 
 The poll is on ClickHouse and it covers Loki too. A log record leaves the
@@ -125,12 +125,12 @@ FROM tracing.otel_traces WHERE trace_id = '$TID' ORDER BY timestamp"
 ```
 
 ```
-GET /checkout       STATUS_CODE_ERROR  181.2ms
-validate_cart       STATUS_CODE_UNSET  21.1ms
-inventory.reserve   STATUS_CODE_UNSET  32.6ms
-payment.charge      STATUS_CODE_UNSET  93.9ms
-fraud.score         STATUS_CODE_ERROR  41.4ms
-order.create        STATUS_CODE_UNSET  20.5ms
+GET /checkout       STATUS_CODE_ERROR  178.3ms
+validate_cart       STATUS_CODE_UNSET  21.2ms
+inventory.reserve   STATUS_CODE_UNSET  31.2ms
+payment.charge      STATUS_CODE_UNSET  92.1ms
+fraud.score         STATUS_CODE_ERROR  41.1ms
+order.create        STATUS_CODE_UNSET  20.4ms
 notification.send   STATUS_CODE_UNSET  11.1ms
 ```
 
@@ -164,8 +164,8 @@ loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
 
 ```
 status: success  lines: 2
-    fraud scoring failed for cart-4780: fraud scoring backend timed out after 30873ms (req 559e8201)
-    checkout complete cart=cart-4780 order=ord-87481 amount=292.40 fraud_failed=True
+    fraud scoring failed for cart-4360: fraud scoring backend timed out after 30411ms (req ad87a30a)
+    checkout complete cart=cart-4360 order=ord-68943 amount=189.09 fraud_failed=True
 ```
 
 Two lines, from a request that finished moments ago, retrieved by an id chosen
@@ -263,8 +263,8 @@ promq 'sum(post_calls_total{service_name="checkout-service"})'
 ```
 
 ```
-6111
-266
+2870
+140
 ```
 
 The pre series is a population count, derived from every span before anything was
@@ -316,26 +316,26 @@ loki '{service_name="checkout-service"}'
 ```
 status: success  lines: 0
 status: success  lines: 20
-    fraud scoring failed for cart-4334: fraud scoring backend timed out after 30192ms (req b959942b)
-    fraud scoring failed for cart-7054: fraud scoring backend timed out after 30186ms (req fab8ecf6)
-    fraud scoring failed for cart-3310: fraud scoring backend timed out after 30187ms (req c475baf8)
-    fraud scoring failed for cart-5974: fraud scoring backend timed out after 30188ms (req 9c1b02c7)
-    fraud scoring failed for cart-5045: fraud scoring backend timed out after 30189ms (req 4fcf8636)
-    fraud scoring failed for cart-2034: fraud scoring backend timed out after 30190ms (req b482e2b4)
-    fraud scoring failed for cart-8906: fraud scoring backend timed out after 30191ms (req a7560b23)
-    checkout complete cart=cart-4334 order=ord-90485 amount=47.70 fraud_failed=True
-    checkout complete cart=cart-3064 order=ord-56350 amount=208.69 fraud_failed=False
-    checkout complete cart=cart-6650 order=ord-44105 amount=378.14 fraud_failed=False
-    checkout complete cart=cart-4612 order=ord-33934 amount=448.72 fraud_failed=False
-    checkout complete cart=cart-7092 order=ord-61110 amount=314.24 fraud_failed=False
-    checkout complete cart=cart-2282 order=ord-59237 amount=357.12 fraud_failed=False
-    checkout complete cart=cart-8526 order=ord-47349 amount=93.30 fraud_failed=False
-    checkout complete cart=cart-7054 order=ord-67334 amount=319.27 fraud_failed=True
-    checkout complete cart=cart-3310 order=ord-78862 amount=410.71 fraud_failed=True
-    checkout complete cart=cart-5974 order=ord-19698 amount=345.89 fraud_failed=True
-    checkout complete cart=cart-5045 order=ord-73311 amount=17.07 fraud_failed=True
-    checkout complete cart=cart-2034 order=ord-24892 amount=152.06 fraud_failed=True
-    checkout complete cart=cart-8906 order=ord-97764 amount=347.16 fraud_failed=True
+    fraud scoring failed for cart-4360: fraud scoring backend timed out after 30411ms (req ad87a30a)
+    fraud scoring failed for cart-8926: fraud scoring backend timed out after 30412ms (req 0345df6a)
+    fraud scoring failed for cart-4342: fraud scoring backend timed out after 30403ms (req a7df287b)
+    fraud scoring failed for cart-3344: fraud scoring backend timed out after 30404ms (req a41e2a42)
+    fraud scoring failed for cart-1218: fraud scoring backend timed out after 30405ms (req 5d20a458)
+    fraud scoring failed for cart-4184: fraud scoring backend timed out after 30406ms (req c25385b7)
+    fraud scoring failed for cart-6242: fraud scoring backend timed out after 30407ms (req cceb12af)
+    fraud scoring failed for cart-3395: fraud scoring backend timed out after 30408ms (req 431627b9)
+    fraud scoring failed for cart-4538: fraud scoring backend timed out after 30409ms (req eb577dad)
+    fraud scoring failed for cart-8725: fraud scoring backend timed out after 30410ms (req 6dbf06e1)
+    checkout complete cart=cart-4360 order=ord-68943 amount=189.09 fraud_failed=True
+    checkout complete cart=cart-8926 order=ord-13842 amount=203.76 fraud_failed=True
+    checkout complete cart=cart-4342 order=ord-54925 amount=324.76 fraud_failed=True
+    checkout complete cart=cart-3344 order=ord-58708 amount=112.93 fraud_failed=True
+    checkout complete cart=cart-1218 order=ord-10754 amount=84.11 fraud_failed=True
+    checkout complete cart=cart-4184 order=ord-23561 amount=338.16 fraud_failed=True
+    checkout complete cart=cart-6242 order=ord-44796 amount=366.25 fraud_failed=True
+    checkout complete cart=cart-3395 order=ord-95855 amount=274.66 fraud_failed=True
+    checkout complete cart=cart-4538 order=ord-47489 amount=193.37 fraud_failed=True
+    checkout complete cart=cart-8725 order=ord-95870 amount=405.77 fraud_failed=True
 ```
 
 The number that moved is the first one, from 2 to 0. The second is the `loki`
@@ -382,13 +382,13 @@ promq 'otelcol_connector_servicegraph_dropped_spans_total'
 ```
 3 edges
    checkout-service -> fraud-service 3
-   checkout-service -> inventory-service 3
-   checkout-service -> notification-service 2
+   checkout-service -> inventory-service 4
+   checkout-service -> notification-service 1
 1400
 992
 ```
 
-Three edges where there were seven, and the three that survived carry 3, 3 and 2
+Three edges where there were seven, and the three that survived carry 4, 3 and 1
 requests out of 200. The dependency graph is now wrong in a way no one would
 question: it is a plausible graph of a service with three downstreams and light
 traffic. Read it a scrape too early and you get no edges at all, which is the
@@ -396,10 +396,14 @@ same failure wearing a more obvious face, and the reason `await` above polls the
 service graph itself rather than the span metrics: the connector's store flushes
 on a schedule of its own, several scrapes behind `pre_calls_total`.
 
-The number that did not move is `pre_calls_total`, still 1,400 for 200 requests
-at seven spans each. RED is flat. Every latency panel, every error rate, every
-burn-rate rule reads exactly what it read before, because none of them goes
-through the service-graph store.
+Now `pre_calls_total`, which reads 1,400: exactly 200 requests at seven spans
+each, and the whole of what this Collector process has seen. Restarting it to
+apply the edit zeroed that counter, so 1,400 is not a number that survived the
+failure, it is a number taken cleanly after it. That is the stronger version of
+the point. The service graph lost 992 spans under the same config, on the same
+traffic, in the same process, and the span metrics counted every one of them.
+RED is flat here not because nothing was measured but because nothing RED
+measures goes through the service-graph store.
 
 The third number is the one worth taking away. `otelcol_connector_servicegraph_dropped_spans_total`
 is 992, and unlike the other two failures in this file, this one does announce
@@ -454,11 +458,11 @@ print('exemplar series:', len(d), ' exemplars:', sum(len(s.get('exemplars', []))
 ```
 
 ```
-7 series; le values: ['+Inf']
+9 series; le values: ['+Inf']
 exemplar series: 0  exemplars: 0
 ```
 
-Seven bucket series and one distinct `le` between them. The prometheus exporter
+Nine bucket series and one distinct `le` between them. The prometheus exporter
 renders classic exposition, an exponential histogram has no classic rendering,
 and the whole distribution comes out as a single `+Inf` bucket.
 `histogram_quantile` over one bucket cannot return a quantile, and an exemplar
@@ -530,12 +534,17 @@ rm -f loki/loki.yaml.tmp
 docker compose restart loki
 for _ in $(seq 1 20); do curl -s -o /dev/null http://localhost:8080/checkout; done
 sleep 20
-docker compose logs --tail 20 otel-collector | grep -c 'not retryable error'
+docker compose logs otel-collector | grep -o 'not retryable error' | head -1
 ```
 
-Loki rejects the entire write with a 400, the Collector logs `not retryable
-error` and drops the batch, and every log line disappears rather than just the
-join. A bridge that breaks loudly is the easy case, and it is the only one of the
+```
+not retryable error
+```
+
+Loki rejects the entire write with a 400, the Collector says so and drops the
+batch, and every log line disappears rather than just the join. The grep asks
+whether the phrase is there rather than how many times, because how many times
+is a function of how long you left it running. A bridge that breaks loudly is the easy case, and it is the only one of the
 four failures in this file that anybody would catch the same day. Restore:
 
 ```bash
@@ -562,14 +571,17 @@ ls collector/*.bak collector/*.tmp docker-compose.yml.bak loki/*.bak 2>/dev/null
 max_items: 1000
 2
 2
-1
+2
        0
 ```
 
 No `strip_trace_id` processor anywhere, the service-graph store back at 1,000,
 both histograms back on explicit buckets, the exemplar-storage flag back on the
 Prometheus command, Loki accepting structured metadata again, and nothing with a
-`.bak` or `.tmp` suffix left behind.
+`.bak` or `.tmp` suffix left behind. The two counts of two are not a coincidence
+worth reading into: there is one `explicit:` block per `spanmetrics` connector,
+and `allow_structured_metadata: true` appears in `loki/loki.yaml` twice, once in
+the comment that explains it and once as the setting.
 
 Three files rather than one. `collector/gateway-config.yaml` is the only file
 Try this touches, and Going deeper goes on to edit `docker-compose.yml` and
@@ -617,8 +629,8 @@ loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
 ```
 7
 status: success  lines: 2
-    fraud scoring failed for cart-9255: fraud scoring backend timed out after 30793ms (req b98179c5)
-    checkout complete cart=cart-9255 order=ord-12190 amount=30.14 fraud_failed=True
+    fraud scoring failed for cart-6658: fraud scoring backend timed out after 30033ms (req c4bd4ae4)
+    checkout complete cart=cart-6658 order=ord-51218 amount=89.29 fraud_failed=True
 ```
 
 Seven spans in the store and two log lines reachable from the same id. Or run the
