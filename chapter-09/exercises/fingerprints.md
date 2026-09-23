@@ -54,18 +54,27 @@ fires on insert and never backfills. Order matters: the view has to exist before
 the spans do.
 
 ```bash
+docker compose restart checkout-service
 ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
 ch --query "DROP TABLE IF EXISTS tracing.exceptions"
 ch_file clickhouse/error_index.sql
 for _ in $(seq 1 150); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await_rows "SELECT sum(error_count) FROM tracing.exceptions" 7
+await_rows "SELECT sum(error_count) FROM tracing.exceptions" 14
 ```
 
-Seven, not six: the 1-in-100 cadence throws one of its own inside 150 requests.
-The poll is on the index rather than on a clock, because a span has to clear the
-exporter's batch, the tail sampler, Kafka and the storage consumer before the
-materialized view has anything to fire on.
+The restart is what makes the counts below exact. The app numbers its checkouts
+off a counter that lives in the process, the 1-in-100 cadence fires on every
+hundredth of them, and `docker compose up -d --build` leaves a container that is
+already running alone. Carried over from another exercise the counter starts
+somewhere in the middle, 150 requests can span two hundreds instead of one, and
+the failure count comes out one higher than what is printed here.
+
+Fourteen error spans, not seven: a failed checkout records the exception twice,
+on the span that threw and on the server span that reports the failure to the
+caller. The poll is on the index rather than on a clock, because a span has to
+clear the exporter's batch, the tail sampler, Kafka and the storage consumer
+before the materialized view has anything to fire on.
 
 ## What the index holds
 
@@ -79,7 +88,7 @@ FROM tracing.exceptions GROUP BY fingerprint ORDER BY errors DESC"
 ```
 
 ```
-TimeoutError  fraud scoring backend timed out after ?ms (req ?)  14  7961af7916503ef5573f44d400ae0e97
+TimeoutError  fraud scoring backend timed out after ?ms (req ?)  14  7b3fe72ed4203c5640b92e3ff849d968
 ```
 
 One row. Fourteen error spans from seven failed checkouts, one issue, and a
@@ -97,13 +106,16 @@ ORDER BY timestamp DESC LIMIT 3"
 ```
 
 ```
-fraud scoring backend timed out after 30462ms (req db673223)
-fraud scoring backend timed out after 30461ms (req 9871f9c4)
-fraud scoring backend timed out after 30461ms (req 9871f9c4)
+fraud scoring backend timed out after 30156ms (req 1ea82f48)
+fraud scoring backend timed out after 30156ms (req 1ea82f48)
+fraud scoring backend timed out after 30155ms (req 8310823f)
 ```
 
-Three rows, two distinct strings: the last two are the two spans of one failed
-checkout carrying the same text. Across failures they differ, and one template
+Three rows, two distinct strings: the first two are the two spans of one failed
+checkout carrying the same text, the child ahead of the server span that reports
+its failure. The deadline counts off the same request sequence the failure
+cadence does, so a run of this exercise from a restarted container ends on the
+150 plain requests plus six forced ones and reads `30156`, `30155` and down. Across failures they differ, and one template
 covers all of them. That is the whole mechanism, and at fourteen spans it is also
 unimpressive. The interesting question is what happens at two
 million, and whether the answer is right.
@@ -132,7 +144,7 @@ python3 benchmarks/fingerprint_compression.py
 [fingerprint] top-10 share of volume   : 71.9%  (busiest alone 30.2%)
 [fingerprint] busiest issue            : ConnectionResetError  |  payment.lookup failed for cart ?: deadline exceeded after ?ms (req ?)
 [fingerprint] PASS: F == P == 1,200; D is 100.0% of N; top ten carry 71.9%
-[fingerprint] wrote .../results/fingerprint-compression-2026-08-26T015357.json
+[fingerprint] wrote .../results/fingerprint-compression-2026-09-21T225848.json
 [fingerprint] scratch tables dropped; the live store was never touched
 ```
 
@@ -168,8 +180,16 @@ That row is written before any measuring query runs, which is what makes it
 truth rather than a second opinion. Drop the scratch tables when you are done:
 
 ```bash
-ch --query "DROP TABLE tracing.fp_bench_truth"
+ch --query "DROP VIEW IF EXISTS tracing.fp_bench_mv"
+ch --query "DROP TABLE IF EXISTS tracing.fp_bench_issues"
+ch --query "DROP TABLE IF EXISTS tracing.fp_bench_spans"
+ch --query "DROP TABLE IF EXISTS tracing.fp_bench_truth"
 ```
+
+All four, because `KEEP_SCRATCH=1` keeps all four: the truth table, the two
+million-row span table, the issue table and the view over them. Dropping only
+the truth table leaves the largest one behind, and the cleanup check further
+down then reports a table it blames on a run that was killed partway.
 
 The two expressions it measures are the two the book prints, read straight out
 of the listing:
@@ -179,8 +199,8 @@ grep -n 'replaceRegexpAll(attributes\|extractAll(attributes' clickhouse/error_in
 ```
 
 ```
-70:        replaceRegexpAll(attributes['exception.message'],
-74:                extractAll(attributes['exception.stacktrace'],
+73:        replaceRegexpAll(attributes['exception.message'],
+77:                extractAll(attributes['exception.stacktrace'],
 ```
 
 The benchmark reads that file and substitutes three table names. Nothing in it
@@ -265,36 +285,6 @@ PATHS=2400 python3 benchmarks/fingerprint_compression.py
 `F == P` at 2,400 as well as at 1,200, which is worth confirming once: it tells
 you the identity is about the normalization and not about the size of the run.
 
-## Clean up
-
-Drop the live index, and check the listing is the one that shipped:
-
-```bash
-ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
-ch --query "DROP TABLE IF EXISTS tracing.exceptions"
-ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
-grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
-grep -o "'\[0-9a-f\]{8,}|\[0-9\]+'" clickhouse/error_index.sql
-ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l
-```
-
-```
-otel_traces
-1
-'[0-9a-f]{8,}|[0-9]+'
-       0
-```
-
-One table, which is what a fresh stack has. The three-input hash is back, the
-token class is back to hex, and nothing with a `.bak` or `.tmp` suffix is left in
-`clickhouse/`. Nothing with an `fp_bench_` prefix should appear in that table
-list either; the benchmark drops its own scratch tables at the end of every run
-and again at the start of the next, so an interrupted run costs nothing.
-
-Drop the view before the target table, in that order. While the view exists it is
-watching inserts, and a table that vanishes underneath a live view leaves the
-next insert into `otel_traces` failing rather than silently unindexed.
-
 ## Going deeper
 
 `clickhouse/error_index.sql` is listing 9.2 with its annotations, including why
@@ -346,18 +336,75 @@ highest-signal one that falls out of fingerprinting. Restore:
 mv clickhouse/error_index.sql.bak clickhouse/error_index.sql
 ```
 
-Two more if the storage engine interests you rather than the argument.
+Two more if the storage engine interests you rather than the argument. Both read
+the live index, and the one armed at the top of this exercise has had its merges
+run long ago, so re-arm it and put a handful of fresh batches in:
+
+```bash
+ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
+ch --query "DROP TABLE IF EXISTS tracing.exceptions"
+ch_file clickhouse/error_index.sql
+for wave in 1 2 3; do
+  for _ in $(seq 1 4); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
+  sleep 4
+done
+await_rows "SELECT count() FROM tracing.exceptions" 1
+```
+
+The waves are what make this worth running. The storage consumer batches on a
+two-second timer, so twelve requests fired back to back arrive as a single insert
+and there is one part to read whatever the merge did.
 
 The target table is an `AggregatingMergeTree` with `SimpleAggregateFunction`
 columns, and the read query in the listing's trailing comment does a `GROUP BY
 fingerprint` even though the table is already keyed on it. Take the `GROUP BY`
-out and read the raw rows: before a background merge runs you get one row per
-insert batch rather than one per issue, and the counts read low. `OPTIMIZE TABLE
-tracing.exceptions FINAL` collapses them, but a merge that has not happened yet
-is not a bug to wait out, it is a reason to always re-aggregate on read.
+out and read the raw rows:
+
+```bash
+ch --query "SELECT fingerprint, error_count FROM tracing.exceptions"
+ch --query "SELECT fingerprint, sum(error_count) FROM tracing.exceptions GROUP BY fingerprint"
+```
+
+How many rows the first query gives back is not a number to predict, which is why
+none is printed here: one per insert part that no merge has folded yet, two on
+one run of this and four on the next. The second gives one row whatever the first
+did. `OPTIMIZE TABLE tracing.exceptions FINAL` collapses the parts by hand, but a
+merge that has not happened yet is not a bug to wait out, it is a reason to
+always re-aggregate on read.
 
 And point the view at `first_seen` as `min` and `last_seen` as `max` over spans
 that arrive out of order, which is the normal case with a batch processor in the
 path. The window is correct in either order because both are aggregates over the
 whole fingerprint rather than over the arrival sequence. Replace either with
 `anyLast` and it starts reporting whichever span the merge happened to see last.
+
+## Clean up
+
+Drop the live index this exercise armed, and check the listing is the one
+that shipped:
+
+```bash
+ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
+ch --query "DROP TABLE IF EXISTS tracing.exceptions"
+ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
+grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
+grep -o "'\[0-9a-f\]{8,}|\[0-9\]+'" clickhouse/error_index.sql
+ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l
+```
+
+```
+otel_traces
+1
+'[0-9a-f]{8,}|[0-9]+'
+       0
+```
+
+One table, which is what a fresh stack has. The three-input hash is back, the
+token class is back to hex, and nothing with a `.bak` or `.tmp` suffix is left in
+`clickhouse/`. Nothing with an `fp_bench_` prefix should appear in that table
+list either; the benchmark drops its own scratch tables at the end of every run
+and again at the start of the next, so an interrupted run costs nothing.
+
+Drop the view before the target table, in that order. While the view exists it is
+watching inserts, and a table that vanishes underneath a live view leaves the
+next insert into `otel_traces` failing rather than silently unindexed.

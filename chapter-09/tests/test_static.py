@@ -248,9 +248,10 @@ def test_listing_9_1_histograms_are_explicit_not_exponential():
 @test
 def test_listing_9_1_the_post_connector_carries_exemplars():
     """A pre-sampler exemplar is minted before the drop decision, so it points at
-    a trace the sampler is still free to throw away. Measured on this stack:
-    10 of 35 pre-sampler exemplars resolved to a stored trace, against 17 of 17
-    post-sampler ones. The post connector is the one section 9.3 reads."""
+    a trace the sampler is still free to throw away. The difference is measured
+    by benchmarks/exemplar_resolution.py, which records it to a result file
+    rather than to a docstring; the post side resolves every time and the pre
+    side does not. The post connector is the one section 9.3 reads."""
     connectors = yaml.safe_load(read("collector/gateway-config.yaml"))["connectors"]
     assert connectors["spanmetrics/post"]["exemplars"]["enabled"] is True, \
         "without post exemplars the metric-to-trace jump has no pointer that survives"
@@ -508,6 +509,109 @@ def test_compose_parses_and_pins_one_tag_per_image():
 
 
 @test
+def test_the_readme_rule_inventory_matches_the_rule_files():
+    """Both counts and the printed block were one short of what loads.
+
+    `spans:ingest_gap:measurable` was added to fix a rule that read from
+    nothing, and the README kept the inventory it had before.
+    """
+    records, alerts, names = 0, 0, []
+    for rel in sorted((CHAPTER / "rules").glob("*.yml")):
+        for group in yaml.safe_load(rel.read_text())["groups"]:
+            for rule in group["rules"]:
+                kind = "recording" if "record" in rule else "alerting"
+                name = rule.get("record") or rule["alert"]
+                names.append(f"{group['name']} {kind} {name} ok")
+                if kind == "recording":
+                    records += 1
+                else:
+                    alerts += 1
+
+    readme = read("README.md")
+    words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+             8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve"}
+    assert f"the {words[records]} recording rules and {words[alerts]} alerts" in readme, \
+        f"the README does not say {words[records]} recording rules and {words[alerts]} alerts"
+    assert f"{words[records + alerts].capitalize()} rules, all `ok`." in readme, \
+        f"the README does not total {records + alerts} rules"
+    for line in names:
+        assert line in readme, f"the rule listing block never shows: {line}"
+
+
+@test
+def test_the_readme_divergence_block_is_the_committed_measurement():
+    """Every number the README prints for this comparison is pinned by the
+    committed measurement RESULTS.md was rendered from. A commit once fixed the
+    sentences around these and left the numbers from the run that had been
+    discarded.
+
+    Read through RESULTS.md rather than off the results directory: that
+    directory is gitignored and a reader who runs the benchmark drops their own
+    JSON into it, which is not a reason for this to go red.
+    """
+    recorded = dict(re.findall(r"^\| ((?:pre|post)\.\w+) \| ([\d.]+) \|$",
+                               read("RESULTS.md"), flags=re.M))
+    assert recorded, "RESULTS.md carries no divergence measurement to check against"
+    readme = read("README.md")
+    block = re.search(r"```\n(\d+)\n(\d+)\n(\d+)\n(\d+)\n```", readme)
+    assert block, "the README no longer prints the four-number divergence block"
+    got = [int(x) for x in block.groups()]
+    want = [int(float(recorded[k])) for k in
+            ("pre.total", "post.total", "pre.errors", "post.errors")]
+    assert got == want, f"the README prints {got} against a recorded {want}"
+    rate = float(recorded["post.errors"]) / float(recorded["post.total"])
+    assert str(rate) in readme, \
+        "the README's post error rate is not the one the measurement recorded"
+
+
+@test
+def test_every_benchmark_is_wired_into_the_results_renderer():
+    """A measurement with no artifact behind it is the defect this suite has
+    been worst at catching: the exemplar resolution figure lived in NOTES.md
+    prose and in a docstring in this file for a whole draft. A script that
+    writes a result file nobody renders is the same hole one step later."""
+    renderer = (CHAPTER.parent / "scripts" / "render_results.py").read_text()
+    chapters = re.search(r"BENCHMARK_CHAPTER = \{(.*?)\}", renderer, re.S).group(1)
+    titles = re.search(r"TITLES = \{(.*?)\}", renderer, re.S).group(1)
+    for script in sorted((CHAPTER / "benchmarks").glob("*.py")):
+        name = re.search(r'"benchmark": "(\w+)"', script.read_text())
+        assert name, f"{script.name} writes no self-describing benchmark name"
+        key = f'"{name.group(1)}"'
+        assert key in chapters, \
+            f"{name.group(1)} writes a result file no chapter claims, so it renders nowhere"
+        assert key in titles, \
+            f"{name.group(1)} renders with no section title"
+
+
+@test
+def test_readme_version_manifest_matches_the_compose_pins():
+    """The manifest table is the only place a reader checks a version without
+    opening the compose file, so a tag that drifts in one and not the other
+    sends them after a difference that is not there."""
+    compose = yaml.safe_load(read("docker-compose.yml"))
+    pinned = {svc["image"] for svc in compose["services"].values() if "image" in svc}
+    readme = read("README.md")
+    for image in sorted(pinned):
+        assert f"`{image}`" in readme, \
+            f"{image} runs in the compose file and is not in the version manifest"
+
+
+@test
+def test_the_clickhouse_tag_matches_chapter_8():
+    """N1, asserted against the sibling chapter rather than claimed in prose.
+    Chapter 8's listing 8.2 needs use_skip_indexes_on_data_read, which does not
+    exist before 25.9, so 26.1 is the floor and chapter 9 follows it."""
+    def clickhouse_tag(chapter):
+        compose = yaml.safe_load((CHAPTER.parent / chapter / "docker-compose.yml").read_text())
+        image = compose["services"]["clickhouse"]["image"]
+        return image.rsplit(":", 1)[1]
+
+    ours, theirs = clickhouse_tag("chapter-09"), clickhouse_tag("chapter-08")
+    assert ours == theirs, \
+        f"chapter-09 runs ClickHouse {ours} against chapter-08's {theirs}"
+
+
+@test
 def test_compose_mounts_the_rule_files_into_prometheus():
     """rules/*.yml is where the burn-rate and ingest-gap rules live. Unmounted,
     Prometheus
@@ -551,6 +655,151 @@ def test_every_scrape_target_is_a_service_in_the_compose_file():
             host = target.split(":")[0]
             assert host in compose["services"], \
                 f"job {job['job_name']} scrapes {host}, which no service provides"
+
+
+def _bash_fences(rel):
+    """Yield (first line number, list of lines) for every ```bash fence."""
+    lines = read(rel).splitlines()
+    fence, start = None, 0
+    for n, line in enumerate(lines, 1):
+        s = line.strip()
+        if s.startswith("```"):
+            if fence is None and (s.startswith("```bash") or s.startswith("```sh")):
+                fence, start = [], n + 1
+            elif fence is not None:
+                yield start, fence
+                fence = None
+            continue
+        if fence is not None:
+            fence.append(line)
+
+
+EXERCISES = ("exercises/divergence.md", "exercises/correlation.md",
+             "exercises/fingerprints.md")
+
+ERROR_SELECTOR = 'status_code="STATUS_CODE_ERROR"'
+
+# checkout.py opens one server span and six children per request.
+SPANS_PER_CHECKOUT = 7
+
+
+@test
+def test_an_error_read_is_gated_on_an_error_series():
+    """The rule each exercise states and one of them then broke.
+
+    The totals reach Prometheus a scrape ahead of the status breakdown, so a
+    poll that releases on a total reads the errors a scrape short. It does not
+    read them as obviously wrong, which is the whole problem: the committed
+    capture behind this check printed 1173 and 579 against a deterministic 1200
+    and 606, both light by exactly one scrape.
+    """
+    offenders = []
+    for rel in EXERCISES:
+        for start, body in _bash_fences(rel):
+            reads = [ln for ln in body if ln.lstrip().startswith("promq ")
+                     and ERROR_SELECTOR in ln]
+            if not reads:
+                continue
+            gates = [ln for ln in body if ln.lstrip().startswith("await ")]
+            if gates and not any(ERROR_SELECTOR in ln for ln in gates):
+                offenders.append(f"{rel}:{start}")
+    assert not offenders, \
+        "an error series read behind a poll that waits on a total: " + ", ".join(offenders)
+
+
+@test
+def test_no_poll_sits_at_its_own_arithmetic_ceiling():
+    """A gate set to exactly what the traffic can produce has no slack.
+
+    Restarting the Collector zeroes the connector counters, so a fence that
+    restarts it and then drives N checkouts can reach at most N times seven
+    spans. Gate on all of them and one span lost anywhere in the chain turns
+    into a six-minute poll and a `timed out`, which is the reader's first
+    reading of an edit they were told would break something.
+    """
+    offenders = []
+    for rel in EXERCISES:
+        for start, body in _bash_fences(rel):
+            if not any("restart otel-collector" in ln for ln in body):
+                continue
+            driven = sum(int(m) for ln in body
+                         for m in re.findall(r"for _ in \$\(seq 1 (\d+)\); do curl", ln))
+            if not driven:
+                continue
+            ceiling = driven * SPANS_PER_CHECKOUT
+            for ln in body:
+                m = re.match(r"""\s*await 'sum\(pre_calls_total\{service_name="checkout-service"\}\)' (\d+)""", ln)
+                if m and int(m.group(1)) >= ceiling:
+                    offenders.append(
+                        f"{rel}:{start} gates at {m.group(1)} against a ceiling of {ceiling}")
+    assert not offenders, "; ".join(offenders)
+
+
+@test
+def test_clean_up_is_the_last_section():
+    """Clean up ran before Going deeper in two of the three exercises.
+
+    correlation.md then edited two more files its cleanup check never looked
+    at, and fingerprints.md dropped `tracing.exceptions` and went on to tell
+    the reader to query it. A reader working top to bottom ends on a stack the
+    cleanup already certified.
+    """
+    for rel in EXERCISES:
+        sections = re.findall(r"^## (.+)$", read(rel), flags=re.M)
+        assert sections[-1] == "Clean up", \
+            f"{rel} ends on '{sections[-1]}', with Clean up at position " \
+            f"{sections.index('Clean up') + 1} of {len(sections)}"
+
+
+@test
+def test_cleanup_restores_are_guarded():
+    """A cleanup block that just reported zero backups cannot then move one.
+
+    The reader pastes it, `mv` exits `No such file or directory`, and the
+    all-clear reads like a broken instruction.
+    """
+    offenders = []
+    for rel in EXERCISES:
+        text = read(rel)
+        sections = re.split(r"^## ", text, flags=re.M)
+        for section in sections:
+            if not section.startswith("Clean up"):
+                continue
+            for line in section.splitlines():
+                if re.match(r"\s*mv \S+\.bak ", line) and "[ -f" not in section:
+                    offenders.append(f"{rel}: unguarded {line.strip()}")
+    assert not offenders, "unguarded restore in a Clean up block: " + "; ".join(offenders)
+
+
+@test
+def test_the_scratch_cleanup_drops_every_scratch_table():
+    """`KEEP_SCRATCH=1` keeps four objects and the exercise dropped one.
+
+    The one it left behind is the two-million-row span table, and the cleanup
+    check further down then reports it as the wreckage of a run killed partway.
+    """
+    bench = read("benchmarks/fingerprint_compression.py")
+    created = set(re.findall(r'"(tracing\.fp_bench_\w+)"', bench))
+    assert len(created) == 4, f"expected four scratch objects, found {sorted(created)}"
+    told = set(re.findall(r"DROP (?:TABLE|VIEW) IF EXISTS (tracing\.fp_bench_\w+)",
+                          read("exercises/fingerprints.md")))
+    assert created == told, \
+        f"the exercise never drops {sorted(created - told)}"
+
+
+@test
+def test_the_exception_index_gate_matches_what_the_page_prints():
+    """A gate that releases below the printed number hands the reader a
+    different number from the one on the page, with nothing saying why."""
+    text = read("exercises/fingerprints.md")
+    m = re.search(r'await_rows "SELECT sum\(error_count\) FROM tracing\.exceptions" (\d+)',
+                  text)
+    assert m, "the exceptions index is no longer gated at all"
+    gate = int(m.group(1))
+    printed = re.search(r"^TimeoutError\s+.*?\s(\d+)\s+[0-9a-f]{32}$", text, re.M)
+    assert printed, "the index output block no longer prints an error count"
+    assert gate == int(printed.group(1)), \
+        f"the poll releases at {gate} where the page prints {printed.group(1)}"
 
 
 @test
@@ -604,6 +853,35 @@ def test_every_clickhouse_helper_closes_stdin():
                 continue
             offenders.append(f"{path.relative_to(CHAPTER)}:{n}")
     assert not offenders, "clickhouse-client without stdin closed: " + ", ".join(offenders)
+
+
+@test
+def test_no_heredoc_program_also_reads_stdin():
+    """Same family as the clickhouse-client trap, one layer up.
+
+    `cmd | python3 - <<'PYEOF'` gives the heredoc to stdin, so the pipe is
+    discarded and `json.load(sys.stdin)` reads EOF. It fails as a JSON decode
+    error a long way from its cause, and only on a live stack.
+    """
+    offenders = []
+    for path in (sorted(CHAPTER.glob("tests/*.sh"))
+                 + sorted(CHAPTER.glob("*.md"))
+                 + sorted(CHAPTER.glob("exercises/*.md"))):
+        lines = path.read_text().splitlines()
+        for n, line in enumerate(lines):
+            m = re.search(r"python3 - .*<<'?(\w+)'?", line)
+            if not m:
+                continue
+            end = m.group(1)
+            body = []
+            for rest in lines[n + 1:]:
+                if rest.strip() == end:
+                    break
+                body.append(rest)
+            if any("sys.stdin" in b for b in body):
+                offenders.append(f"{path.relative_to(CHAPTER)}:{n + 1}")
+    assert not offenders, \
+        "a heredoc program that also reads stdin: " + ", ".join(offenders)
 
 
 @test

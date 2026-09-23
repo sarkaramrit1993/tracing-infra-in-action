@@ -1,0 +1,26 @@
+{
+  "benchmark": "exemplar_resolution",
+  "measured_at_utc": "2026-09-22T03:21:15.101344+00:00",
+  "prometheus": "http://localhost:9090",
+  "window_seconds": 900,
+  "service": "checkout-service",
+  "pre": {
+    "metric": "pre_duration_milliseconds_bucket",
+    "minted": 57,
+    "distinct_trace_ids": 16,
+    "resolved": 6,
+    "resolution_rate": 0.375,
+    "distinct_series": 9,
+    "error_series": 2
+  },
+  "post": {
+    "metric": "post_duration_milliseconds_bucket",
+    "minted": 37,
+    "distinct_trace_ids": 6,
+    "resolved": 6,
+    "resolution_rate": 1.0,
+    "distinct_series": 9,
+    "error_series": 2
+  },
+  "note": "Direction is the claim: a larger share of post-sampler exemplars resolve against the span store than pre-sampler ones, because the pointer behind the sampler is minted after the decision to keep. The magnitude is a draw. Exemplars are minted one per series per scrape rather than one per span, so distinct_series and error_series are recorded beside the rates: an error series is kept whole and resolves, a success series is the one that dangles, and the mix of the two in the window sets the pre-side rate."
+}

@@ -151,7 +151,7 @@ exporters:
   kafka:
     brokers:
       - kafka:9093
-    protocol_version: "3.9.0"
+    protocol_version: "4.0.0"
     traces:
       topic: otlp_spans
       encoding: otlp_proto

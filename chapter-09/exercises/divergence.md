@@ -225,7 +225,8 @@ docker compose restart otel-collector
 await_collector
 for _ in $(seq 1 600); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 600); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})' 8
+await 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 606
+await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 3
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
@@ -235,27 +236,39 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 ```
 
 ```
-1173
-9
-579
-4
-0.4936061381074169
-0.4444444444444444
+1200
+12
+606
+7
+0.505
+0.5833333333333334
 ```
 
-49.4 percent against 44.4, an inflation of 0.90. The error count fell from 579 to
-4 along with everything else, and the ratio survived. This is the case section
-9.2.4 says does not break: a uniform sample scales numerator and denominator
-alike and cancels in the ratio, even though the absolute counts read low.
+Both polls wait on an error series, and the first one waits on the pre side.
+Twelve hundred requests with 606 of them failing are both deterministic: 600 are
+forced, and the 1-in-100 cadence adds exactly six more inside the 600 plain ones.
+Waiting on a total here would release a scrape early, for the reason this file
+gave the first time it polled, and every number in the block would read short by
+one scrape rather than wrong in a way you could see. The second poll is a
+readiness gate rather than a count. It waits only until the post side has a
+status breakdown at all, because what the post side settles on is a sample and
+there is no deterministic number to wait for.
+
+50.5 percent against 58.3, an inflation of 1.15. The error count fell from 606 to
+7 along with everything else, and the ratio came back near where it started. This
+is the case section 9.2.4 says does not break: a uniform sample scales numerator
+and denominator alike and cancels in the ratio, even though the absolute counts
+read low.
 
 Two things about the numbers in that block are worth saying plainly. The traffic
 is half forced failures, which is not a service anyone would ship, and it is
 there because one in a hundred of a realistic error count is zero: with no
 `keep-errors` policy the survivors carry errors only if there were a great many
-errors to begin with. And nine surviving traces is a small sample, so 44.4
-against 49.4 is 0.90 rather than 1.00 for the same reason a coin lands heads five
-times in nine. What is being shown is the difference between an inflation near
-one and the 21.9 above, not a third decimal place.
+errors to begin with. And twelve surviving traces is a small sample, so 58.3
+against 50.5 is 1.15 rather than 1.00 for the same reason a coin lands heads
+seven times in twelve. Your own two rates will land somewhere either side of one.
+What is being shown is the difference between an inflation near one and the 21.9
+above, not a third decimal place.
 
 Which is the useful way to see what the first number was really measuring. The
 divergence was never caused by sampling. It was caused by sampling the two
@@ -267,56 +280,6 @@ carries this bias. Restore:
 mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
 docker compose restart otel-collector
 ```
-
-## Clean up
-
-Both edits above restore in place, so this is a confirmation rather than a step:
-
-```bash
-grep -c 'keep-errors' collector/gateway-config.yaml
-grep -o 'sampling_percentage: [0-9]*' collector/gateway-config.yaml
-ls collector/*.bak collector/*.tmp 2>/dev/null | wc -l
-```
-
-```
-1
-sampling_percentage: 1
-       0
-```
-
-One `keep-errors` policy, the sampler back at 1 percent, and no backup or temp
-file left in `collector/`.
-
-If the last number is not zero, some edit was interrupted between its `cp` and
-its `mv`. It does not have to have been one of yours: `exercises/correlation.md`
-backs up the same file, so an abandoned run of either exercise leaves the same
-`.bak` behind, and the remedy is the same either way.
-
-```bash
-mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
-```
-
-Then confirm the Collector is running the file that shipped:
-
-```bash
-docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
-await 'sum(post_calls_total{service_name="checkout-service"})' 7
-promq 'sum(pre_calls_total{service_name="checkout-service"}) > sum(post_calls_total{service_name="checkout-service"})'
-```
-
-```
-891
-```
-
-Any number rather than `no data` means the comparison held: the pre series is
-above the post series again, which is only true when the sampler sits on the far
-side of the pre connector. The number itself is whatever the pre total has
-reached, so it depends on how much traffic this Collector process has seen since
-it last restarted.
-
-This exercise never wrote to ClickHouse, so there is nothing to delete there.
 
 ## Going deeper
 
@@ -351,6 +314,8 @@ promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.scor
 promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+python3 benchmarks/sampler_divergence.py
+echo "exit $?"
 ```
 
 ```
@@ -358,12 +323,18 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 14
 0.6428571428571429
 0.6428571428571429
+[divergence] Prometheus=http://localhost:9090 grain=checkout-service/fraud.score
+[divergence] pre : total=14 errors=9 rate=64.286%
+[divergence] post: total=14 errors=9 rate=64.286%
+[divergence] expected pre total 14 > post total 14 (the sampler drops spans)
+exit 1
 ```
 
 Both series identical, both at 64 percent, and the Collector booted clean. The
-config is valid YAML, every component name resolves, no log line complains, and
-`benchmarks/sampler_divergence.py` is the only thing anywhere that notices: it
-exits non-zero with "expected pre total above post total".
+config is valid YAML, every component name resolves, and no log line complains.
+The benchmark is the only thing anywhere that notices, which is why the block
+runs it: its direction assertion is the one statement in this repository that a
+connector on the wrong side of the sampler cannot satisfy.
 
 That is the shape worth carrying away. A connector on the wrong side of a
 processor is not a syntax error and not a runtime error. It produces a dashboard
@@ -388,3 +359,61 @@ policies are ORed rather than ANDed, so two 1-percent policies keep roughly 1.99
 percent and not 0.01 percent. It is the most common way a sampling config ends up
 keeping far more than its author intended, and the only visible symptom is a
 storage bill.
+
+## Clean up
+
+Every edit above restores in place, so this is a confirmation rather than a
+step:
+
+```bash
+grep -c 'keep-errors' collector/gateway-config.yaml
+grep -o 'sampling_percentage: [0-9]*' collector/gateway-config.yaml
+ls collector/*.bak collector/*.tmp 2>/dev/null | wc -l
+```
+
+```
+1
+sampling_percentage: 1
+       0
+```
+
+One `keep-errors` policy, the sampler back at 1 percent, and no backup or temp
+file left in `collector/`.
+
+If the last number is not zero, some edit was interrupted between its `cp` and
+its `mv`. It does not have to have been one of yours: `exercises/correlation.md`
+backs up the same file, so an abandoned run of either exercise leaves the same
+`.bak` behind, and the remedy is the same either way.
+
+```bash
+if [ -f collector/gateway-config.yaml.bak ]; then
+  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
+  docker compose restart otel-collector
+fi
+```
+
+The guard matters because the block above just told you the count was zero. A
+bare `mv` on a path that is not there fails with `No such file or directory`,
+which reads like a broken instruction rather than the all-clear it is.
+
+Then confirm the Collector is running the file that shipped:
+
+```bash
+docker compose restart otel-collector
+await_collector
+for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
+await 'sum(post_calls_total{service_name="checkout-service"})' 7
+promq 'sum(pre_calls_total{service_name="checkout-service"}) > sum(post_calls_total{service_name="checkout-service"})'
+```
+
+```
+891
+```
+
+Any number rather than `no data` means the comparison held: the pre series is
+above the post series again, which is only true when the sampler sits on the far
+side of the pre connector. The number itself is whatever the pre total has
+reached, so it depends on how much traffic this Collector process has seen since
+it last restarted.
+
+This exercise never wrote to ClickHouse, so there is nothing to delete there.

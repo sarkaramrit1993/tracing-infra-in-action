@@ -1,6 +1,6 @@
 {
   "benchmark": "fingerprint_compression",
-  "measured_at_utc": "2026-08-26T01:53:57.864892+00:00",
+  "measured_at_utc": "2026-09-21T22:58:48.273583+00:00",
   "generated": {
     "code_paths_recorded": 1200,
     "raw_error_spans": 2000000,

@@ -138,6 +138,37 @@ done
   || fail "none of the $CHECKED exemplar trace ids resolve in ClickHouse; the jump from a latency bucket dead-ends"
 pass "$RESOLVED of $CHECKED exemplar trace ids resolve to real spans"
 
+# 3b. The post side resolving is only half the claim. Section 9.3.1 says the
+# side matters, and a check that reads one side cannot tell a working bridge
+# from a bridge that would work either way. The pre-sampler pointer is minted
+# before the sampler has decided anything, so most of them dangle. Direction
+# is the claim, so direction is what this asserts; the ratio is a draw and is
+# recorded by benchmarks/exemplar_resolution.py rather than asserted here.
+PRE_TIDS() {
+  curl -s -G http://localhost:9090/api/v1/query_exemplars \
+    --data-urlencode 'query=pre_duration_milliseconds_bucket' \
+    --data-urlencode "start=$(python3 -c 'import time;print(time.time()-900)')" \
+    --data-urlencode "end=$(python3 -c 'import time;print(time.time())')" \
+  | python3 -c "
+import sys,json
+r=json.load(sys.stdin).get('data',[])
+t=sorted({e['labels'].get('trace_id') for s in r for e in s.get('exemplars',[]) if e['labels'].get('trace_id')})
+print('\n'.join(t))"
+}
+wait_for 150 "exemplars to appear on the pre histogram" '[ -n "$(PRE_TIDS)" ]'
+PRE_RESOLVED=0
+PRE_CHECKED=0
+for tid in $(PRE_TIDS); do
+  PRE_CHECKED=$((PRE_CHECKED + 1))
+  n=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE trace_id='$tid'")
+  [ "${n:-0}" -gt 0 ] && PRE_RESOLVED=$((PRE_RESOLVED + 1))
+done
+PRE_PCT=$((PRE_RESOLVED * 100 / PRE_CHECKED))
+POST_PCT=$((RESOLVED * 100 / CHECKED))
+[ "$POST_PCT" -gt "$PRE_PCT" ] \
+  || fail "the post side resolves $POST_PCT% against the pre side's $PRE_PCT%; an exemplar minted behind the sampler is supposed to be the one that still lands"
+pass "post resolves $RESOLVED/$CHECKED ($POST_PCT%) against pre $PRE_RESOLVED/$PRE_CHECKED ($PRE_PCT%), which is why bridge 2 reads the post connector"
+
 echo "== 4. BRIDGE 3, the pre-sample series exists =="
 PRE=$(curl -s --data-urlencode 'query=sum(pre_calls_total)' http://localhost:9090/api/v1/query \
   | python3 -c "import sys,json;r=json.load(sys.stdin)['data']['result'];print(r[0]['value'][1] if r else 0)")
