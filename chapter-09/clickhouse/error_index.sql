@@ -71,7 +71,7 @@ FROM (
         adjusted_count,
         attributes['exception.type'] AS error_type,
         replaceRegexpAll(attributes['exception.message'],
-                         '[0-9a-f]{8,}|[0-9]+', '?') AS msg_template,
+                         '(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+', '?') AS msg_template,
         replaceRegexpAll(
             arrayElement(
                 extractAll(attributes['exception.stacktrace'],

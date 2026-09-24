@@ -143,9 +143,7 @@ near-duplicates, the compression below would be the generator's doing rather tha
 the regex's, and the measurement would be worthless. Every generated message
 carries three variable tokens: a seven-digit cart id, a duration in
 milliseconds, and a sixteen-character lowercase hex request id. The hex is what
-makes each message effectively unique, and lowercase is load-bearing, because
-the listing 9.2 regex reads `[0-9a-f]` and an uppercase `hex()` would sail
-straight through normalization.
+makes each message effectively unique.
 
 **Top ten over 50 percent.** Section 9.2.3's premise is that a handful of code
 paths throw the overwhelming majority of the errors. Volume is distributed Zipf

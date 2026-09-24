@@ -218,7 +218,7 @@ harmless:
 
 ```bash
 cp clickhouse/error_index.sql clickhouse/error_index.sql.bak
-sed -i.tmp "s/'\[0-9a-f\]{8,}|\[0-9\]+', '?'/'[0-9a-z]{8,}|[0-9]+', '?'/" clickhouse/error_index.sql
+sed -i.tmp "s/'(?i)\[0-9a-f\]{8,}(?:-\[0-9a-f\]{4,})\*|\[0-9\]+', '?'/'(?i)[0-9a-z]{8,}(?:-[0-9a-f]{4,})*|[0-9]+', '?'/" clickhouse/error_index.sql
 rm -f clickhouse/error_index.sql.tmp
 python3 benchmarks/fingerprint_compression.py
 ```
@@ -388,14 +388,14 @@ ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
 ch --query "DROP TABLE IF EXISTS tracing.exceptions"
 ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
 grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
-grep -o "'\[0-9a-f\]{8,}|\[0-9\]+'" clickhouse/error_index.sql
+grep -oF "'(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+'" clickhouse/error_index.sql
 ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l
 ```
 
 ```
 otel_traces
 1
-'[0-9a-f]{8,}|[0-9]+'
+'(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+'
        0
 ```
 

@@ -84,7 +84,7 @@ SCRATCH_TRUTH = "tracing.fp_bench_truth"
 # Three word lists, read as a mixed-radix decomposition of the path index, so
 # 12 x 10 x 10 gives 1200 distinct message templates. Not one of these words
 # survives the listing 9.2 regex as a number: every token it strips is a digit
-# run or eight-plus lowercase hex characters, so a template stays distinct
+# run or eight-plus hex characters, so a template stays distinct
 # after normalization while the ids inside it do not.
 SUBSYSTEMS = ["fraud", "payment", "inventory", "ledger", "catalog", "shipping",
               "pricing", "identity", "session", "wallet", "refund", "tax"]
@@ -161,9 +161,7 @@ def generate():
 
     Every raw message carries three variable tokens: a seven-digit cart id, a
     duration in milliseconds, and a sixteen-character lowercase hex request id.
-    The hex id is what makes a raw message effectively unique, and lowercase is
-    load-bearing: the listing 9.2 regex reads [0-9a-f], so an uppercase hex()
-    would sail through normalization and D and F would come out equal.
+    The hex id is what makes a raw message effectively unique.
 
     The first P rows are seeded one per path, so every path is present by
     construction and F == P is an identity about the normalization rather than
