@@ -66,10 +66,17 @@ fails one checkout in a hundred; the `?fail=1` requests make the error path
 deterministic without changing its shape:
 
 ```bash
+docker compose restart otel-collector
+await_collector
 for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
 await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
 ```
+
+The restart zeroes the connector counters, so every number below counts this
+workload and nothing before it. Skip it after walking the README and the poll
+returns at once, because the counter already stood at nine, and the reads that
+follow catch the pipeline mid-flight.
 
 Nine errors: the six forced ones plus the three the 1-in-100 cadence produces
 over 300 requests. The poll waits on the error series rather than on the totals,

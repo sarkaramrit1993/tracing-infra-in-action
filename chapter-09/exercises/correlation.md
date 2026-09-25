@@ -76,6 +76,8 @@ hold. Exemplars ride histogram buckets, and a bucket with no observations has
 nothing to attach one to:
 
 ```bash
+docker compose restart otel-collector
+await_collector
 for _ in $(seq 1 400); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 10); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
 await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 14
@@ -86,6 +88,10 @@ in a hundred. Four hundred ordinary requests leave about four survivors between
 them, which is not enough post-sampler traces for the exemplar buffer to be
 worth reading. The forced ones are kept unconditionally, so they are what puts
 pointers on the histogram.
+
+The restart zeroes the connector counters, so the poll waits for this traffic
+rather than for whatever an earlier walk left on the counter, and the totals
+under bridge 3 count this file's requests alone.
 
 ## One request, chosen from outside
 
