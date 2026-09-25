@@ -117,10 +117,9 @@ move.
 
 Your four numbers will differ from these, and the post total most of all. At one
 in a hundred, 297 successful requests leave about three survivors, and three is a
-number with a lot of luck in it: this run kept five. The stack also samples
-probabilistically over however many requests you drove, and the counters reset
-whenever the Collector restarts. What reproduces is the relationship: pre above
-post, and the two error counts equal.
+number with a lot of luck in it: this run kept five, and two walks from a clean
+stack kept five and one, for post totals of 14 and 10. What reproduces is the
+relationship: pre above post, and the two error counts equal.
 
 ## The two rates
 
@@ -203,8 +202,10 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 ```
 
 2.9 percent against 5.6, an inflation of 1.90 where it was 21.9. The formula
-predicts 1.94 at these counts. The lie did not go away, it got quieter, and
-quieter is the more dangerous direction. At 64 percent nobody believes the panel.
+predicts 1.94 at these counts. At 50 percent every successful trace is a coin
+toss, so the post total moves between runs (161 and 158 on two walks from a clean
+stack) and the rate moves with it, 5.6 to 5.7 percent. The lie did not go away,
+it got quieter, and quieter is the more dangerous direction. At 64 percent nobody believes the panel.
 At 5.6 percent against a true 2.9 the panel is wrong by a factor you would take
 for noise, or for a bad afternoon, and act on. Restore:
 
@@ -273,9 +274,10 @@ there because one in a hundred of a realistic error count is zero: with no
 `keep-errors` policy the survivors carry errors only if there were a great many
 errors to begin with. And twelve surviving traces is a small sample, so 58.3
 against 50.5 is 1.15 rather than 1.00 for the same reason a coin lands heads
-seven times in twelve. Your own two rates will land somewhere either side of one.
-What is being shown is the difference between an inflation near one and the 21.9
-above, not a third decimal place.
+seven times in twelve. Your own two rates will land somewhere either side of one:
+two walks from a clean stack kept 9 and 11 traces, 3 and 6 of them errors, for
+inflations of 0.66 and 1.08. What is being shown is the difference between an
+inflation near one and the 21.9 above, not a third decimal place.
 
 Which is the useful way to see what the first number was really measuring. The
 divergence was never caused by sampling. It was caused by sampling the two
@@ -337,8 +339,10 @@ echo "exit $?"
 exit 1
 ```
 
-Both series identical, both at 64 percent, and the Collector booted clean. The
-config is valid YAML, every component name resolves, and no log line complains.
+Both series identical, and the Collector booted clean. The shared rate is
+whatever this run's survivors happen to hold, 64 percent here and 90 and 82
+percent on two later walks, because both series now count the same handful of
+kept traces. The config is valid YAML, every component name resolves, and no log line complains.
 The benchmark is the only thing anywhere that notices, which is why the block
 runs it: its direction assertion is the one statement in this repository that a
 connector on the wrong side of the sampler cannot satisfy.
@@ -414,13 +418,12 @@ promq 'sum(pre_calls_total{service_name="checkout-service"}) > sum(post_calls_to
 ```
 
 ```
-891
+1400
 ```
 
 Any number rather than `no data` means the comparison held: the pre series is
 above the post series again, which is only true when the sampler sits on the far
-side of the pre connector. The number itself is whatever the pre total has
-reached, so it depends on how much traffic this Collector process has seen since
-it last restarted.
+side of the pre connector. The number itself is the pre total: 200 requests at
+seven spans each, counted from the restart at the top of the block.
 
 This exercise never wrote to ClickHouse, so there is nothing to delete there.

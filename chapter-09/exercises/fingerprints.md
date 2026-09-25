@@ -269,7 +269,7 @@ fix, and half of it stays broken.
 
 The script exits non-zero and says which direction it went. That is what the
 truth table bought: without a recorded `P` the run above produces 1,200 issues at
-an 833x compression ratio and looks entirely healthy. Restore:
+a 1,667x compression ratio and looks entirely healthy. Restore:
 
 ```bash
 mv clickhouse/error_index.sql.bak clickhouse/error_index.sql

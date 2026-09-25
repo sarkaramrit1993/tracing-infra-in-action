@@ -170,8 +170,8 @@ loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
 
 ```
 status: success  lines: 2
-    fraud scoring failed for cart-4360: fraud scoring backend timed out after 30411ms (req ad87a30a)
-    checkout complete cart=cart-4360 order=ord-68943 amount=189.09 fraud_failed=True
+    fraud scoring failed for cart-5827: fraud scoring backend timed out after 30579ms (req d9e69b13)
+    checkout complete cart=cart-5827 order=ord-30980 amount=15.57 fraud_failed=True
 ```
 
 Two lines, from a request that finished moments ago, retrieved by an id chosen
@@ -225,8 +225,12 @@ a97e05ba800424eaef44f488ac82f9e3 -> 7 spans
 8e5cbe096f230ace9fea23343274fad1 -> 7 spans
 ```
 
-Seventeen exemplars, seventeen whole traces, including the one this exercise
-picked. Now run exactly the same loop against the pre-sampler histogram:
+Every exemplar resolves to a whole trace. How many there are follows the traffic
+in the query's fifteen-minute window: seventeen on the run printed here, 37 and 40
+on walks that ran the README and the other two exercises first. The trace this
+exercise picked is usually not among them. Prometheus keeps one exemplar per
+series per scrape, and the other failures share its buckets. Now run exactly the
+same loop against the pre-sampler histogram:
 
 ```bash
 for tid in $(exemplars 'pre_duration_milliseconds_bucket'); do
@@ -247,7 +251,9 @@ ae282b8d98020e0ca35faae9af5ef844 -> 7 spans
 
 Thirty-five exemplars on the run that produced this file, abridged here because
 the interesting part is the tally rather than the ids: ten resolved and
-twenty-five pointed at nothing. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
+twenty-five pointed at nothing. Two walks from a clean stack got 23 of 95 and 25
+of 89. The count follows the traffic; what holds is that about three in four
+dangle. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
 decided anything, and the sampler then throws away ninety-nine successful traces
 in every hundred. The pointer is still a valid trace id. `query_exemplars`
 returns it without complaint, the drill-down runs, and the trace viewer says the
@@ -269,9 +275,14 @@ promq 'sum(post_calls_total{service_name="checkout-service"})'
 ```
 
 ```
-2870
-140
+2877
+133
 ```
+
+The first number is exact: 411 requests since the restart, at seven spans each.
+The second is a draw. It counts the fifteen error traces (the fourteen above and
+the one this exercise picked) plus whichever successes the sampler happened to
+keep, so it moves between runs: 119 and 133 on two walks.
 
 The pre series is a population count, derived from every span before anything was
 dropped. The post series describes the sample. Everything section 9.2 claims
@@ -322,33 +333,33 @@ loki '{service_name="checkout-service"}'
 ```
 status: success  lines: 0
 status: success  lines: 20
-    fraud scoring failed for cart-4360: fraud scoring backend timed out after 30411ms (req ad87a30a)
-    fraud scoring failed for cart-8926: fraud scoring backend timed out after 30412ms (req 0345df6a)
-    fraud scoring failed for cart-4342: fraud scoring backend timed out after 30403ms (req a7df287b)
-    fraud scoring failed for cart-3344: fraud scoring backend timed out after 30404ms (req a41e2a42)
-    fraud scoring failed for cart-1218: fraud scoring backend timed out after 30405ms (req 5d20a458)
-    fraud scoring failed for cart-4184: fraud scoring backend timed out after 30406ms (req c25385b7)
-    fraud scoring failed for cart-6242: fraud scoring backend timed out after 30407ms (req cceb12af)
-    fraud scoring failed for cart-3395: fraud scoring backend timed out after 30408ms (req 431627b9)
-    fraud scoring failed for cart-4538: fraud scoring backend timed out after 30409ms (req eb577dad)
-    fraud scoring failed for cart-8725: fraud scoring backend timed out after 30410ms (req 6dbf06e1)
-    checkout complete cart=cart-4360 order=ord-68943 amount=189.09 fraud_failed=True
-    checkout complete cart=cart-8926 order=ord-13842 amount=203.76 fraud_failed=True
-    checkout complete cart=cart-4342 order=ord-54925 amount=324.76 fraud_failed=True
-    checkout complete cart=cart-3344 order=ord-58708 amount=112.93 fraud_failed=True
-    checkout complete cart=cart-1218 order=ord-10754 amount=84.11 fraud_failed=True
-    checkout complete cart=cart-4184 order=ord-23561 amount=338.16 fraud_failed=True
-    checkout complete cart=cart-6242 order=ord-44796 amount=366.25 fraud_failed=True
-    checkout complete cart=cart-3395 order=ord-95855 amount=274.66 fraud_failed=True
-    checkout complete cart=cart-4538 order=ord-47489 amount=193.37 fraud_failed=True
-    checkout complete cart=cart-8725 order=ord-95870 amount=405.77 fraud_failed=True
+    fraud scoring failed for cart-5827: fraud scoring backend timed out after 30579ms (req d9e69b13)
+    fraud scoring failed for cart-6439: fraud scoring backend timed out after 30580ms (req d918d731)
+    fraud scoring failed for cart-3850: fraud scoring backend timed out after 30571ms (req fafdf551)
+    fraud scoring failed for cart-2439: fraud scoring backend timed out after 30572ms (req 7fa5526d)
+    fraud scoring failed for cart-3925: fraud scoring backend timed out after 30573ms (req c854f0cc)
+    fraud scoring failed for cart-5040: fraud scoring backend timed out after 30574ms (req 4bede7dc)
+    fraud scoring failed for cart-3687: fraud scoring backend timed out after 30575ms (req c5605560)
+    fraud scoring failed for cart-9657: fraud scoring backend timed out after 30576ms (req af8c685c)
+    fraud scoring failed for cart-9989: fraud scoring backend timed out after 30577ms (req 9d642dae)
+    fraud scoring failed for cart-3709: fraud scoring backend timed out after 30578ms (req e42bc701)
+    checkout complete cart=cart-5827 order=ord-30980 amount=15.57 fraud_failed=True
+    checkout complete cart=cart-6439 order=ord-21067 amount=261.12 fraud_failed=True
+    checkout complete cart=cart-3850 order=ord-38282 amount=99.17 fraud_failed=True
+    checkout complete cart=cart-2439 order=ord-16119 amount=100.95 fraud_failed=True
+    checkout complete cart=cart-3925 order=ord-74379 amount=407.73 fraud_failed=True
+    checkout complete cart=cart-5040 order=ord-74147 amount=215.08 fraud_failed=True
+    checkout complete cart=cart-3687 order=ord-11529 amount=47.61 fraud_failed=True
+    checkout complete cart=cart-9657 order=ord-85505 amount=405.90 fraud_failed=True
+    checkout complete cart=cart-9989 order=ord-94138 amount=408.46 fraud_failed=True
+    checkout complete cart=cart-3709 order=ord-28146 amount=169.31 fraud_failed=True
 ```
 
 The number that moved is the first one, from 2 to 0. The second is the `loki`
 helper's own `limit=20`, which is the point: the log lines are all still there,
 still readable, still carrying the cart id and the order id and the error text.
-This request's two are the `cart-8906` pair at the end of each group. Only the
-join is gone.
+This request's own pair is in there, the `cart-6439` lines, second in each group.
+Only the join is gone.
 
 That is the worst version of this failure, worse than losing the logs entirely. A
 missing log is noticed within a day. A log that is present, correct and no longer
@@ -394,8 +405,10 @@ promq 'otelcol_connector_servicegraph_dropped_spans_total'
 992
 ```
 
-Three edges where there were seven, and the three that survived carry 4, 3 and 1
-requests out of 200. The dependency graph is now wrong in a way no one would
+Three edges where there were seven, and the three that survived carry 3, 4 and 1
+requests out of 200. Which edges survive, and what they carry, depends on which
+halves happened to meet in the one free slot, so it moves between runs (3, 2 and
+3 on another walk). The dependency graph is now wrong in a way no one would
 question: it is a plausible graph of a service with three downstreams and light
 traffic. Read it a scrape too early and you get no edges at all, which is the
 same failure wearing a more obvious face, and the reason `await` above polls the
@@ -406,13 +419,14 @@ Now `pre_calls_total`, which reads 1,400: exactly 200 requests at seven spans
 each, and the whole of what this Collector process has seen. Restarting it to
 apply the edit zeroed that counter, so 1,400 is not a number that survived the
 failure, it is a number taken cleanly after it. That is the stronger version of
-the point. The service graph lost 992 spans under the same config, on the same
+the point. The service graph lost about 990 spans under the same config, on the same
 traffic, in the same process, and the span metrics counted every one of them.
 RED is flat here not because nothing was measured but because nothing RED
 measures goes through the service-graph store.
 
 The third number is the one worth taking away. `otelcol_connector_servicegraph_dropped_spans_total`
-is 992, and unlike the other two failures in this file, this one does announce
+is about 990 (992 on three walks, 991 on a fourth, for the same reason the edges
+move), and unlike the other two failures in this file, this one does announce
 itself. It announces itself on a series nobody has a panel for. Restore:
 
 ```bash
@@ -468,7 +482,9 @@ print('exemplar series:', len(d), ' exemplars:', sum(len(s.get('exemplars', []))
 exemplar series: 0  exemplars: 0
 ```
 
-Nine bucket series and one distinct `le` between them. The prometheus exporter
+Nine bucket series and one distinct `le` between them. You may see seven: the
+1-in-100 cadence puts two failures in those 200 requests, and their two error
+series join the other seven only once the sampler has let those traces through. The prometheus exporter
 renders classic exposition, an exponential histogram has no classic rendering,
 and the whole distribution comes out as a single `+Inf` bucket.
 `histogram_quantile` over one bucket cannot return a quantile, and an exemplar
