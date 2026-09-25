@@ -424,7 +424,9 @@ bash tests/test_correlation.sh
 folds many raw error spans into one issue, that the post error rate reads above
 the pre one, that the service graph has edges, and that both sides of the
 ingest-gap rule report. `test_correlation.sh` fires one request with a trace id it chose itself
-and walks all three of section 9.3's crossings for that one id. Both poll for
+and walks all three of section 9.3's crossings for that one id, then sends a
+hundred ordinary requests of its own so the third crossing has dropped traffic
+to count. Both poll for
 every condition rather than sleeping, and both put the store back the way a fresh
 stack starts, so either can be run in any order and re-run from any state.
 

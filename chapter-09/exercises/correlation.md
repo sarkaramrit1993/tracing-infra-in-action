@@ -634,7 +634,10 @@ status: success  lines: 2
 ```
 
 Seven spans in the store and two log lines reachable from the same id. Or run the
-packaged version, which walks all three crossings and cleans up after itself:
+packaged version, which walks all three crossings and cleans up after itself. It
+sends a hundred ordinary requests of its own for bridge 3, because the one
+request above failed on purpose and the sampler keeps every failure, so on that
+traffic alone pre and post count the same spans:
 
 ```bash
 bash tests/test_correlation.sh
