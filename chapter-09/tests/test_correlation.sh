@@ -3,8 +3,10 @@
 #
 # A trace, a log line and a metric are three separate stores. What makes them one
 # picture is that each carries an identifier the others can be looked up by. This
-# script fires ONE request with a trace id it chose itself, then walks all three
-# crossings and proves each one lands:
+# script fires a request with a trace id it chose itself and follows that id
+# across bridges 1 and 2. Alongside it, it sends a hundred ordinary requests,
+# which bridges 2 and 3 need as traffic the sampler drops. Each crossing has to
+# land:
 #
 #   BRIDGE 1  trace -> log. The producer never writes a trace id into a log
 #             message. The OTel logging handler reads it off the active span
@@ -26,9 +28,10 @@
 #   BRIDGE 3  the pre-sample series counts the population. Everything section
 #             9.2 claims rests on pre_calls_total being a population count
 #             rather than a count of survivors, so this step sends ordinary
-#             traffic the sampler drops and checks pre moved further than post.
+#             traffic the sampler drops, waits for post to settle, and checks
+#             post rose, but by less than half as much as pre.
 #
-# The request is fired with ?fail=1 on purpose. The tail sampler keeps every
+# The traced request is fired with ?fail=1 on purpose. The tail sampler keeps every
 # trace carrying an error and only one in a hundred of the rest, so a success
 # trace would be dropped ninety-nine runs in a hundred and this suite would be a
 # lottery.
@@ -81,6 +84,38 @@ curl -s -o /dev/null -H "traceparent: 00-$TRACE_ID-$SPAN_ID-01" \
   "http://localhost:8080/checkout?fail=1" \
   || fail "the /checkout request failed; is checkout-service up?"
 pass "one checkout fired under a caller-chosen trace id"
+
+# Bridges 2 and 3 both need traffic the sampler drops: 3b needs pre exemplars
+# that dangle, bridge 3 needs pre to move further than post. So the script
+# sends a hundred ordinary requests of its own here rather than depending on
+# what ran before it. Each series is read as a delta across these requests, so
+# the assertions hold whatever the store already held.
+#
+# The delta is taken per collector_instance_id. Every Collector restart starts
+# a new set of series under a new id, and Prometheus keeps answering with the
+# old set until the new process has exported its first span. A plain before
+# and after on sum() would subtract the old process's total from the new one's.
+PROM_SNAP() {  # PROM_SNAP <metric>: one "instance value" line per Collector process
+  curl -s --data-urlencode "query=sum by (collector_instance_id) ($1)" http://localhost:9090/api/v1/query \
+  | python3 -c "
+import sys,json
+for r in json.load(sys.stdin)['data']['result']:
+    print(r['metric'].get('collector_instance_id', '-'), int(float(r['value'][1])))"
+}
+DELTA() {  # DELTA <before> <after>: growth summed over processes present after
+  python3 -c "
+import sys
+parse = lambda s: dict((k, int(v)) for k, v in (l.split() for l in s.splitlines() if l.strip()))
+b, a = parse(sys.argv[1]), parse(sys.argv[2])
+print(sum(v - b.get(k, 0) for k, v in a.items()))" "$1" "$2"
+}
+PRE0=$(PROM_SNAP pre_calls_total)
+POST0=$(PROM_SNAP post_calls_total)
+PLAIN=100
+for _ in $(seq 1 "$PLAIN"); do
+  curl -s -o /dev/null http://localhost:8080/checkout \
+    || fail "an ordinary /checkout request failed; is checkout-service up?"
+done
 
 echo "== 1. those spans reach the store, stitched to the caller's span =="
 # The caller supplied the traceparent, so this trace has NO row with
@@ -156,6 +191,16 @@ r=json.load(sys.stdin).get('data',[])
 t=sorted({e['labels'].get('trace_id') for s in r for e in s.get('exemplars',[]) if e['labels'].get('trace_id')})
 print('\n'.join(t))"
 }
+# Pre's exemplars ride the same flush and scrape as its counts, so once pre has
+# counted all of step 0's requests their exemplars are readable too. Without
+# this wait, an idle stack gives 3b only exemplars from traces that were kept.
+i=0
+until [ "$(DELTA "$PRE0" "$(PROM_SNAP pre_calls_total)")" -ge $((PLAIN * 7)) ]; do
+  i=$((i + 1))
+  [ "$i" -le 150 ] || fail "pre_calls_total never counted the $PLAIN requests at seven spans each. The namespace: pre setting on the spanmetrics connector is what puts it under this name; without it the series is traces_span_metrics_calls_total and every rule referencing pre_calls_total silently evaluates to nothing"
+  sleep 1
+done
+echo "   satisfied after ${i}s: pre_calls_total counted all $PLAIN requests"
 wait_for 150 "exemplars to appear on the pre histogram" '[ -n "$(PRE_TIDS)" ]'
 PRE_RESOLVED=0
 PRE_CHECKED=0
@@ -171,49 +216,31 @@ POST_PCT=$((RESOLVED * 100 / CHECKED))
 pass "post resolves $RESOLVED/$CHECKED ($POST_PCT%) against pre $PRE_RESOLVED/$PRE_CHECKED ($PRE_PCT%), which is why bridge 2 reads the post connector"
 
 echo "== 4. BRIDGE 3, the pre-sample series counts the whole population =="
-# The claim is about traffic the sampler drops, so the check sends some. Only
-# error traffic before this point (the exercise's confirm step sends exactly
-# that) leaves pre equal to post, because the sampler keeps every error trace.
-# The step reads how far each series moved across its own requests, so the
-# assertion holds whatever ran before it.
-#
-# The delta is taken per collector_instance_id. Every Collector restart starts
-# a new set of series under a new id, and Prometheus keeps answering with the
-# old set until the new process has exported its first span. A plain before
-# and after on sum() would subtract the old process's total from the new one's.
-PROM_SNAP() {  # PROM_SNAP <metric>: one "instance value" line per Collector process
-  curl -s --data-urlencode "query=sum by (collector_instance_id) ($1)" http://localhost:9090/api/v1/query \
-  | python3 -c "
-import sys,json
-for r in json.load(sys.stdin)['data']['result']:
-    print(r['metric'].get('collector_instance_id', '-'), int(float(r['value'][1])))"
-}
-DELTA() {  # DELTA <before> <after>: growth summed over processes present after
-  python3 -c "
-import sys
-parse = lambda s: dict((k, int(v)) for k, v in (l.split() for l in s.splitlines() if l.strip()))
-b, a = parse(sys.argv[1]), parse(sys.argv[2])
-print(sum(v - b.get(k, 0) for k, v in a.items()))" "$1" "$2"
-}
-PRE0=$(PROM_SNAP pre_calls_total)
-POST0=$(PROM_SNAP post_calls_total)
-PLAIN=100
-for _ in $(seq 1 "$PLAIN"); do
-  curl -s -o /dev/null http://localhost:8080/checkout \
-    || fail "an ordinary /checkout request failed; is checkout-service up?"
-done
-i=0
-until [ "$(DELTA "$PRE0" "$(PROM_SNAP pre_calls_total)")" -ge $((PLAIN * 7)) ]; do
-  i=$((i + 1))
-  [ "$i" -le 150 ] || fail "pre_calls_total never counted the $PLAIN requests at seven spans each. The namespace: pre setting on the spanmetrics connector is what puts it under this name; without it the series is traces_span_metrics_calls_total and every rule referencing pre_calls_total silently evaluates to nothing"
-  sleep 1
-done
-echo "   satisfied after ${i}s: pre_calls_total counted all $PLAIN requests"
-PRE_D=$(DELTA "$PRE0" "$(PROM_SNAP pre_calls_total)")
+# Step 0 sent the requests and step 3b saw pre count them all. Post trails pre
+# by the sampler's 5 s decision_wait and the connector's 15 s flush. Wait those
+# out, then read every 20 s, one scrape interval plus margin, until two reads
+# agree. Reading post the moment pre is complete would compare
+# the whole population against survivors not yet counted, and pass even if the
+# sampler kept everything.
+sleep 25
 POST_D=$(DELTA "$POST0" "$(PROM_SNAP post_calls_total)")
-[ "$PRE_D" -gt "$POST_D" ] \
-  || fail "pre_calls_total rose by $PRE_D and post_calls_total by $POST_D over $PLAIN ordinary requests; the pre series is not counting the full population"
-pass "over $PLAIN ordinary requests pre_calls_total rose by $PRE_D and post_calls_total by $POST_D, so pre is the population count"
+j=0
+while :; do
+  sleep 20
+  NEXT=$(DELTA "$POST0" "$(PROM_SNAP post_calls_total)")
+  [ "$NEXT" = "$POST_D" ] && break
+  POST_D=$NEXT
+  j=$((j + 1))
+  [ "$j" -le 8 ] || fail "post_calls_total never settled after the $PLAIN requests; last delta $POST_D"
+done
+echo "   settled: post_calls_total rose by $POST_D on two reads 20 s apart"
+PRE_D=$(DELTA "$PRE0" "$(PROM_SNAP pre_calls_total)")
+# keep-errors plus probabilistic-1-percent: every 100th checkout fails, so post keeps ~2-3 of these ~100 traces (never 0); half of pre means a sampler keeping everything.
+[ "$POST_D" -gt 0 ] \
+  || fail "post_calls_total did not move over $PLAIN requests that include an error trace; keep-errors kept nothing"
+[ $((POST_D * 2)) -lt "$PRE_D" ] \
+  || fail "pre_calls_total rose by $PRE_D and post_calls_total by $POST_D over $PLAIN ordinary requests; post should count 2 or 3 traces in 100, so the sampler is keeping far more than its policy says"
+pass "over $PLAIN ordinary requests pre_calls_total rose by $PRE_D and post_calls_total by $POST_D, so pre is the population count and post the sample"
 
 echo
 echo "ALL CORRELATION BRIDGES HOLD"
