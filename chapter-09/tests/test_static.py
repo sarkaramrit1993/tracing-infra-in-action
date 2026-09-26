@@ -266,11 +266,33 @@ def test_listing_9_2_error_index_exact():
             "cityHash64(error_type, msg_template, top_frame) AS fingerprint",
             "attributes['exception.type'] AS error_type",
             "replaceRegexpAll(attributes['exception.message'], "
-            "'[0-9a-f]{8,}|[0-9]+', '?') AS msg_template",
+            "'(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+', '?') AS msg_template",
             "trace_id  AS sample_trace_id",
             "FROM tracing.otel_traces",
             "WHERE status_code = 'STATUS_CODE_ERROR'"):
         assert normalize(fragment) in body, f"listing 9.2 lost: {fragment}"
+
+
+@test
+def test_listing_9_2_regex_collapses_uuids_and_hex_in_any_case():
+    """Python re stands in for ClickHouse's RE2 here; the pattern uses only
+    features both engines share. A UUID the old pattern forked into a template
+    per value, and an uppercase hex id sailed through untouched."""
+    body = listing_body("clickhouse/error_index.sql", "9.2")
+    m = re.search(r"attributes\['exception.message'\],\s*'([^']+)', '\?'\)", body)
+    assert m, "listing 9.2 lost its message normalization"
+    norm = lambda s: re.sub(m.group(1), "?", s)
+    same = [("user 4821 not found", "user 9930 not found"),
+            ("order 3f9a2c7e-41b2-4c3d-9e8f-0a1b2c3d4e5f missing",
+             "order 7c1e9d04-a2f3-4b5e-8c6d-1f2e3a4b5c6d missing"),
+            ("order 3f9a2c7e-41b2-4c3d-9e8f-0a1b2c3d4e5f missing",
+             "order 3F9A2C7E-41B2-4C3D-9E8F-0A1B2C3D4E5F missing"),
+            ("req 3F9A2C7E41 failed", "req 3f9a2c7e41 failed")]
+    for a, b in same:
+        assert norm(a) == norm(b), f"{a!r} -> {norm(a)!r} but {b!r} -> {norm(b)!r}"
+    assert norm(same[1][0]) == "order ? missing", norm(same[1][0])
+    words = "cafe faced a decade of deadline exceeded"
+    assert norm(words) == words, f"ordinary words turned into tokens: {norm(words)!r}"
 
 
 @test

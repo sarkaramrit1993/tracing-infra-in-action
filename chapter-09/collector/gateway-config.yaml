@@ -199,8 +199,8 @@ service:
     # 100% of spans reach the metric connectors here. This is the correctness
     # point: metrics are truth because nothing has been dropped yet.
     #
-    # memory_limiter runs here as well as on traces/sampled, and it has to. It
-    # is the first processor on every pipeline that touches the receiver, so a
+    # memory_limiter runs here, first, and it has to. It is the first
+    # processor on the pipeline that touches the receiver, so a
     # batch it refuses is refused before spanmetrics/pre has counted it. Left
     # off, the connector counts a batch, memory_limiter downstream rejects it,
     # the SDK retries the same spans, and pre_calls_total counts them again.
@@ -211,12 +211,12 @@ service:
       processors: [memory_limiter]
       exporters: [spanmetrics/pre, servicegraph, forward]
 
-    # Only this pipeline samples. memory_limiter stays FIRST. The transform runs
+    # Only this pipeline samples. The transform runs
     # before the sampler so the flattened attributes are on the span whichever
     # way the sampling decision goes.
     traces/sampled:
       receivers: [forward]
-      processors: [memory_limiter, transform/exception_to_span, tail_sampling, batch]
+      processors: [transform/exception_to_span, tail_sampling, batch]
       exporters: [kafka, spanmetrics/post]
 
     # Both spanmetrics namespaces plus the service graph scrape out of :8889.

@@ -41,13 +41,32 @@ await_rows() { for _ in $(seq 1 180); do
 The `< /dev/null` is not decoration. Without it the client waits on a stdin that
 never reaches EOF. NOTES has the detail.
 
+A run of any of the three exercises that was stopped between a backup and its
+restore leaves a `.bak` beside the file it edited, and a container still running
+the edited copy. Put every such file back before anything else, whichever
+exercise left it:
+
+```bash
+for f in collector/gateway-config.yaml docker-compose.yml loki/loki.yaml clickhouse/error_index.sql; do
+  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; echo "restored $f"; fi
+  rm -f "$f.tmp"
+done
+```
+
+Silence means there was nothing to restore. Then bring the stack up, and restart
+the two services that read a config file mounted from here, so neither keeps
+running a copy that was just put back:
+
 ```bash
 docker compose up -d --build
+docker compose restart otel-collector loki
 docker compose ps
 ```
 
-Wait for the health column to settle. This exercise needs ClickHouse and nothing
-else, so you can start reading as soon as that one is `healthy`.
+Wait for the health column to settle. This exercise reads ClickHouse and nothing
+else, but its spans reach ClickHouse through the Collector's sampler, so a sampler
+left edited by another exercise would change every count below. The restore above
+is what rules that out.
 
 Arm the listing 9.2 index against live traffic first, because a materialized view
 fires on insert and never backfills. Order matters: the view has to exist before
@@ -218,7 +237,7 @@ harmless:
 
 ```bash
 cp clickhouse/error_index.sql clickhouse/error_index.sql.bak
-sed -i.tmp "s/'\[0-9a-f\]{8,}|\[0-9\]+', '?'/'[0-9a-z]{8,}|[0-9]+', '?'/" clickhouse/error_index.sql
+sed -i.tmp "s/'(?i)\[0-9a-f\]{8,}(?:-\[0-9a-f\]{4,})\*|\[0-9\]+', '?'/'(?i)[0-9a-z]{8,}(?:-[0-9a-f]{4,})*|[0-9]+', '?'/" clickhouse/error_index.sql
 rm -f clickhouse/error_index.sql.tmp
 python3 benchmarks/fingerprint_compression.py
 ```
@@ -269,7 +288,7 @@ fix, and half of it stays broken.
 
 The script exits non-zero and says which direction it went. That is what the
 truth table bought: without a recorded `P` the run above produces 1,200 issues at
-an 833x compression ratio and looks entirely healthy. Restore:
+a 1,667x compression ratio and looks entirely healthy. Restore:
 
 ```bash
 mv clickhouse/error_index.sql.bak clickhouse/error_index.sql
@@ -388,14 +407,14 @@ ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
 ch --query "DROP TABLE IF EXISTS tracing.exceptions"
 ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
 grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
-grep -o "'\[0-9a-f\]{8,}|\[0-9\]+'" clickhouse/error_index.sql
+grep -oF "'(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+'" clickhouse/error_index.sql
 ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l
 ```
 
 ```
 otel_traces
 1
-'[0-9a-f]{8,}|[0-9]+'
+'(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+'
        0
 ```
 

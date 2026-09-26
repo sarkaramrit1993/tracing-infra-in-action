@@ -63,9 +63,9 @@ python3 benchmarks/exemplar_resolution.py
 
 Direction only again: a larger share of post-sampler exemplars resolve than
 pre-sampler ones, because the pointer behind the sampler is minted after the
-decision to keep. The ratio is a draw, and a wide one. Five runs here put the
-pre side between 28 and 38 percent with the post side at 100 percent every
-time.
+decision to keep. The ratio is a draw, and a wide one. Runs here have put the
+pre side anywhere from about a quarter to about two fifths, with the post side at
+100 percent every time.
 
 The series counts are printed and recorded beside the rates because without
 them the pre-side number reads impossible. Errors are about 2.9 percent of
@@ -143,9 +143,7 @@ near-duplicates, the compression below would be the generator's doing rather tha
 the regex's, and the measurement would be worthless. Every generated message
 carries three variable tokens: a seven-digit cart id, a duration in
 milliseconds, and a sixteen-character lowercase hex request id. The hex is what
-makes each message effectively unique, and lowercase is load-bearing, because
-the listing 9.2 regex reads `[0-9a-f]` and an uppercase `hex()` would sail
-straight through normalization.
+makes each message effectively unique.
 
 **Top ten over 50 percent.** Section 9.2.3's premise is that a handful of code
 paths throw the overwhelming majority of the errors. Volume is distributed Zipf

@@ -215,9 +215,14 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 9
 ```
 
-306 calls became 14. The sampler dropped the other 292. But the error counts are
-identical, 9 against 9, because the `keep-errors` policy keeps every trace that
-carries an error and drops nothing from that class. So the numerator survived
+306 calls became 14. The sampler dropped the other 292. That block is the
+committed reference run in [RESULTS.md](RESULTS.md), and your 14 will differ,
+because which successes the sampler keeps is a draw: nine errors plus a one-in-a-hundred
+draw over 297 successes, which averages three. The post total lands between 9 and
+16 on all but about one run in a hundred, so the post rate lands between 0.56 and
+1.0. The 306 and the two 9s do not move. The error counts are identical, 9 against 9, because the
+`keep-errors` policy keeps every trace that carries an error and drops nothing
+from that class. So the numerator survived
 whole while the denominator was cut by a factor of twenty-two, and the two error
 rates come out:
 
@@ -424,7 +429,11 @@ bash tests/test_correlation.sh
 folds many raw error spans into one issue, that the post error rate reads above
 the pre one, that the service graph has edges, and that both sides of the
 ingest-gap rule report. `test_correlation.sh` fires one request with a trace id it chose itself
-and walks all three of section 9.3's crossings for that one id. Both poll for
+and follows that id across the first two of section 9.3's crossings. Alongside
+it, it sends a hundred ordinary requests of its own, which the exemplar check and
+the third crossing need as traffic the sampler drops. For the third it waits for
+the post-sampler count to settle and checks it rose by less than half as much as
+the pre-sampler count. Both poll for
 every condition rather than sleeping, and both put the store back the way a fresh
 stack starts, so either can be run in any order and re-run from any state.
 
@@ -542,5 +551,5 @@ chapter-09/
     ├── requirements.txt
     ├── test_static.py           offline: listings, connectors, rules, compose
     ├── test_stack.sh            live: the chapter's claims against the stack
-    └── test_correlation.sh      live: one trace id across all three bridges
+    └── test_correlation.sh      live: the three bridges, one traced id plus 100 requests
 ```
