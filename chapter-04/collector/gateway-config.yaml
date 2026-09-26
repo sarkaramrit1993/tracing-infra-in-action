@@ -1,4 +1,4 @@
-# Listing 4.7: Gateway collector with Kafka exporter
+# Listing 4.6: Gateway collector with Kafka exporter
 receivers:
   otlp:
     protocols:
