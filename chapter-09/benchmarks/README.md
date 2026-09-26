@@ -63,9 +63,9 @@ python3 benchmarks/exemplar_resolution.py
 
 Direction only again: a larger share of post-sampler exemplars resolve than
 pre-sampler ones, because the pointer behind the sampler is minted after the
-decision to keep. The ratio is a draw, and a wide one. Five runs here put the
-pre side between 28 and 38 percent with the post side at 100 percent every
-time.
+decision to keep. The ratio is a draw, and a wide one. Runs here have put the
+pre side anywhere from about a quarter to about two fifths, with the post side at
+100 percent every time.
 
 The series counts are printed and recorded beside the rates because without
 them the pre-side number reads impossible. Errors are about 2.9 percent of

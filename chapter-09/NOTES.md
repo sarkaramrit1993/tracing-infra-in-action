@@ -160,8 +160,8 @@ series resolves, because the sampler kept that trace whole.
 
 So the rate is a statement about the series mix in the window, which is why the
 benchmark records `distinct_series` and `error_series` beside it and asserts
-only the direction. Five runs here put the pre side between 28 and 38 percent
-and the post side at 100 percent every time. The direction is the finding. The
+only the direction. Runs here have put the pre side anywhere from about a
+quarter to about two fifths, and the post side at 100 percent every time. The direction is the finding. The
 ratio is a draw.
 
 The post exemplars all resolve because they are minted from spans that already

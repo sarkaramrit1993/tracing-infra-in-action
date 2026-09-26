@@ -436,16 +436,18 @@ docker compose restart otel-collector
 await_collector
 for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
 await 'sum(post_calls_total{service_name="checkout-service"})' 7
-promq 'sum(pre_calls_total{service_name="checkout-service"}) > sum(post_calls_total{service_name="checkout-service"})'
+promq 'sum(pre_calls_total{service_name="checkout-service"}) > bool sum(post_calls_total{service_name="checkout-service"})'
 ```
 
 ```
-1400
+1
 ```
 
-Any number rather than `no data` means the comparison held: the pre series is
-above the post series again, which is only true when the sampler sits on the far
-side of the pre connector. The number itself is the pre total: 200 requests at
-seven spans each, counted from the restart at the top of the block.
+`1` means the comparison held: the pre series is above the post series again,
+which is only true when the sampler sits on the far side of the pre connector. A
+`0` is the wrong-side failure from Going deeper, both series counting the same
+survivors. The check prints a verdict rather than the pre total because the poll
+releases on the first kept trace, and a total read at that moment can still be a
+flush short of the 1,400 the 200 requests will reach.
 
 This exercise never wrote to ClickHouse, so there is nothing to delete there.

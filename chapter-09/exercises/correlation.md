@@ -258,8 +258,7 @@ bd5338a9e6cd556ff8d7297bca7edd4d -> 0 spans
 
 The list is abridged because the interesting part is the tally rather than the
 ids. The count follows the traffic in the window, so it is yours alone; what
-holds is that most of them dangle, about three in four on the walks behind this
-file. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
+holds is that most of them dangle. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
 decided anything, and the sampler then throws away ninety-nine successful traces
 in every hundred. The pointer is still a valid trace id. `query_exemplars`
 returns it without complaint, the drill-down runs, and the trace viewer says the

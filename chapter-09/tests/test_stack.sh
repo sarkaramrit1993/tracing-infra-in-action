@@ -138,12 +138,14 @@ Q_ERRSPANS="SELECT count() FROM tracing.otel_traces WHERE status_code='STATUS_CO
 ERR_BEFORE=$(CH_COUNT "$Q_ERRSPANS")
 for _ in $(seq 1 "$CHECKOUTS"); do curl -s -o /dev/null http://localhost:8080/checkout || true; done
 for _ in $(seq 1 "$FORCED_ERRORS"); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1" || true; done
-# The sampler keeps every error trace, so the forced failures are guaranteed to
-# land. The successes are sampled at one in a hundred, which is the whole point
-# of step 7. Each failed checkout stores TWO error spans, fraud.score and the
-# server span it propagated to, so the target below is the conservative one.
-ERR_TARGET=$((ERR_BEFORE + FORCED_ERRORS))
-wait_for 180 "this run's $FORCED_ERRORS error spans to reach ClickHouse" 'ge "$Q_ERRSPANS" "$ERR_TARGET"'
+# The sampler keeps every error trace, so every failure is guaranteed to land:
+# the forced ones plus the one checkout in a hundred the app fails on its own.
+# Each failed checkout stores TWO error spans, fraud.score and the server span it
+# propagated to. Waiting for fewer releases on a partial batch, and step 6 then
+# reads the index and the span table on either side of the next insert.
+ERR_RUN=$((2 * (FORCED_ERRORS + CHECKOUTS / 100)))
+ERR_TARGET=$((ERR_BEFORE + ERR_RUN))
+wait_for 180 "this run's $ERR_RUN error spans to reach ClickHouse" 'ge "$Q_ERRSPANS" "$ERR_TARGET"'
 SPANS=$(CH --query "SELECT count() FROM tracing.otel_traces")
 ROOTS=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE parent_span_id = ''")
 CHILDREN=$(CH --query "SELECT count() FROM tracing.otel_traces WHERE parent_span_id != ''")
