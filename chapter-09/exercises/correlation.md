@@ -66,8 +66,25 @@ await_collector() { for _ in $(seq 1 90); do
 The `< /dev/null` on `ch` is not decoration. Without it the client waits on a
 stdin that never reaches EOF. NOTES has the detail.
 
+A run of any of the three exercises that was stopped between a backup and its
+restore leaves a `.bak` beside the file it edited, and a container still running
+the edited copy. Put every such file back before anything else, whichever
+exercise left it:
+
+```bash
+for f in collector/gateway-config.yaml docker-compose.yml loki/loki.yaml clickhouse/error_index.sql; do
+  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; echo "restored $f"; fi
+  rm -f "$f.tmp"
+done
+```
+
+Silence means there was nothing to restore. Then bring the stack up, and restart
+the two services that read a config file mounted from here, so neither keeps
+running a copy that was just put back:
+
 ```bash
 docker compose up -d --build
+docker compose restart otel-collector loki
 docker compose ps
 ```
 

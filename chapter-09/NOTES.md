@@ -69,6 +69,9 @@ docker run --rm alpine df -h /
 docker compose logs loki | grep -i "no space\|disk"
 ```
 
+On a VM with room to spare the grep prints nothing, and that is the healthy
+answer rather than a broken command.
+
 Loki's `log_level` is `warn` in `loki/loki.yaml` for exactly this reason: at
 `error` the line does not appear at all. Allow about 4 GB free inside the VM
 before starting, and reclaim with `docker system prune --volumes` when it is
@@ -108,9 +111,16 @@ curl -s -G http://localhost:3100/loki/api/v1/query_range \
   --data-urlencode "end=$(python3 -c 'import time;print(int(time.time()*1e9))')"
 ```
 
+The id in both queries is one request from the run these notes were written
+against, so on your stack both come back empty; put in one of your own, such as
+the `$TID` that `exercises/correlation.md` picks, and the second one returns its
+log lines.
+
 `allow_structured_metadata: true` in `loki/loki.yaml` is what makes the field
-survive ingestion at all. Turn it off and Loki accepts the write and discards
-the field, which produces the same empty result from the correct selector.
+survive ingestion at all. Turn it off and Loki rejects every OTLP write that
+carries structured metadata with a 400, so the Collector drops whole batches and
+the correct selector comes back empty along with everything else.
+`exercises/correlation.md` ends on exactly that break.
 
 Promoting `trace_id` to a real label would make the first selector work and would
 also be the exact mistake section 9.3.2 forbids: a label per trace id is a

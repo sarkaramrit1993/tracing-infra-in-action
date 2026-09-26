@@ -56,8 +56,25 @@ scrape, and a wait tuned to one machine is a guess on any other. A poll that
 times out tells you which series never arrived; a sleep that was too short tells
 you the opposite of what the exercise is about.
 
+A run of any of the three exercises that was stopped between a backup and its
+restore leaves a `.bak` beside the file it edited, and a container still running
+the edited copy. Put every such file back before anything else, whichever
+exercise left it:
+
+```bash
+for f in collector/gateway-config.yaml docker-compose.yml loki/loki.yaml clickhouse/error_index.sql; do
+  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; echo "restored $f"; fi
+  rm -f "$f.tmp"
+done
+```
+
+Silence means there was nothing to restore. Then bring the stack up, and restart
+the two services that read a config file mounted from here, so neither keeps
+running a copy that was just put back:
+
 ```bash
 docker compose up -d --build
+docker compose restart otel-collector loki
 docker compose ps
 ```
 
