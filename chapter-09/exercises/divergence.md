@@ -203,8 +203,8 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 
 2.9 percent against 5.6, an inflation of 1.90 where it was 21.9. The formula
 predicts 1.94 at these counts. At 50 percent every successful trace is a coin
-toss, so the post total moves between runs (161 and 158 on two walks from a clean
-stack) and the rate moves with it, 5.6 to 5.7 percent. The lie did not go away,
+toss, so the post total moves between runs (161, 158 and 152 on three walks from
+a clean stack) and the rate moves with it, 5.6 to 5.9 percent. The lie did not go away,
 it got quieter, and quieter is the more dangerous direction. At 64 percent nobody believes the panel.
 At 5.6 percent against a true 2.9 the panel is wrong by a factor you would take
 for noise, or for a bad afternoon, and act on. Restore:
@@ -275,8 +275,8 @@ there because one in a hundred of a realistic error count is zero: with no
 errors to begin with. And twelve surviving traces is a small sample, so 58.3
 against 50.5 is 1.15 rather than 1.00 for the same reason a coin lands heads
 seven times in twelve. Your own two rates will land somewhere either side of one:
-two walks from a clean stack kept 9 and 11 traces, 3 and 6 of them errors, for
-inflations of 0.66 and 1.08. What is being shown is the difference between an
+three walks from a clean stack kept 9, 11 and 10 traces, 3, 6 and 6 of them
+errors, for inflations of 0.66, 1.08 and 1.19. What is being shown is the difference between an
 inflation near one and the 21.9 above, not a third decimal place.
 
 Which is the useful way to see what the first number was really measuring. The

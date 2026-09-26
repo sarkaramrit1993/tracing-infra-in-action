@@ -217,7 +217,7 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 
 306 calls became 14. The sampler dropped the other 292. Your 14 will differ,
 because which successes the sampler keeps is a draw: two walks from a clean stack
-got 12 both times, which puts the post rate below at 0.75. The 306 and the two 9s
+got 12 both times and a third got 13, which puts the post rate at 0.75 and 0.69. The 306 and the two 9s
 do not move. The error counts are identical, 9 against 9, because the
 `keep-errors` policy keeps every trace that carries an error and drops nothing
 from that class. So the numerator survived
