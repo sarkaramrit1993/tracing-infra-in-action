@@ -232,9 +232,9 @@ c4a3eb9685b88de2a6757eb7adbfe4f5 -> 7 spans
 ```
 
 Every exemplar resolves to a whole trace. How many there are follows the traffic
-in the query's fifteen-minute window: 51 on the walk printed here, abridged to
-its first five, and 37 and 40 on two earlier walks. All three ran the README and
-the other two exercises first, so expect fewer if you start here. The trace this
+in the query's fifteen-minute window, so it is yours alone: the block is one
+walk's list abridged to its first five, and a walk that ran the README and the
+other two exercises first has more in the window than one that starts here. The trace this
 exercise picked is usually not among them. Prometheus keeps one exemplar per
 series per scrape, and the other failures share its buckets. Now run exactly the
 same loop against the pre-sampler histogram:
@@ -256,10 +256,10 @@ bd5338a9e6cd556ff8d7297bca7edd4d -> 0 spans
 ...
 ```
 
-The same walk had 101 pre exemplars, abridged here because the interesting part
-is the tally rather than the ids: 27 resolved and 74 pointed at nothing. Two earlier
-walks got 23 of 95 and 25 of 89. The count follows the traffic; what holds is that about three in four
-dangle. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
+The list is abridged because the interesting part is the tally rather than the
+ids. The count follows the traffic in the window, so it is yours alone; what
+holds is that most of them dangle, about three in four on the walks behind this
+file. That is the second silent failure. A pre-sampler exemplar is minted before the sampler has
 decided anything, and the sampler then throws away ninety-nine successful traces
 in every hundred. The pointer is still a valid trace id. `query_exemplars`
 returns it without complaint, the drill-down runs, and the trace viewer says the
@@ -288,8 +288,9 @@ promq 'sum(post_calls_total{service_name="checkout-service"})'
 The first number is exact: 411 requests since the restart, at seven spans each.
 The second is a draw. It counts the fifteen error traces (the fourteen above and
 the one this exercise picked) plus whichever successes the sampler happened to
-keep, so it moves between runs: 140 on the walk printed here, 119 and 133 on
-two earlier ones.
+keep. That draw is one in a hundred over the 396 successes, so the second number
+is 105 plus seven spans per kept success, between 105 and 168 on all but about
+one run in a hundred, and the block is one of them.
 
 The pre series is a population count, derived from every span before anything was
 dropped. The post series describes the sample. Everything section 9.2 claims
@@ -413,8 +414,9 @@ promq 'otelcol_connector_servicegraph_dropped_spans_total'
 
 Two edges where there were seven, and the two that survived carry 4 and 4
 requests out of 200. Which edges survive, and what they carry, depends on which
-halves happened to meet in the one free slot, so it moves between runs: two
-earlier walks kept three edges each, carrying 3, 4 and 1 and then 3, 2 and 3.
+halves happened to meet in the one free slot, so the block is one draw: expect a
+few edges carrying a few requests each, never the seven edges and 1,400 calls the
+span metrics saw.
 The dependency graph is now wrong in a way no one would question: it is a
 plausible graph of a service with a couple of downstreams and light traffic. Read it a scrape too early and you get no edges at all, which is the
 same failure wearing a more obvious face, and the reason `await` above polls the
@@ -431,8 +433,8 @@ RED is flat here not because nothing was measured but because nothing RED
 measures goes through the service-graph store.
 
 The third number is the one worth taking away. `otelcol_connector_servicegraph_dropped_spans_total`
-is about 990 (992 on four walks, 991 on a fifth, for the same reason the edges
-move), and unlike the other two failures in this file, this one does announce
+is about 990 (it moves by a span or two between runs, for the same reason the
+edges move), and unlike the other two failures in this file, this one does announce
 itself. It announces itself on a series nobody has a panel for. Restore:
 
 ```bash

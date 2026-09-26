@@ -215,10 +215,12 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 9
 ```
 
-306 calls became 14. The sampler dropped the other 292. Your 14 will differ,
-because which successes the sampler keeps is a draw: two walks from a clean stack
-got 12 both times and a third got 13, which puts the post rate at 0.75 and 0.69. The 306 and the two 9s
-do not move. The error counts are identical, 9 against 9, because the
+306 calls became 14. The sampler dropped the other 292. That block is the
+committed reference run in [RESULTS.md](RESULTS.md), and your 14 will differ,
+because which successes the sampler keeps is a draw: nine errors plus a one-in-a-hundred
+draw over 297 successes, which averages three. The post total lands between 9 and
+16 on all but about one run in a hundred, so the post rate lands between 0.56 and
+1.0. The 306 and the two 9s do not move. The error counts are identical, 9 against 9, because the
 `keep-errors` policy keeps every trace that carries an error and drops nothing
 from that class. So the numerator survived
 whole while the denominator was cut by a factor of twenty-two, and the two error

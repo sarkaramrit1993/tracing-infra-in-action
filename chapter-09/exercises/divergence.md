@@ -132,11 +132,13 @@ every trace carrying an error, so the sampler dropped nothing at all from that
 class. The denominator fell by a factor of twenty-two and the numerator did not
 move.
 
-Your four numbers will differ from these, and the post total most of all. At one
-in a hundred, 297 successful requests leave about three survivors, and three is a
-number with a lot of luck in it: this run kept five, and two walks from a clean
-stack kept five and one, for post totals of 14 and 10. What reproduces is the
-relationship: pre above post, and the two error counts equal.
+Your four numbers will differ from these, and the post total most of all. The
+blocks in this section are the committed reference run in `RESULTS.md`, the same
+one the README prints. At one in a hundred, 297 successful requests leave about
+three survivors, and three is a number with a lot of luck in it: that run kept
+five. The post total is nine plus that draw, so it lands between 9 and 16 on all
+but about one run in a hundred. What reproduces is the relationship: pre above
+post, and the two error counts equal.
 
 ## The two rates
 
@@ -164,8 +166,8 @@ you check your own numbers rather than compare them to these. With `E` errors,
     inflation = (E + S) / (E + sS)
 ```
 
-At `s = 0.01`, with `E = 9` and `S = 297`, the formula gives 25.6. The measured
-64.3 over 2.9 is 21.9. The gap between the two is the five successful traces the
+At `s = 0.01`, with `E = 9` and `S = 297`, the formula gives 25.6. The reference
+run's 64.3 over 2.9 is 21.9. The gap between the two is the five successful traces the
 sampler happened to keep where the expected number was three: at this sample rate
 the survivors' denominator is a handful of traces, so it moves, and the inflation
 moves with it.
@@ -220,8 +222,9 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 
 2.9 percent against 5.6, an inflation of 1.90 where it was 21.9. The formula
 predicts 1.94 at these counts. At 50 percent every successful trace is a coin
-toss, so the post total moves between runs (161, 158 and 152 on three walks from
-a clean stack) and the rate moves with it, 5.6 to 5.9 percent. The lie did not go away,
+toss, so the block is one draw and the post total moves between runs: nine plus
+half of 297 on average, landing between 141 and 175 on about 98 runs in a hundred,
+which puts the post rate between 5.1 and 6.4 percent. The lie did not go away,
 it got quieter, and quieter is the more dangerous direction. At 64 percent nobody believes the panel.
 At 5.6 percent against a true 2.9 the panel is wrong by a factor you would take
 for noise, or for a bad afternoon, and act on. Restore:
@@ -251,7 +254,7 @@ await_collector
 for _ in $(seq 1 600); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 600); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
 await 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 606
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 3
+await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 1
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
@@ -291,10 +294,12 @@ there because one in a hundred of a realistic error count is zero: with no
 `keep-errors` policy the survivors carry errors only if there were a great many
 errors to begin with. And twelve surviving traces is a small sample, so 58.3
 against 50.5 is 1.15 rather than 1.00 for the same reason a coin lands heads
-seven times in twelve. Your own two rates will land somewhere either side of one:
-three walks from a clean stack kept 9, 11 and 10 traces, 3, 6 and 6 of them
-errors, for inflations of 0.66, 1.08 and 1.19. What is being shown is the difference between an
-inflation near one and the 21.9 above, not a third decimal place.
+seven times in twelve. The block is one draw. The kept count is one percent of
+1,200, twelve on average and between 5 and 20 on about 98 runs in a hundred, and
+about half of what is kept is errors, so your inflation will land somewhere either
+side of one, between 0.5 and 1.5 on about nine runs in ten. What is being shown is
+the difference between an inflation near one and the 21.9 above, not a third
+decimal place.
 
 Which is the useful way to see what the first number was really measuring. The
 divergence was never caused by sampling. It was caused by sampling the two
@@ -356,10 +361,10 @@ echo "exit $?"
 exit 1
 ```
 
-Both series identical, and the Collector booted clean. The shared rate is
-whatever this run's survivors happen to hold, 64 percent here and 90 and 82
-percent on two later walks, because both series now count the same handful of
-kept traces. The config is valid YAML, every component name resolves, and no log line complains.
+Both series identical, and the Collector booted clean. The block is one draw and
+the shared rate is whatever the survivors happen to hold: nine errors over nine
+plus the kept successes, anywhere from about 56 percent to 100, because both
+series now count the same handful of kept traces. The config is valid YAML, every component name resolves, and no log line complains.
 The benchmark is the only thing anywhere that notices, which is why the block
 runs it: its direction assertion is the one statement in this repository that a
 connector on the wrong side of the sampler cannot satisfy.
