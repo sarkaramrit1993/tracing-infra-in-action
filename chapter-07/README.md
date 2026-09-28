@@ -21,11 +21,11 @@ default, so every trace the checkout service produces is stored twice, once as
 rows you scan with SQL and once as an immutable block you look up by id. The
 section near the end shows the same trace answered both ways.
 
-Both archetypes write to the same object storage. A MinIO service stands in for
-AWS S3, GCS, or Azure Blob. ClickHouse's `s3_cold` disk (in
+Both archetypes write to the same object storage. A SeaweedFS service stands in
+for AWS S3, GCS, or Azure Blob. ClickHouse's `s3_cold` disk (in
 `clickhouse/config.d/storage.xml`) writes aged parts to the `traces-cold` bucket
 as S3 objects, and Tempo writes its Parquet blocks to `tempo-blocks` in the same
-MinIO. Listing 7.2's `TO VOLUME 'cold'` moves data onto that disk, which you can
+SeaweedFS. Listing 7.2's `TO VOLUME 'cold'` moves data onto that disk, which you can
 watch and verify against the bucket.
 
 Bring the stack up, look at some traces, then pick whichever of the three
@@ -58,7 +58,7 @@ it when something surprises you.
   extra package Debian and Ubuntu need and the different activate path on
   Windows
 
-Tear down any other chapter's stack first. This stack binds twelve host ports,
+Tear down any other chapter's stack first. This stack binds eleven host ports,
 listed under [Reference](#reference) at the bottom of this file.
 
 ## Bring it up
@@ -70,7 +70,7 @@ docker compose ps
 
 Give it about 45 seconds: Kafka elects its controller, the `otlp_spans` topic
 lands, ClickHouse applies `init.sql`, and the consumer connects. The first run
-also pulls seven images and builds the app image, so it takes longer before that
+also pulls six images and builds the app image, so it takes longer before that
 clock even starts. Then generate traffic:
 
 ```bash
@@ -247,12 +247,13 @@ curl -s "http://localhost:3200/api/traces/$TID" | python3 -m json.tool | head -4
 Seven spans either way, the same names and the same durations. One workload, one
 trace, two layouts.
 
-Now look at where the bytes went. Both stores write to the same MinIO:
+Now look at where the bytes went. Both stores write to the same SeaweedFS.
+`weed shell` is its admin console, and each bucket is a directory under
+`/buckets`:
 
 ```bash
-docker compose exec -T minio mc alias set demo http://localhost:9000 traceadmin traceadmin-secret
-docker compose exec -T minio mc ls demo
-docker compose exec -T minio mc ls --recursive demo/tempo-blocks | head
+echo "s3.bucket.list" | docker compose exec -T seaweedfs weed shell
+echo "fs.tree /buckets/tempo-blocks" | docker compose exec -T seaweedfs weed shell | head
 ```
 
 `traces-cold/` holds ClickHouse's aged parts. `tempo-blocks/` holds Tempo's
@@ -342,8 +343,8 @@ policy behind.
 
 ## Tear down
 
-The `-v` flag drops the named volumes, including Tempo's blocks and the MinIO
-bucket behind them.
+The `-v` flag drops the named volumes, including Tempo's blocks and the SeaweedFS
+buckets behind them.
 
 ```bash
 docker compose down -v
@@ -362,11 +363,11 @@ Nothing below is needed to run anything above it.
 
 ### Ports
 
-The stack binds host ports 3200, 4317, 4318, 4417, 8080, 8123, 8888, 9000,
-9001, 9002, 9090 and 9363, all on 127.0.0.1. They are reachable from this
+The stack binds host ports 3200, 4317, 4318, 4417, 8080, 8123, 8333, 8888,
+9000, 9090 and 9363, all on 127.0.0.1. They are reachable from this
 machine and nowhere else, which is deliberate: ClickHouse here runs a
-password-less user and MinIO's credentials are in the compose file, so neither
-belongs on a shared network. If you need to reach the stack from another
+password-less user and the object store's S3 key pair is in the compose
+file, so neither belongs on a shared network. If you need to reach the stack from another
 machine, put an SSH tunnel in front of it rather than widening the binding.
 
 ### Version manifest (one tag per image, N1)
@@ -377,9 +378,8 @@ machine, put an SSH tunnel in front of it rather than widening the binding.
 | OTel Collector contrib | `otel/opentelemetry-collector-contrib:0.154.0` | OTLP in, partition-by-trace-id, Kafka out |
 | Apache Kafka | `apache/kafka:4.3.0` (KRaft) | replayable span buffer feeding the store |
 | Prometheus | `prom/prometheus:v3.12.0` | collector + ClickHouse metrics |
-| Grafana Tempo | `grafana/tempo:3.0.2` | block archetype for the section 7.3 contrast, fed by the Collector, blocks in MinIO |
-| MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | S3-compatible object store behind the cold tier |
-| MinIO client | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | one-shot bucket bootstrap (`traces-cold`) |
+| Grafana Tempo | `grafana/tempo:3.0.2` | block archetype for the section 7.3 contrast, fed by the Collector, blocks in SeaweedFS |
+| SeaweedFS | `chrislusf/seaweedfs:4.47` (`weed mini`, Apache 2.0) | S3-compatible object store behind the cold tier and Tempo's blocks; creates both buckets on startup |
 | Python | `python:3.12-slim` + OTel SDK 1.42.1 | checkout producer + consumer |
 
 These match `chapter-05/` (Collector >= 0.151.0).
@@ -404,14 +404,14 @@ chapter-07/
 │   └── consumer_clickhouse.py  # OTLP -> listing 7.1 columns -> ClickHouse
 ├── collector/
 │   ├── gateway-config.yaml     # OTLP in, partition_traces_by_id, Kafka out
-│   └── tempo.yaml              # block-archetype backend, blocks to MinIO
+│   └── tempo.yaml              # block-archetype backend, blocks to SeaweedFS
 ├── clickhouse/
 │   ├── init.sql                # listing 7.1 + adjusted_count column (auto-applied on first boot)
 │   ├── tiering.sql             # listing 7.2 (applied by exercises/tiering.md)
 │   ├── compression.sql         # listing 7.3 (per-column compression query)
 │   ├── tenancy.sql             # listing 7.4 (applied by exercises/tenancy.md)
 │   ├── config.d/
-│   │   ├── storage.xml         # 'tiered' policy + S3-backed 'cold' volume (MinIO) for listing 7.2
+│   │   ├── storage.xml         # 'tiered' policy + S3-backed 'cold' volume (SeaweedFS) for listing 7.2
 │   │   ├── network.xml
 │   │   └── prometheus.xml
 │   └── users.d/

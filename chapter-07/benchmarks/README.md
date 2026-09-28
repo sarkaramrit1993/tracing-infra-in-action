@@ -161,7 +161,7 @@ Measures what listing 7.2's cold tier costs to read. It stages two identical
 batches on the hot volume, one dated three days back and one dated one day back,
 then restores listing 7.2's own boundary (two days to cold, fifteen days delete)
 and materializes it, so the older partition qualifies for the move and the newer
-one does not. Once the older part reaches `s3_cold` (the MinIO-backed S3 disk) it
+one does not. Once the older part reaches `s3_cold` (the SeaweedFS-backed S3 disk) it
 runs the same aggregate against both partitions, interleaved, discards the first
 round as a warm-up and reports the median, min and max for each plus the ratio.
 Both batches come from the same generator, so the only difference between them is
@@ -181,7 +181,7 @@ have already walked through. The restore also runs in a `finally` block, so an
 error or a Ctrl-C cannot strand the staging boundary on the table.
 
 The two batches are left in place when the run finishes, one partition on
-`default` and one on `s3_cold`, so you can look at them and at the MinIO bucket.
+`default` and one on `s3_cold`, so you can look at them and at the SeaweedFS bucket.
 The next run clears them.
 
 What is no longer reported: `move_latency_seconds`, the wall-clock time from the
@@ -206,7 +206,7 @@ Bytes moved shifts by a fraction of a percent depending on whether ClickHouse
 rewrote the part or relocated it as it stood. The absolute milliseconds do not
 repeat at all, since they include the client round trip and whatever else the
 machine is doing; the ratio is the number to read. It is a floor, not a
-forecast. The cold tier here is MinIO on the same Docker network, which is the
+forecast. The cold tier here is SeaweedFS on the same Docker network, which is the
 friendliest object store a cold tier will ever have. A real S3 endpoint across a
 network is slower, and the gap widens with the size of the read.
 

@@ -1,7 +1,7 @@
 """Chapter 7 benchmark: what listing 7.2's cold tier costs to read.
 
 This exercises listing 7.2's `TO VOLUME 'cold'` against real object storage. The
-cold volume is the s3_cold disk in config.d/storage.xml, backed by the MinIO
+cold volume is the s3_cold disk in config.d/storage.xml, backed by the SeaweedFS
 service, so a moved part is written out as S3 objects, the same path a
 production cluster takes to AWS S3, GCS, or Azure Blob.
 
@@ -259,7 +259,7 @@ def run():
     if not moved:
         raise SystemExit(
             f"[tiering] no part reached disk '{COLD_DISK}' within {POLL_TIMEOUT_S}s; "
-            f"check that MinIO is up and the s3_cold disk resolves")
+            f"check that SeaweedFS is up and the s3_cold disk resolves")
 
     on_cold = _partition_stats(ch, cold_partition, COLD_DISK)
     s3_objects = _s3_objects_for_parts(ch, cold_partition)
@@ -326,11 +326,11 @@ def run():
             "the storage path and nothing else. The absolute milliseconds "
             "include the client round trip and are specific to this laptop; "
             "the ratio is the number to read, and only its direction is stable. "
-            "Repeated runs on one machine have landed between 1.4x and 1.9x, so "
+            "Repeated runs on one machine have landed between 1.4x and 1.8x, so "
             "treat the figure above as one draw and not a constant. The "
             "assertion is set at 1.3x for that reason. It is a floor, not a "
             "forecast: "
-            "the cold tier here is MinIO on the same Docker network, and a "
+            "the cold tier here is SeaweedFS on the same Docker network, and a "
             "real S3 endpoint across a network is slower than that. Nothing "
             "here reports how long the move itself took, because that is the "
             "background scheduler's backoff, not a property of the tier."

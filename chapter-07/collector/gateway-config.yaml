@@ -10,7 +10,7 @@
 # The traces pipeline fans the same span stream out to both storage archetypes
 # of section 7.3: Kafka (and from there ClickHouse, the wide-column row store)
 # and Tempo (the block store). One workload, one trace, two layouts, both
-# landing in the same MinIO object storage.
+# landing in the same SeaweedFS object storage.
 receivers:
   otlp:
     protocols:

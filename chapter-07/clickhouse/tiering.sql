@@ -7,10 +7,10 @@
 --   docker compose exec -T clickhouse clickhouse-client --multiquery < clickhouse/tiering.sql
 --
 -- The 'cold' volume is backed by a real S3 disk (the s3_cold disk in
--- config.d/storage.xml) that points at the MinIO service in docker-compose.yml.
+-- config.d/storage.xml) that points at the SeaweedFS service in docker-compose.yml.
 -- When a part moves to cold, its system.parts.disk_name flips from 'default' to
 -- 's3_cold' and the data is written as S3 objects into the 'traces-cold' bucket.
--- Swapping MinIO for AWS S3, GCS, or Azure Blob is an endpoint and credential
+-- Swapping SeaweedFS for AWS S3, GCS, or Azure Blob is an endpoint and credential
 -- change in storage.xml; the ALTER statements below stay identical.
 
 -- ---- Listing 7.2: A ClickHouse hot-to-cold tiering policy

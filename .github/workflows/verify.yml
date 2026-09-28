@@ -150,7 +150,7 @@ jobs:
           - chapter: chapter-05
             settle: 130
           # Chapter 7 brings up object storage as well as Kafka and ClickHouse,
-          # and MinIO's bucket init has to finish before Tempo writes a block,
+          # and SeaweedFS has to create both buckets before Tempo writes a block,
           # so it settles longer than chapter 5 despite running no Flink.
           - chapter: chapter-07
             settle: 150

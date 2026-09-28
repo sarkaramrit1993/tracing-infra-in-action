@@ -98,7 +98,8 @@ This is what [exercises/tiering.md](exercises/tiering.md) is built on.
 
 `TO VOLUME 'cold'` resolves against the `cold` volume defined in
 `config.d/storage.xml`, whose disk is the S3-backed `s3_cold` disk pointing at
-the MinIO object store. That is the same API AWS S3, GCS, and Azure Blob expose.
+the SeaweedFS object store. That is the same API AWS S3, GCS, and Azure Blob
+expose.
 Only the endpoint and the credentials change between them.
 
 The rule fires on parts older than two days. The exercise stages rows dated
@@ -136,8 +137,8 @@ Counting the objects behind the move is scoped to the parts that are live right
 now for a reason. ClickHouse deletes a replaced part's blobs lazily,
 `old_parts_lifetime` after the replacement, which is eight minutes by default. A
 bucket-wide count therefore picks up garbage from earlier work and is not a fact
-about the move you just made. That is why `mc` can report more objects than
-ClickHouse does on a second run through the exercise.
+about the move you just made. That is why `weed shell` can report more objects
+than ClickHouse does on a second run through the exercise.
 
 ## Why `DROP PARTITION` is instant
 
@@ -201,7 +202,7 @@ mislabeled row as a trusted writer and reading it back as the wrong tenant.
 
 ## Tempo's cold boundary, and why the config looks different from the book's
 
-Tempo writes its blocks to the same MinIO that backs ClickHouse's `s3_cold`
+Tempo writes its blocks to the same SeaweedFS that backs ClickHouse's `s3_cold`
 disk, in the `tempo-blocks` bucket. Both archetypes therefore sit on one object
 store, and the contrast section 7.3 draws is the unit of storage rather than the
 medium: a part of a column against an opaque Parquet block.
