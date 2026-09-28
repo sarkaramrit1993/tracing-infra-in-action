@@ -53,8 +53,8 @@ wall-clock pacing. It advances a synthetic event-time clock deterministically,
 fills the in-flight population to steady state (every trace accumulates its
 spans inside the `decision_wait` window before its timer fires), and reports the
 peak buffer. The default run reproduces the chapter's back-of-envelope from
-section 5.1.3: at 5,000 traces/sec, 30s `decision_wait`, 8 spans/trace,
-2 KB/span, the on-the-wire buffer reaches roughly 2.4 GB, and the collector's
+section 5.1.3: at 20,000 traces/sec, 30s `decision_wait`, 8 spans/trace,
+500 bytes/span, the on-the-wire buffer reaches 2.4 GB, and the collector's
 in-memory representation runs about 4x that.
 
 ```bash
@@ -62,8 +62,8 @@ python3 stream_time.py
 TRACES_PER_SEC=1000 DECISION_WAIT_S=10 python3 stream_time.py
 ```
 
-Because the clock is synthetic, the run is instant and deterministic; there is
-no `DURATION_S` knob. Tunable knobs: `TRACES_PER_SEC`, `SPANS_PER_TRACE`,
+Because the clock is synthetic, the run is deterministic and finishes in about
+a minute; there is no `DURATION_S` knob. Tunable knobs: `TRACES_PER_SEC`, `SPANS_PER_TRACE`,
 `SPAN_SIZE_BYTES`, `DECISION_WAIT_S`, `MEM_FACTOR` (in-memory expansion vs wire,
 default 4).
 
