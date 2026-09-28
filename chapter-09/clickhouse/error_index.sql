@@ -26,7 +26,7 @@
 -- many raw error spans that share a fingerprint into one issue row carrying its
 -- running count, first_seen / last_seen window, and one sample trace_id for the
 -- drill-down back to the full trace. error_count sums adjusted_count so the issue
--- volume stays sample-weighted (the chapter 8 / section 7.4.4 rule); on live
+-- volume stays sample-weighted (the chapter 8 / section 7.4.3 rule); on live
 -- ingest adjusted_count defaults to 1.0, so it is a plain span count there.
 CREATE TABLE IF NOT EXISTS tracing.exceptions
 (

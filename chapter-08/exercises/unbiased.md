@@ -190,7 +190,7 @@ week's work, moves every request count in the dashboard. And nothing about
 once.
 
 **Strip the weight and watch the correction quietly stop correcting.** This is
-section 8.2.1's silent failure mode, made runnable. First at read time, without
+section 8.2.2's silent failure mode, made runnable. First at read time, without
 touching a byte on disk, by asking listing 8.1's unbiased questions as if the
 column held 1:
 
@@ -237,7 +237,7 @@ on this run, which on a dashboard is the same reading. The two pairs the chapter
 built to disagree have stopped disagreeing, and every query succeeded.
 
 The only line that still knows anything is the ground-truth row at the bottom,
-and production does not have it. That is the whole of section 8.2.1: the number
+and production does not have it. That is the whole of section 8.2.2: the number
 stays precise, stays confident, and turns wrong, and no part of the system is in
 a position to notice. The dashboard stays green because green is a color, not a
 claim.
@@ -257,7 +257,7 @@ Put it back before moving on:
 python3 generate/generate.py
 ```
 
-**Count distinct instead of counting, and watch the rule run out.** Section 8.2.2
+**Count distinct instead of counting, and watch the rule run out.** Section 8.2.3
 says the adjusted-count rule covers counts, sums and percentiles and stops at
 distinct cardinality. Start with what the store can see:
 

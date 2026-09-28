@@ -15,7 +15,7 @@ in-flight buffer once the pipeline reaches steady state.
 The number that matters for the chapter is the steady-state in-flight buffer.
 At the defaults below (5,000 traces/sec, 30s decision_wait, 8 spans/trace,
 2 KB/span) the on-the-wire buffer reaches roughly 2.4 GB, matching the
-back-of-envelope in section 5.1.2. The collector's in-memory representation
+back-of-envelope in section 5.1.3. The collector's in-memory representation
 runs about MEM_FACTOR (default 4) times larger, which the script also reports.
 The simulation confirms the closed-form figure rather than the other way round.
 """
@@ -42,7 +42,7 @@ class KeyedStateSurrogate:
     Spans arrive in event-time order. A timer is registered on first arrival
     for a key and fires when the event-time clock passes first_seen +
     decision_wait, at which point the whole trace is emitted and its state
-    cleared. This is the keyed-state lifecycle Figure 5.5 walks.
+    cleared. This is the keyed-state lifecycle Figure 5.6 walks.
     """
 
     def __init__(self, decision_wait_s: float, span_size_bytes: int):

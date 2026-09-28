@@ -84,7 +84,7 @@ Every column in the fixture is written by the generator, `adjusted_count`
 included. That one used to be left at its `DEFAULT 1.0`, and a column holding one
 value for every row compressed 1185x and led the published table: the
 compressibility of a constant, in a table meant to teach column economics. The
-generator now writes the sample-rate reciprocals from section 7.4.4, one weight
+generator now writes the sample-rate reciprocals from section 7.4.3, one weight
 per trace rather than per span, mostly 1.0 with a slice at 10.0 and a thin tail
 at 100.0.
 

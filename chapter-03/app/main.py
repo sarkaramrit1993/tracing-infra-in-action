@@ -128,7 +128,7 @@ def burst():
 
 @app.route("/orders/<order_id>")
 def get_order(order_id):
-    """Low-priority spans for the gateway filter demo (Listing 3.7)."""
+    """Low-priority spans for the gateway filter demo (Listing 3.8)."""
     with tracer.start_as_current_span("fetch_order") as span:
         span.set_attribute("order.id", order_id)
         span.set_attribute("priority", "low")

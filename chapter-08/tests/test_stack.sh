@@ -81,7 +81,7 @@ awk -v u="$U_P99" -v t="$TRUE_P99" 'BEGIN { exit !(u > t * 2) }' \
   || fail "unweighted p99 $U_P99 ms is not meaningfully above the true $TRUE_P99 ms; the demo shows nothing"
 pass "unweighted p99 $U_P99 ms reads far above the truth, which is the other half of the bug"
 
-echo "== 4. section 8.2.2: the weight lifts a count and cannot lift a distinct count =="
+echo "== 4. section 8.2.3: the weight lifts a count and cannot lift a distinct count =="
 # The other three assertions in this file check that the weight recovers the
 # truth. This one checks where it stops. Both failure directions are asserted,
 # because a distinct count over sampled data misses low and the count rule's
@@ -96,7 +96,7 @@ TRUE_USERS=$(CH --query "SELECT users FROM tracing.ground_truth LIMIT 1")
 SEEN_USERS=$(CH --query "SELECT uniqExact(attributes['user.id']) FROM tracing.otel_traces
               WHERE $WINDOW AND attributes['user.id'] != ''")
 [ "$SEEN_USERS" != "0" ] \
-  || fail "no span carries a user.id, so section 8.2.2 has nothing to count. Run: python3 generate/generate.py"
+  || fail "no span carries a user.id, so section 8.2.3 has nothing to count. Run: python3 generate/generate.py"
 awk -v s="$SEEN_USERS" -v t="$TRUE_USERS" 'BEGIN { exit !(s * 2 < t) }' \
   || fail "the survivors hold $SEEN_USERS distinct users against a true $TRUE_USERS, which is
       close enough to look like recovery. The user pool is too small for the sample size,
@@ -105,7 +105,7 @@ pass "distinct users reads $SEEN_USERS against a true $TRUE_USERS, a floor and n
 SCALED=$(awk -v s="$SEEN_USERS" -v p="$POP" -v k="$BIASED" 'BEGIN { printf "%.0f", s * p / k }')
 awk -v c="$SCALED" -v t="$TRUE_USERS" 'BEGIN { exit !(c > t) }' \
   || fail "scaling the distinct count by the count rule gave $c against a true $TRUE_USERS;
-      it is supposed to overshoot, and section 8.2.2 has no example if it does not"
+      it is supposed to overshoot, and section 8.2.3 has no example if it does not"
 pass "the count rule's own multiplier turns it into $SCALED, past the truth in the other direction"
 
 echo "== 5. listing 8.2: the bloom index prunes granules the primary key left =="

@@ -16,7 +16,7 @@
 --      Left in, ClickHouse fails to create the table on first boot and the
 --      whole stack comes up with an empty store and no obvious reason why.
 --
--- adjusted_count is the sampling weight from section 7.4.4: the reciprocal of
+-- adjusted_count is the sampling weight from section 7.4.3: the reciprocal of
 -- the probability its trace was kept at. An unsampled span carries 1.
 
 CREATE DATABASE IF NOT EXISTS tracing;

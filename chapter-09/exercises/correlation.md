@@ -6,8 +6,8 @@ started.
 
 ## The question
 
-Section 9.3.1 says there are exactly three bridges between signals and all three
-ride the same key, the trace id in the W3C `traceparent` header. Section 9.3.2
+Section 9.3 says there are exactly three bridges between signals and all three
+ride the same key, the trace id in the W3C `traceparent` header. Section 9.3.1
 takes each in turn with the mechanism that makes it work and the way it silently
 breaks.
 
@@ -301,7 +301,7 @@ Two edits, each changing one variable, each backing up the file it touches and
 restoring it in the same section.
 
 **Strip the trace id off the log record in transit.** This is the failure section
-9.3.2 names for bridge 1, a shipper that drops the field, and one OTTL statement
+9.3.1 names for bridge 1, a shipper that drops the field, and one OTTL statement
 stands in for the shipper:
 
 ```bash

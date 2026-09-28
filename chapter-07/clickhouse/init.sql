@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS tracing.otel_traces
     span_name      LowCardinality(String) CODEC(ZSTD(1)),
     status_code    LowCardinality(String) CODEC(ZSTD(1)),
     duration_ns    UInt64 CODEC(T64, ZSTD(1)),
-    -- adjusted_count: the sample-rate reciprocal from section 7.4.4. A span with
+    -- adjusted_count: the sample-rate reciprocal from section 7.4.3. A span with
     -- no sampling carries weight 1.0; a 1-in-100 sampled span carries 100.0.
     -- Downstream query listings sum this column to weight kept spans back to
     -- the population they represent.

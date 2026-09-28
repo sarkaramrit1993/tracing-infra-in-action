@@ -2,7 +2,7 @@
 
 Three local exercises that probe the trade-offs the chapter argues about.
 Each one runs on a single laptop. None of them reproduces production scale.
-They demonstrate the cost-curve shape from Figure 5.2 and the atomicity
+They demonstrate the cost-curve shape from Figure 5.3 and the atomicity
 imperative from section 5.3.2.
 
 ## Setup
@@ -28,7 +28,7 @@ ratio is compressed Parquet size against a **verbose JSON** baseline, so treat
 it as an upper bound, not a production figure: real ingest paths carry OTLP
 protobuf on the wire, which is already more compact than JSON. The script also
 prints the protobuf-proxy baseline (a tighter denominator) so you can see both.
-The shape of the curve, not the exact number, is the point of Figure 5.2.
+The shape of the curve, not the exact number, is the point of Figure 5.3.
 
 ```bash
 python3 store_then_stitch.py
@@ -53,7 +53,7 @@ wall-clock pacing. It advances a synthetic event-time clock deterministically,
 fills the in-flight population to steady state (every trace accumulates its
 spans inside the `decision_wait` window before its timer fires), and reports the
 peak buffer. The default run reproduces the chapter's back-of-envelope from
-section 5.1.2: at 5,000 traces/sec, 30s `decision_wait`, 8 spans/trace,
+section 5.1.3: at 5,000 traces/sec, 30s `decision_wait`, 8 spans/trace,
 2 KB/span, the on-the-wire buffer reaches roughly 2.4 GB, and the collector's
 in-memory representation runs about 4x that.
 

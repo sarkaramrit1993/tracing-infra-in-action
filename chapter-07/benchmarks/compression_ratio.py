@@ -27,7 +27,7 @@ What the chapter argues, and what this proves or refutes on your own hardware:
     they collapse to a tiny dictionary and compress hardest of all. service_name
     and span_name also lead the sort key, which groups their runs. status_code is
     not in the sort key.
-  - adjusted_count : the sample-rate reciprocal from section 7.4.4 holds one of a
+  - adjusted_count : the sample-rate reciprocal from section 7.4.3 holds one of a
     few values and repeats across every span of a trace, so it compresses far
     harder than the wide columns without being free.
   - timestamp   : it rides mid-key in this schema (the sort key leads with
@@ -83,7 +83,7 @@ SPAN_NAMES = ("validate_cart", "inventory.reserve", "payment.charge",
               "fraud.score", "order.create", "notification.send",
               "db.query", "cache.get", "http.request", "grpc.call")
 
-# adjusted_count is the sample-rate reciprocal from section 7.4.4: a span kept at
+# adjusted_count is the sample-rate reciprocal from section 7.4.3: a span kept at
 # 100 percent carries 1.0, a span kept at 1 in 100 carries 100.0. The sampling
 # decision is taken per trace, not per span, so the weight is derived from the
 # trace ordinal and repeats across that trace's spans. The mix is most traffic
@@ -102,7 +102,7 @@ def _sql_array(values):
 
 def _create_scratch(ch):
     # Listing 7.1 column for column, including the adjusted_count column that
-    # section 7.4.4 adds, with the same codecs, sort key, partitioning and skip
+    # section 7.4.3 adds, with the same codecs, sort key, partitioning and skip
     # index. Only the TTL and the storage policy are left out, for the reason in
     # the module docstring.
     ch.execute(f"DROP TABLE IF EXISTS {SCRATCH}")

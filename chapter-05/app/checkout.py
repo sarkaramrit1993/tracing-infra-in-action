@@ -4,7 +4,7 @@ Chapter 5: Checkout producer.
 Carries the Chapter 4 multi-step checkout forward and adds nested service spans
 that produce a meaningful service graph downstream (checkout -> inventory ->
 warehouse, checkout -> payment -> fraud, checkout -> notification). The trace
-shape is designed to make Figure 5.7's service graph derivation visible in
+shape is designed to make Figure 5.8's service graph derivation visible in
 ClickHouse and to give Flink's keyed-state assembler something with depth.
 """
 

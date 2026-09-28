@@ -32,16 +32,16 @@ All manifests live in `k8s/`:
 | File                         | Listing | Resource                                   |
 |------------------------------|---------|--------------------------------------------|
 | `kafka.yaml`                 | --      | `kafka` namespace + single-broker Kafka StatefulSet |
-| `agent-daemonset.yaml`       | 3.9     | DaemonSet with hostPort                    |
-| `agent-configmap.yaml`       | 3.10    | Agent config with node enrichment          |
-| `gateway-deployment.yaml`    | 3.11    | Deployment + headless service              |
-| `gateway-configmap.yaml`     | 3.12    | Gateway config with Kafka export           |
+| `agent-daemonset.yaml`       | 3.10    | DaemonSet with hostPort                    |
+| `agent-configmap.yaml`       | 3.11    | Agent config with node enrichment          |
+| `gateway-deployment.yaml`    | 3.12    | Deployment + headless service              |
+| `gateway-configmap.yaml`     | 3.13    | Gateway config with Kafka export           |
 | `consumer-deployment.yaml`   | --      | Consumer collector draining `otlp_spans`   |
 | `consumer-configmap.yaml`    | --      | Consumer config (Kafka receiver to Jaeger) |
 | `jaeger.yaml`                | --      | Jaeger all-in-one + service                |
-| `hpa.yaml`                   | 3.13    | Asymmetric scale-up/scale-down             |
-| `network-policies.yaml`      | 3.14    | Agent and gateway network rules            |
-| `prometheus-rules.yaml`      | 3.15    | Alerts for drops, failures, memory         |
+| `hpa.yaml`                   | 3.14    | Asymmetric scale-up/scale-down             |
+| `network-policies.yaml`      | 3.15    | Agent and gateway network rules            |
+| `prometheus-rules.yaml`      | 3.16    | Alerts for drops, failures, memory         |
 | `pdb.yaml`                   | --      | Pod disruption budget                      |
 | `service-monitor.yaml`       | --      | Prometheus ServiceMonitor                  |
 | `sample-app-deployment.yaml` | --      | App with node IP discovery                 |
