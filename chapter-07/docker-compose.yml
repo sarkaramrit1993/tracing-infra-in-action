@@ -131,7 +131,7 @@ services:
           --bootstrap-server kafka:9093
         echo "Topic created."
 
-  # --- MinIO: the S3-compatible object store behind the cold tier (section 7.2) ---
+  # --- MinIO: the S3-compatible object store behind the cold tier (section 7.4.2) ---
   # ClickHouse's s3_cold disk (config.d/storage.xml) writes cold parts here as S3
   # objects, the same API AWS S3, GCS, and Azure Blob expose. The API port stays
   # on 9000 inside the network; on the host it is published on 9002 so it does not

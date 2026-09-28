@@ -211,12 +211,12 @@ It expresses the cold boundary as a block retention period rather than
 per part and moves before it deletes. Same two days, different unit of work.
 
 The config sits at a different path than a 2.x example would. Tempo 3.0's
-Project Rhythm re-architecture (section 7.4.4) removed the `ingester` and
+Project Rhythm re-architecture (section 7.4.5) removed the `ingester` and
 `compactor` sections outright: feeding 3.0 a 2.x config fails at startup with
 `field ingester not found in type app.Config`. Block building moved to
 `live_store` and retention to `backend_scheduler.provider.compaction.compaction`.
 
-Monolithic mode still needs no Kafka. The Kafka-backed ingest path 7.4.4
+Monolithic mode still needs no Kafka. The Kafka-backed ingest path 7.4.5
 describes is what microservices mode does, and this stack runs the single
 binary, so Tempo receives OTLP straight from the Collector's second exporter.
 

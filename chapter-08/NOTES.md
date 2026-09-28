@@ -130,9 +130,8 @@ Determinism makes the whole thing gradable. `sum(adjusted_count)` returns
 test script can assert equality instead of a tolerance. When a number is off,
 something is wrong, and that is worth more here than realism.
 
-The cost is that the demo hides the confidence interval, which section 8.2.2 says
-is the gap that matters most in practice and is almost always missing from
-production dashboards. The last query in `exercises/unbiased.md` swaps the counter
+The cost is that the demo hides the confidence interval, which section 8.2.3 says
+is almost always missing from production dashboards. The last query in `exercises/unbiased.md` swaps the counter
 for a real coin across ten seeds and shows the scatter, which is where the
 interval becomes visible.
 
@@ -306,7 +305,7 @@ the boundaries again.
 None of that changes the reading. The bloom still takes whatever the sort key
 left down to zero, which is the whole point of listing 8.2, and it is why the
 chain matters more than any single ratio in it. It is also a small live
-demonstration of section 8.3.4's real lesson: whether an index prunes is a
+demonstration of section 8.4.2's real lesson: whether an index prunes is a
 question about how the data clusters, not about how selective the predicate
 looks.
 

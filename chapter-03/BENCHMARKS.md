@@ -55,7 +55,7 @@ Results write to `benchmarks/results/` as JSON (raw data) and Markdown (human-re
 
 Measures collector RSS at idle, 1K/sec, 10K/sec, and 50K/sec. Sends spans via the OTel Python SDK to the agent, then reads `otelcol_process_memory_rss` from both agent and gateway metrics endpoints. Each load level runs for 15 seconds with a cooldown between levels.
 
-**Why:** The chapter claims agents run ~50 MB and gateways ~250 MB. This validates those numbers under real load.
+**Why:** Shows what the agent and gateway actually hold in memory under real load.
 
 ### Routing (`bench_routing.py`)
 
@@ -65,7 +65,7 @@ Two phases:
 
 Measures Gini coefficient and skew ratio for each phase.
 
-**Why:** The chapter claims trace-aware routing gives near-equal distribution. Phase A (Gini ~0.5) vs Phase B (Gini ~0) shows the difference.
+**Why:** Shows what routing by trace ID does to the spread across gateways. Phase A (Gini ~0.5) vs Phase B (Gini ~0) shows the difference.
 
 ### Throughput (`bench_throughput.py`)
 

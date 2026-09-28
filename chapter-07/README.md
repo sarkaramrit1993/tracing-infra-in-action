@@ -169,7 +169,7 @@ nothing assembled them until this query sorted by `trace_id` and `timestamp`.
 That is the store-then-stitch contract: spans land as rows, a trace is something
 you reconstruct on read.
 
-`weight` is `adjusted_count`, the sample-rate reciprocal from section 7.4.4.
+`weight` is `adjusted_count`, the sample-rate reciprocal from section 7.4.3.
 Everything here is unsampled, so it reads 1. Drop the `LIMIT 3` subquery and you
 get the whole table, healthcheck traces included, one span each.
 

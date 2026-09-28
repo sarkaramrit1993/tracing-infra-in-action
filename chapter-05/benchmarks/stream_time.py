@@ -13,9 +13,9 @@ clock passes first_span_event_time + decision_wait. The run reports the peak
 in-flight buffer once the pipeline reaches steady state.
 
 The number that matters for the chapter is the steady-state in-flight buffer.
-At the defaults below (5,000 traces/sec, 30s decision_wait, 8 spans/trace,
-2 KB/span) the on-the-wire buffer reaches roughly 2.4 GB, matching the
-back-of-envelope in section 5.1.2. The collector's in-memory representation
+At the defaults below (20,000 traces/sec, 30s decision_wait, 8 spans/trace,
+500 bytes/span) the on-the-wire buffer reaches 2.4 GB, matching the
+back-of-envelope in section 5.1.3. The collector's in-memory representation
 runs about MEM_FACTOR (default 4) times larger, which the script also reports.
 The simulation confirms the closed-form figure rather than the other way round.
 """
@@ -26,9 +26,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 from collections import defaultdict, deque
 
-TRACES_PER_SEC = int(os.environ.get("TRACES_PER_SEC", "5000"))
+TRACES_PER_SEC = int(os.environ.get("TRACES_PER_SEC", "20000"))
 SPANS_PER_TRACE = int(os.environ.get("SPANS_PER_TRACE", "8"))
-SPAN_SIZE_BYTES = int(os.environ.get("SPAN_SIZE_BYTES", "2048"))
+SPAN_SIZE_BYTES = int(os.environ.get("SPAN_SIZE_BYTES", "500"))
 DECISION_WAIT_S = float(os.environ.get("DECISION_WAIT_S", "30.0"))
 MEM_FACTOR = float(os.environ.get("MEM_FACTOR", "4.0"))
 
@@ -42,7 +42,7 @@ class KeyedStateSurrogate:
     Spans arrive in event-time order. A timer is registered on first arrival
     for a key and fires when the event-time clock passes first_seen +
     decision_wait, at which point the whole trace is emitted and its state
-    cleared. This is the keyed-state lifecycle Figure 5.5 walks.
+    cleared. This is the keyed-state lifecycle Figure 5.6 walks.
     """
 
     def __init__(self, decision_wait_s: float, span_size_bytes: int):

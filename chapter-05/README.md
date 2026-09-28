@@ -137,7 +137,7 @@ execute concurrently against live traffic. Note the printed PID and stop the
 loop when you are done with `kill <PID>` (or run `jobs` then `kill %1`).
 
 The checkout endpoint produces a seven-span trace per call across five
-services, which is the depth Figure 5.7's service-graph derivation needs.
+services, which is the depth Figure 5.8's service-graph derivation needs.
 Six of those spans are created explicitly by the endpoint; the seventh is the
 root span Flask auto-instrumentation opens for the request itself.
 
@@ -152,7 +152,7 @@ open http://localhost:9090/targets
 All targets (otel-agent, otel-gateway, otel-consumer, otel-stream-consumer,
 flink-jobmanager, flink-taskmanager, clickhouse) should show as UP.
 
-### 3. Jaeger has traces from both paths (proves F5.1 + F5.6)
+### 3. Jaeger has traces from both paths (proves F5.1 + F5.7)
 
 ```bash
 open http://localhost:16686
@@ -169,12 +169,12 @@ The same logical trace appears under both labels because both consumers
 read the same `otlp_spans` topic. The storage-time path emits each span as
 it arrives. The stream-time path holds the whole trace in keyed state for
 the decision_wait window, then emits the assembled trace at once. Figure
-5.1's decision tree and Figure 5.6's atomicity boundaries both manifest
+5.1's decision tree and Figure 5.7's atomicity boundaries both manifest
 here: the storage-time row never holds a hole because spans are written
 independently, and the stream-time row never holds a hole because the
 whole trace emits or none of it does.
 
-### 4. ClickHouse has spans (proves F5.3 block layout)
+### 4. ClickHouse has spans (proves F5.4 block layout)
 
 ```bash
 docker compose exec clickhouse clickhouse-client --query \
@@ -191,11 +191,11 @@ docker compose exec clickhouse clickhouse-client --query \
      ORDER BY modification_time DESC LIMIT 10 FORMAT PrettyCompact"
 ```
 
-This is the MergeTree column of Figure 5.3: parts keyed by
+This is the MergeTree column of Figure 5.4: parts keyed by
 `(trace_id, timestamp)`, partitioned by hour, with ZSTD compression on the
 column codecs.
 
-### 5. RED metrics roll up (proves F5.7 and section 5.4.2)
+### 5. RED metrics roll up (proves section 5.4.2)
 
 ```bash
 docker compose exec clickhouse clickhouse-client --query \
@@ -212,7 +212,7 @@ The materialized view aggregates spans into per-service per-minute buckets
 without ever assembling a trace. This is the aggregate-first pattern that
 Lightstep and Datadog Live Search run at the high end of the volume axis.
 
-### 6. Flink keyed-state metrics (proves F5.5 watermark lifecycle)
+### 6. Flink keyed-state metrics (proves F5.6 watermark lifecycle)
 
 The Flink UI shows the job, the per-task state size, watermark lag, and the
 late-span counter.
@@ -226,7 +226,7 @@ operator. The metrics tab surfaces:
 
 - `numRecordsIn` (spans arriving from Kafka)
 - `numRecordsOut` (assembled traces emitted)
-- `currentInputWatermark` (the watermark Figure 5.5 walks)
+- `currentInputWatermark` (the watermark Figure 5.6 walks)
 - `numLateRecordsDropped` (spans diverted to the side output)
 - `lastCheckpointSize` (the keyed-state size at each checkpoint)
 
@@ -242,7 +242,7 @@ docker compose exec kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
 Under a clean local run with synchronized clocks, this topic stays at zero.
 It is the metric that fires when the watermark policy has work to do.
 
-### 7. Scatter-gather query (proves F5.4)
+### 7. Scatter-gather query (proves F5.5)
 
 Pick a trace_id out of ClickHouse:
 
@@ -264,9 +264,9 @@ CLICKHOUSE_HOST=localhost python3 app/scatter_gather_query.py "$TID"
 Expected output: a tail-latency-bounded fan-out (one shard in the dev
 stack), followed by an in-memory assembly of the parent-child waterfall.
 The script prints each shard's response latency separately because Figure
-5.4's claim is that the slowest shard owns the p99 of the whole query.
+5.5's claim is that the slowest shard owns the p99 of the whole query.
 
-### 8. Service graph (proves F5.7 + listing 5.5)
+### 8. Service graph (proves F5.8 + listing 5.5)
 
 ```bash
 docker compose exec clickhouse clickhouse-client --query "$(cat <<'SQL'
@@ -366,7 +366,7 @@ span, and the Flink keyed state never corrupts.
 - **Resource attribute label**: `assembly.source` is set by each consumer
   collector (`store-then-stitch` or `stream-then-store`). Use it to compare
   the two paths inside Jaeger or ClickHouse.
-- **Atomicity boundaries** (Figure 5.6): the four boundaries are realized
+- **Atomicity boundaries** (Figure 5.7): the four boundaries are realized
   in this stack as: (1) the gateway's `partition_traces_by_id`, (2) the
   Flink Kafka source offset commit at checkpoint, (3) the Flink keyed-state
   eviction policy (drop-whole-trace, never drop-random-spans), and (4) the
@@ -379,8 +379,7 @@ span, and the Flink keyed state never corrupts.
 - **Late-span audit**: under a clean stack with synchronized clocks the
   `spans.late` topic stays empty. Under heavy producer load or a
   deliberately skewed clock on one container, late spans appear, and the
-  Flink `numLateRecordsDropped` counter increments. That divergence is the
-  alert section 5.3.4 names as the one that matters.
+  Flink `numLateRecordsDropped` counter increments.
 
 ## Tear down
 

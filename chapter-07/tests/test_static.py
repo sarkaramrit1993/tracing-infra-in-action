@@ -118,7 +118,7 @@ def test_listing_7_1_schema_exact():
 
 
 def test_adjusted_count_column_present():
-    # section 7.4.4 weight column: defaults to 1.0 (unsampled = weight 1)
+    # section 7.4.3 weight column: defaults to 1.0 (unsampled = weight 1)
     sql = _read("clickhouse/init.sql")
     assert "adjusted_count Float64 DEFAULT 1.0 CODEC(ZSTD(1))" in sql, \
         "adjusted_count column missing or wrong type/default/codec"

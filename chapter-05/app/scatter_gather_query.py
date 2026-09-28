@@ -1,5 +1,5 @@
 """
-Chapter 5: Figure 5.4 demonstration. Scatter-gather query against ClickHouse.
+Chapter 5: Figure 5.5 demonstration. Scatter-gather query against ClickHouse.
 
 Given a trace_id, query each ClickHouse shard in parallel, gather the
 matching spans, and assemble a parent-child waterfall in memory. In a

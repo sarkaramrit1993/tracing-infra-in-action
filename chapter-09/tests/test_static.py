@@ -218,7 +218,7 @@ def test_listing_9_1_samples_in_exactly_one_pipeline():
     assert pipelines["traces/in"].get("processors", [])[:1] == ["memory_limiter"], \
         ("traces/in must run memory_limiter first, or spanmetrics/pre counts a batch "
          "that memory_limiter downstream then refuses, the SDK retries it, and the "
-         "series the chapter calls ground truth counts it twice")
+         "pre-sampler series counts it twice")
     assert "tail_sampling" in pipelines["traces/sampled"]["processors"], \
         "nothing samples anywhere; pre and post would be the same series twice"
     assert "spanmetrics/pre" in pipelines["traces/in"]["exporters"], \

@@ -145,7 +145,7 @@ sampler then keeps one successful trace in a hundred, and the pointer to each of
 the other ninety-nine is left aiming at a trace that was never stored. Nothing
 errors. `query_exemplars` returns a trace id, the drill-down runs, and the trace
 viewer says the trace does not exist. That is contrib issue #38878, and it is the
-dangling pointer section 9.3.2 names.
+dangling pointer section 9.3.1 names.
 
 **Read the pre-side rate carefully, because the obvious arithmetic gives the
 wrong answer.** Errors are about 2.9 percent of spans and the sampler keeps all

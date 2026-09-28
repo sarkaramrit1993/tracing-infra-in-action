@@ -36,17 +36,17 @@ Source: `store_then_stitch-2026-06-17.json`
 
 ## Stream-time buffer cost
 
-Source: `stream_time-2026-06-17.json`
+Source: `stream_time-2026-09-28.json`
 
 | Metric | Value |
 |---|---|
-| traces_per_sec | 5000 |
+| traces_per_sec | 20000 |
 | spans_per_trace | 8 |
-| span_size_bytes | 2048 |
+| span_size_bytes | 500 |
 | decision_wait_s | 30.0 |
 | mem_factor | 4.0 |
-| peak_wire_buffer_bytes | 2457681920 |
-| closed_form_buffer_bytes | 2457600000 |
-| modeled_in_memory_bytes | 9830727680 |
-| peak_in_flight_traces | 150005 |
-| traces_emitted | 150000 |
+| peak_wire_buffer_bytes | 2400080000 |
+| closed_form_buffer_bytes | 2400000000 |
+| modeled_in_memory_bytes | 9600320000 |
+| peak_in_flight_traces | 600020 |
+| traces_emitted | 600000 |

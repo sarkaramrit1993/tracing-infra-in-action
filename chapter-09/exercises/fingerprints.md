@@ -6,9 +6,8 @@ way it shipped.
 
 ## The question
 
-Section 9.2.3 says the compression is dramatic and reliable: millions of raw
-error spans collapse to tens or low thousands of distinct fingerprints, because a
-handful of code paths throw the overwhelming majority of the errors.
+Fingerprinting is meant to collapse millions of raw error spans into one
+fingerprint per code path that throws them.
 
 That is a claim about a normalization step, and the awkward thing about it is
 that in production you cannot check it. You can count issues, but there is
@@ -180,12 +179,12 @@ measuring query existed. The normalization found the seeded code-path count on
 the nose, which means it neither merged two of them nor split one.
 
 The top ten issues carry 71.9 percent of the volume and the busiest alone carries
-30.2. Section 9.2.3's premise, that a handful of paths throw most of the errors,
-is modelled here rather than assumed: volume is distributed Zipf across the paths.
+30.2. That a few paths throw most of the errors is modelled here rather than
+assumed: volume is distributed Zipf across the paths.
 
 `1,667x` is the only number on that list worth nothing to you. It is `N` divided
 by the number of paths this generator seeded, so quoting it for a real service
-would be the same unsupported claim in a new font.
+would be an unsupported claim.
 
 Read the truth table yourself, which is the point of it being a table. The run
 drops its scratch tables on the way out, so ask it not to:

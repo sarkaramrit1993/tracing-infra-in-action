@@ -1,0 +1,12 @@
+{
+  "traces_per_sec": 20000,
+  "spans_per_trace": 8,
+  "span_size_bytes": 500,
+  "decision_wait_s": 30.0,
+  "mem_factor": 4.0,
+  "peak_wire_buffer_bytes": 2400080000,
+  "closed_form_buffer_bytes": 2400000000,
+  "modeled_in_memory_bytes": 9600320000,
+  "peak_in_flight_traces": 600020,
+  "traces_emitted": 600000
+}
