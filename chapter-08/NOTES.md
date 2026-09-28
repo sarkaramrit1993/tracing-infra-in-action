@@ -357,3 +357,41 @@ unexpectedly, these are why:
    bucketed by minute, so a bare `now() - INTERVAL 1 HOUR` boundary would cut a
    bucket in half and the two queries would count that minute differently. Snap
    both sides or they disagree about traffic that never moved.
+
+## Where section 8.4.1's benchmark numbers come from
+
+Nothing in this directory measures parallel replicas. Section 8.4.1's 40-fold
+speedup, the fan-out ladder section 8.5.2 warns with, and the single-node ladder
+in table 8.4 are all ClickHouse's published numbers, from "How we scaled raw
+GROUP BY to 100 B+ rows in under a second"
+(https://clickhouse.com/blog/clickhouse-parallel-replicas). The chapter's
+footnote carries the figures it uses. This is the provenance behind them, and it
+matters because the post's narration and its published results are not the same
+run.
+
+The two runs behind the 40-fold are `aggregation_simple.sql`, a one-key
+aggregation. The post prints 16.581 s and 414 ms alongside the two throughputs,
+and the 414 is rounded from the 413.5 ms its own throughput figure implies.
+
+The fan-out ladder is a different query on a different dataset size:
+`aggregation.sql`, three keys, in the post's own linked results at
+`blog-examples/ParallelReplicasBench/results/2025-08-29_horiz_uk_b100_.../` in
+github.com/ClickHouse/examples. There it takes 141.629 s on one node and 4.789 s
+on 40, which is the 29.6-fold, and 44.3-fold on 80. A three-key aggregation
+ships more state between nodes than a one-key one does, so 29.6-fold is a
+conservative bound on the one-key case rather than a correction of it.
+
+Table 8.4's single-node ladder is a third run again, the linked vertical results
+at `2025-08-30_vert_uk_b10_n1_c1-2-4-8-16-32-64-89_.../`, where the 89 rung
+reads 1.568 s over 10 billion rows. The post's narrated ladder stops at 64. The
+89 cores a node comes from the post's own "At 100+ nodes, you're fanning a
+single GROUP BY across 8,900+ cores (and 35,600+ GiB RAM)," and it also states
+that "ClickHouse runs one parallel query pipeline stream per CPU core." The
+three-key row's 692 million is the post's narrated figure for a maxed-out
+89-core node, and it publishes no row count for that run.
+
+Two limits sit on all of it. The post publishes hot results only, so the ceiling
+the chapter derives from them is a warm one. And the workload is a UK
+property-price `GROUP BY`: the single low-cardinality key and the absent `WHERE`
+clause are the book's reading of the published SQL rather than claims the post
+makes.
