@@ -1,6 +1,6 @@
 # Grafana Tempo, monolithic config for the block archetype (section 7.3).
 #
-# Tempo writes immutable Parquet-shaped blocks to the same MinIO object store
+# Tempo writes immutable Parquet-shaped blocks to the same SeaweedFS object store
 # that backs ClickHouse's s3_cold disk, so both archetypes in this stack land
 # in object storage and the contrast is the layout, not the medium: a wide
 # column store you scan with SQL against opaque blocks you look up by id.
@@ -50,9 +50,9 @@ storage:
     wal:
       path: /var/tempo/wal
     s3:
-      endpoint: minio:9000
+      endpoint: seaweedfs:8333
       bucket: tempo-blocks
       access_key: traceadmin
       secret_key: traceadmin-secret
       insecure: true          # plain HTTP inside the compose network
-      forcepathstyle: true    # MinIO serves path-style, not virtual-host-style
+      forcepathstyle: true    # SeaweedFS serves path-style, not virtual-host-style

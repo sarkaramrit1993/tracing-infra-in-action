@@ -10,7 +10,7 @@
 # table. ClickHouse is the primary backend. The Collector also fans the same
 # span stream to Grafana Tempo, the object-storage block archetype of section
 # 7.3, so both archetypes run side by side over one workload and both write to
-# the same MinIO object storage.
+# the same S3-compatible object store (SeaweedFS).
 #
 # Pinned versions (one tag per image, N1):
 #   apache/kafka                                  4.3.0
@@ -18,8 +18,7 @@
 #   clickhouse/clickhouse-server                  25.8
 #   grafana/tempo                                 3.0.2
 #   prom/prometheus                               v3.12.0
-#   minio/minio                                   RELEASE.2025-09-07T16-13-09Z
-#   minio/mc                                      RELEASE.2025-08-13T08-35-41Z
+#   chrislusf/seaweedfs                           4.47
 
 x-kafka-env: &kafka-env
   KAFKA_NODE_ID: 1
@@ -53,13 +52,7 @@ volumes:
   kafka-data:
   clickhouse-data:
   tempo-data:
-  minio-data:
-
-# MinIO root credentials, shared by the server, the bucket bootstrap, and the
-# ClickHouse s3_cold disk in clickhouse/config.d/storage.xml. Demo values only.
-x-minio-env: &minio-env
-  MINIO_ROOT_USER: traceadmin
-  MINIO_ROOT_PASSWORD: traceadmin-secret
+  seaweedfs-data:
 
 services:
   # --- Application: checkout producer (same trace shape as chapter 5) ---
@@ -67,7 +60,7 @@ services:
     build: ./app
     networks: [ch7]
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       OTEL_SERVICE_NAME: checkout-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
@@ -91,9 +84,9 @@ services:
     volumes:
       - ./collector/gateway-config.yaml:/etc/otelcol-contrib/config.yaml
     ports:
-      - "4317:4317"
-      - "4318:4318"
-      - "8888:8888"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:8888:8888"
     depends_on:
       kafka:
         condition: service_healthy
@@ -131,59 +124,41 @@ services:
           --bootstrap-server kafka:9093
         echo "Topic created."
 
-  # --- MinIO: the S3-compatible object store behind the cold tier (section 7.4.2) ---
+  # --- SeaweedFS: the S3-compatible object store behind the cold tier (section 7.4.2) ---
   # ClickHouse's s3_cold disk (config.d/storage.xml) writes cold parts here as S3
-  # objects, the same API AWS S3, GCS, and Azure Blob expose. The API port stays
-  # on 9000 inside the network; on the host it is published on 9002 so it does not
-  # clash with ClickHouse's native 9000. The console is on 9001.
-  minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  # objects, the same API AWS S3, GCS, and Azure Blob expose. Tempo writes its
+  # blocks here too. `weed mini` runs a whole single-node store in one process and
+  # creates both buckets on startup: traces-cold for ClickHouse, tempo-blocks for
+  # Tempo. The AWS_* pair becomes the S3 admin identity, the same demo key pair
+  # storage.xml and tempo.yaml carry. With it set, anonymous requests get 403.
+  # The healthcheck waits for both buckets, because ClickHouse validates the
+  # s3_cold disk on boot and Tempo writes to its bucket as soon as it starts.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.47
     networks: [ch7]
-    command: ["server", "/data", "--console-address", ":9001"]
+    command: ["mini", "-dir=/data", "-bucket=traces-cold,tempo-blocks"]
     environment:
-      <<: *minio-env
+      AWS_ACCESS_KEY_ID: traceadmin
+      AWS_SECRET_ACCESS_KEY: traceadmin-secret
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
     ports:
-      - "9002:9000"
-      - "9001:9001"
+      - "127.0.0.1:8333:8333"   # S3 API
     healthcheck:
-      test: ["CMD-SHELL", "mc alias set h9 http://localhost:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc ready h9"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8888/buckets/traces-cold/ && wget -q -O /dev/null http://localhost:8888/buckets/tempo-blocks/"]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 24
       start_period: 10s
-
-  # --- MinIO bootstrap: create the buckets both archetypes write to ---
-  # traces-cold backs ClickHouse's s3_cold disk, tempo-blocks backs Tempo.
-  # ClickHouse validates the s3_cold disk on boot, so the bucket must exist first.
-  # The retry loop tolerates MinIO still coming up.
-  minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    networks: [ch7]
-    depends_on:
-      minio:
-        condition: service_started
-    environment:
-      <<: *minio-env
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
-          echo "waiting for minio..."; sleep 2;
-        done
-        mc mb --ignore-existing local/traces-cold
-        mc mb --ignore-existing local/tempo-blocks
-        echo "buckets traces-cold and tempo-blocks ready"
 
   # --- ClickHouse: the listing 7.1 store, primary backend ---
   clickhouse:
     image: clickhouse/clickhouse-server:25.8
     networks: [ch7]
     ports:
-      - "8123:8123"
-      - "9000:9000"
-      - "9363:9363"
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9363:9363"
     ulimits:
       nofile:
         soft: 262144
@@ -194,8 +169,8 @@ services:
       - ./clickhouse/users.d/z-allow-network.xml:/etc/clickhouse-server/users.d/z-allow-network.xml
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
       interval: 10s
@@ -224,13 +199,13 @@ services:
     image: prom/prometheus:v3.12.0
     networks: [ch7]
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
 
   # --- Grafana Tempo: the object-storage BLOCK archetype (section 7.3) ---
   # The second leg of the Collector's fan-out. Same spans as ClickHouse gets,
-  # stored as immutable Parquet-shaped blocks in MinIO rather than as rows, so
+  # stored as immutable Parquet-shaped blocks in SeaweedFS rather than as rows, so
   # the row-versus-block contrast is two live stores over one workload.
   #
   # No healthcheck, and not by preference. Tempo serves a readiness endpoint on
@@ -249,8 +224,8 @@ services:
       - ./collector/tempo.yaml:/etc/tempo/tempo.yaml
       - tempo-data:/var/tempo
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
     ports:
-      - "3200:3200"   # Tempo HTTP/query
-      - "4417:4317"   # Tempo OTLP gRPC (mapped off 4317 to avoid collector clash)
+      - "127.0.0.1:3200:3200"   # Tempo HTTP/query
+      - "127.0.0.1:4417:4317"   # Tempo OTLP gRPC (mapped off 4317 to avoid collector clash)

@@ -132,8 +132,8 @@ GROUP BY partition, disk_name ORDER BY partition"
 ```
 
 `disk_name` flipped to `s3_cold`. That disk is defined in
-`clickhouse/config.d/storage.xml` and points at the MinIO service, which speaks
-the same S3 API as AWS S3, GCS and Azure Blob. Swapping MinIO for one of those is
+`clickhouse/config.d/storage.xml` and points at the SeaweedFS service, which speaks
+the same S3 API as AWS S3, GCS and Azure Blob. Swapping SeaweedFS for one of those is
 an endpoint and a credential, not a schema change.
 
 ## Check that the objects are really there
@@ -158,35 +158,30 @@ WHERE disk_name = 's3_cold'
 15   822.08 KiB
 ```
 
-Now ask the object store, which has no idea ClickHouse exists:
+Now ask the object store, which has no idea ClickHouse exists. `weed shell` is
+SeaweedFS's admin console, and the bucket is a directory under `/buckets`:
 
 ```bash
-docker compose exec -T minio mc alias set demo http://localhost:9000 traceadmin traceadmin-secret
-docker compose exec -T minio mc ls --recursive --summarize demo/traces-cold
+echo "fs.du /buckets/traces-cold" | docker compose exec -T seaweedfs weed shell
+echo "fs.tree /buckets/traces-cold" | docker compose exec -T seaweedfs weed shell | tail -1
 ```
 
 ```
-[2026-08-03 18:53:35 UTC]     1B STANDARD dhh/brfkimfxcpktnzhiomqkprxapkfse
-[2026-08-03 18:53:35 UTC]   721B STANDARD ahl/dlqfrnjqutahzqxpsdwmyfuzwzsts
-[2026-08-03 18:53:35 UTC] 790KiB STANDARD lyd/haeezylhkxkpvmsnakpllggmgeoza
-[2026-08-03 18:53:35 UTC]  29KiB STANDARD qbz/mqospftppugsxzgawijatgwfpdyje
-...
-
-Total Size: 822 KiB
-Total Objects: 15
+block:  15	logical size:    841820	/buckets/traces-cold
+18 directories, 15 files
 ```
 
 Same object count, same bytes, from two sides that do not share a source. The
 column files became opaque blobs with generated names, which is why you cannot
-read a part out of a bucket without the server that wrote it.
+read a part out of a bucket without the server that wrote it. `fs.du` counts
+storage chunks, which match objects one for one here because every blob is
+under SeaweedFS's 4 MiB chunk size. The file count on the last line of
+`fs.tree` is the object count whatever the size.
 
-If you have run this before, `mc` may report more than ClickHouse does. It is
-listing the whole bucket, blobs from earlier work included, so the scoped count
-above is the one that is a fact about this move.
+If you have run this before, the store may report more than ClickHouse does.
+It is listing the whole bucket, blobs from earlier work included, so the scoped
+count above is the one that is a fact about this move.
 [NOTES.md](../NOTES.md) has how long a replaced part's blobs stick around.
-
-Or open the MinIO console at http://localhost:9001, user `traceadmin`, password
-`traceadmin-secret`, and click into the `traces-cold` bucket.
 
 ## The data is still data
 
@@ -232,7 +227,7 @@ compaction. Here retention is a rename.
 
 ## Try this
 
-The drop above took your partition with it, so re-run "Stage a partition" first.
+The drop above took your partition with it, so re-run "Stage a partition" and "Move it to the cold volume" first.
 These all work from that point.
 
 **Move it back and time the same query again.** With the partition on `s3_cold`,
@@ -246,13 +241,13 @@ FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
 ```
 
 Same answers, and faster. Over eight interleaved rounds here the hot side ran
-0.004s to 0.006s and the cold side 0.007s to 0.009s, so about 1.5x. The two
-ranges are close enough that a single pair either way can look like 2x or like
-nothing.
+0.006s to 0.022s and the cold side 0.010s to 0.020s, with medians of 0.0085s
+and 0.0135s, so about 1.6x. The two ranges overlap, so a single pair either way
+can look like 2x or like nothing.
 One pair of readings is not a measurement, so take several of each before you
 believe the size of the gap. Read it as a floor and not a forecast either. This
-cold tier is MinIO on the same Docker network, the friendliest object store one
-will ever have. A real S3 endpoint across a real network is slower, and the gap
+cold tier is SeaweedFS on the same Docker network, the friendliest object store
+one will ever have. A real S3 endpoint across a real network is slower, and the gap
 grows with the size of the read. `benchmarks/tiering_automation.py` does this
 properly, with two matched batches and interleaved repeats.
 

@@ -161,7 +161,7 @@ Measures what listing 7.2's cold tier costs to read. It stages two identical
 batches on the hot volume, one dated three days back and one dated one day back,
 then restores listing 7.2's own boundary (two days to cold, fifteen days delete)
 and materializes it, so the older partition qualifies for the move and the newer
-one does not. Once the older part reaches `s3_cold` (the MinIO-backed S3 disk) it
+one does not. Once the older part reaches `s3_cold` (the SeaweedFS-backed S3 disk) it
 runs the same aggregate against both partitions, interleaved, discards the first
 round as a warm-up and reports the median, min and max for each plus the ratio.
 Both batches come from the same generator, so the only difference between them is
@@ -181,7 +181,7 @@ have already walked through. The restore also runs in a `finally` block, so an
 error or a Ctrl-C cannot strand the staging boundary on the table.
 
 The two batches are left in place when the run finishes, one partition on
-`default` and one on `s3_cold`, so you can look at them and at the MinIO bucket.
+`default` and one on `s3_cold`, so you can look at them and at the SeaweedFS bucket.
 The next run clears them.
 
 What is no longer reported: `move_latency_seconds`, the wall-clock time from the
@@ -189,8 +189,9 @@ ALTER to the part appearing on S3. Three runs of the old script gave 1.01s, 9.09
 and 13.11s, and the published number was the 1.01. The 9.09 and the 13.11 are not
 in `results/`, and they were not thrown out either: the old filenames carried a
 date and nothing finer, so a repeat run on the same day overwrote the one before
-it. The two `tiering-move` files that do survive read 1.02s and 1.01s, the low
-end of that spread and not the truth of it.
+it. The two `tiering-move` files that do survive, now in
+`results/historical-minio/`, read 1.02s and 1.01s, the low end of that spread and
+not the truth of it.
 
 It was never a storage measurement. ClickHouse's move-selecting task sleeps
 `merge_selecting_sleep_ms` (5000) when idle and multiplies that by
@@ -206,9 +207,16 @@ Bytes moved shifts by a fraction of a percent depending on whether ClickHouse
 rewrote the part or relocated it as it stood. The absolute milliseconds do not
 repeat at all, since they include the client round trip and whatever else the
 machine is doing; the ratio is the number to read. It is a floor, not a
-forecast. The cold tier here is MinIO on the same Docker network, which is the
+forecast. The cold tier here is SeaweedFS on the same Docker network, which is the
 friendliest object store a cold tier will ever have. A real S3 endpoint across a
 network is slower, and the gap widens with the size of the read.
+
+The files in `results/historical-minio/` were measured when the cold tier was
+MinIO, before its images stopped being published. They are kept as history and
+are not what `RESULTS.md` quotes. On SeaweedFS the structural numbers came back
+identical (one part, 50,000 rows, 348,677 bytes, 15 objects). The ratio in
+`RESULTS.md` is 1.77x against MinIO's 1.81x, and nine SeaweedFS runs landed
+between 1.38x and 1.96x, about the spread MinIO gave run to run.
 
 ## tenant_cardinality_blowup.py
 

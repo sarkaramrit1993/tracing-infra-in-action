@@ -33,7 +33,7 @@
 #      OTel logs SDK, so TraceId and SpanId come from the active span context
 #      rather than from a regex over a log file. There is no shipper sidecar.
 #
-# Dropped from chapter 7's stack on purpose: Tempo and MinIO (chapter 7's
+# Dropped from chapter 7's stack on purpose: Tempo and SeaweedFS (chapter 7's
 # object-store archetype, nothing here reads them) and Flink (chapter 10's
 # stream-time path). Chapter 9 is self-contained.
 #

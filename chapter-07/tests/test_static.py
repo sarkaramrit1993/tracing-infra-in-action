@@ -67,13 +67,13 @@ def test_gateway_fans_out_to_both_archetypes():
     assert cfg["exporters"]["otlp/tempo"]["endpoint"] == "tempo:4317"
 
 
-def test_tempo_writes_blocks_to_the_same_minio():
+def test_tempo_writes_blocks_to_the_same_object_store():
     """'Both writing to the same object storage' is only true if Tempo's backend
-    is the MinIO service, not a container filesystem."""
+    is the SeaweedFS service, not a container filesystem."""
     cfg = yaml.safe_load(_read("collector/tempo.yaml"))
     trace = cfg["storage"]["trace"]
     assert trace["backend"] == "s3", "Tempo is not on object storage"
-    assert trace["s3"]["endpoint"] == "minio:9000"
+    assert trace["s3"]["endpoint"] == "seaweedfs:8333"
     assert trace["s3"]["bucket"] == "tempo-blocks"
 
 
@@ -83,8 +83,10 @@ def test_tempo_service_is_on_by_default_and_bucket_exists():
     doc = yaml.safe_load(_read("docker-compose.yml"))
     tempo = doc["services"]["tempo"]
     assert "profiles" not in tempo, "Tempo behind a profile is off by default"
-    assert _read("docker-compose.yml").count("local/tempo-blocks") == 1, \
-        "minio-init does not create the tempo-blocks bucket"
+    buckets = _seaweedfs_buckets(doc)
+    assert "tempo-blocks" in buckets, "SeaweedFS does not create the tempo-blocks bucket"
+    assert tempo["depends_on"]["seaweedfs"]["condition"] == "service_healthy", \
+        "Tempo can start before its bucket exists"
 
 
 def test_tempo_config_has_no_pre_3_0_sections():
@@ -216,8 +218,8 @@ def test_storage_policy_defines_cold_volume():
     assert "storage_policy = 'tiered'" in _read("clickhouse/init.sql")
 
 
-def test_storage_cold_tier_is_s3_minio():
-    # the cold volume must be backed by a real S3 disk pointing at the MinIO
+def test_storage_cold_tier_is_s3_seaweedfs():
+    # the cold volume must be backed by a real S3 disk pointing at the SeaweedFS
     # service, not a local disk, so the tier move exercises object storage.
     xml = _read("clickhouse/config.d/storage.xml")
     root = ET.fromstring(xml)
@@ -226,23 +228,46 @@ def test_storage_cold_tier_is_s3_minio():
     assert s3 is not None, "s3_cold disk missing from storage.xml"
     assert s3.findtext("type") == "s3", "s3_cold disk is not type s3"
     endpoint = s3.findtext("endpoint") or ""
-    assert "minio:9000/traces-cold" in endpoint, f"s3_cold endpoint not MinIO: {endpoint!r}"
+    assert "seaweedfs:8333/traces-cold" in endpoint, f"s3_cold endpoint not SeaweedFS: {endpoint!r}"
     # the tiered policy's cold volume must resolve to that S3 disk
     cold_disk = root.findtext(
         "./storage_configuration/policies/tiered/volumes/cold/disk")
     assert cold_disk == "s3_cold", f"cold volume disk is {cold_disk!r}, expected 's3_cold'"
 
 
-def test_minio_images_pinned_to_real_release_tags():
+def _seaweedfs_buckets(doc):
+    cmd = doc["services"]["seaweedfs"]["command"]
+    flags = [a for a in cmd if a.startswith("-bucket=")]
+    assert len(flags) == 1, f"seaweedfs command carries no -bucket= flag: {cmd}"
+    return flags[0].split("=", 1)[1].split(",")
+
+
+def test_object_store_pinned_and_creates_both_buckets():
+    """minio/minio and minio/mc vanished from Docker Hub, which broke this stack
+    for every reader. Pin the replacement to an exact release and keep bucket
+    creation inside the store, so nothing else has to be pulled to bootstrap."""
     doc = yaml.safe_load(_read("docker-compose.yml"))
-    images = {s["image"] for s in doc["services"].values() if "image" in s}
-    minio = [i for i in images if i.startswith("minio/")]
-    assert len(minio) == 2, f"expected minio/minio and minio/mc, found: {minio}"
-    # MinIO ships versioned RELEASE tags, never 'latest'.
-    release_re = re.compile(r"^RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$")
-    for img in minio:
-        repo, tag = img.rsplit(":", 1)
-        assert release_re.match(tag), f"{repo} tag is not a RELEASE.* stamp: {tag!r}"
+    images = [s["image"] for s in doc["services"].values() if "image" in s]
+    assert not [i for i in images if i.startswith("minio/")], "a minio image is back"
+    store = doc["services"]["seaweedfs"]
+    repo, tag = store["image"].rsplit(":", 1)
+    assert repo == "chrislusf/seaweedfs"
+    assert re.fullmatch(r"\d+\.\d+", tag), f"seaweedfs tag is not a release number: {tag!r}"
+    assert store["command"][0] == "mini"
+    assert set(_seaweedfs_buckets(doc)) == {"traces-cold", "tempo-blocks"}
+    assert doc["services"]["clickhouse"]["depends_on"]["seaweedfs"]["condition"] == "service_healthy", \
+        "ClickHouse validates the s3_cold disk on boot, so it must wait for the bucket"
+
+
+def test_s3_key_pair_matches_across_store_clickhouse_and_tempo():
+    doc = yaml.safe_load(_read("docker-compose.yml"))
+    env = doc["services"]["seaweedfs"]["environment"]
+    s3 = ET.fromstring(_read("clickhouse/config.d/storage.xml")).find(
+        "./storage_configuration/disks/s3_cold")
+    tempo = yaml.safe_load(_read("collector/tempo.yaml"))["storage"]["trace"]["s3"]
+    pair = (env["AWS_ACCESS_KEY_ID"], env["AWS_SECRET_ACCESS_KEY"])
+    assert (s3.findtext("access_key_id"), s3.findtext("secret_access_key")) == pair
+    assert (tempo["access_key"], tempo["secret_key"]) == pair
 
 
 def test_benchmark_scripts_parse_clean():
@@ -272,6 +297,16 @@ def test_consumer_inserts_listing_7_1_columns():
         "timestamp", "trace_id", "span_id", "service_name",
         "span_name", "status_code", "duration_ns", "attributes",
     }, f"consumer columns drift from listing 7.1: {cols}"
+
+
+def test_host_ports_bind_loopback_only():
+    """ClickHouse runs a password-less user and the S3 key pair is in this
+    file, so no published port may listen beyond this machine."""
+    doc = yaml.safe_load(_read("docker-compose.yml"))
+    published = [(name, p) for name, svc in doc["services"].items() for p in svc.get("ports", [])]
+    assert published, "no published ports found"
+    for name, port in published:
+        assert str(port).startswith("127.0.0.1:"), f"{name} publishes {port} on every interface"
 
 
 if __name__ == "__main__":
