@@ -131,8 +131,7 @@ test script can assert equality instead of a tolerance. When a number is off,
 something is wrong, and that is worth more here than realism.
 
 The cost is that the demo hides the confidence interval, which section 8.2.3 says
-is the gap that matters most in practice and is almost always missing from
-production dashboards. The last query in `exercises/unbiased.md` swaps the counter
+is almost always missing from production dashboards. The last query in `exercises/unbiased.md` swaps the counter
 for a real coin across ten seeds and shows the scatter, which is where the
 interval becomes visible.
 

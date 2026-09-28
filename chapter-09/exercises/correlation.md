@@ -193,8 +193,8 @@ status: success  lines: 2
 
 Two lines, from a request that finished moments ago, retrieved by an id chosen
 before it existed. Promoting `trace_id` to a real label would make the first
-selector work and would also be the one thing section 9.3.2 says never to do: a
-label per trace id is one stream per trace, and the cardinality bill multiplies
+selector work and would also break the store: a label per trace id is one
+stream per trace, and the cardinality bill multiplies
 instead of adding.
 
 ## Bridge 2, metric to trace

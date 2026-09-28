@@ -37,7 +37,7 @@ What the chapter argues, and what this proves or refutes on your own hardware:
     stored width is the encoding and not the id. Two characters per byte caps the
     ratio at 2x, and it measured 1.96x: the hex being squeezed back out, not any
     general incompressibility. timestamp
-    compresses worse. What makes trace_id the cost driver the chapter calls out
+    compresses worse. What makes trace_id a cost driver
     is its size on disk, which is the largest of any column here, not its ratio.
 
 Run (stack must be up):

@@ -204,8 +204,8 @@ service:
     # batch it refuses is refused before spanmetrics/pre has counted it. Left
     # off, the connector counts a batch, memory_limiter downstream rejects it,
     # the SDK retries the same spans, and pre_calls_total counts them again.
-    # The series the chapter calls ground truth would inflate under exactly the
-    # pressure that makes ground truth worth having.
+    # The pre-sampler series would inflate under exactly the
+    # pressure that makes it worth having.
     traces/in:
       receivers: [otlp]
       processors: [memory_limiter]

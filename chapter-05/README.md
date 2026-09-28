@@ -379,8 +379,7 @@ span, and the Flink keyed state never corrupts.
 - **Late-span audit**: under a clean stack with synchronized clocks the
   `spans.late` topic stays empty. Under heavy producer load or a
   deliberately skewed clock on one container, late spans appear, and the
-  Flink `numLateRecordsDropped` counter increments. That divergence is the
-  alert section 5.3.4 names as the one that matters.
+  Flink `numLateRecordsDropped` counter increments.
 
 ## Tear down
 
