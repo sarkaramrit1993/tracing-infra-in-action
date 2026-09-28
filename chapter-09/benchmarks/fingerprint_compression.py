@@ -1,9 +1,8 @@
 """Chapter 9 benchmark: what the listing 9.2 normalization is worth.
 
-Section 9.2.3 says the compression is "dramatic and reliable": millions of raw
-error spans collapse to tens or low thousands of distinct fingerprints, because
-a handful of code paths throw the overwhelming majority of the errors. That is
-an unsupported claim in the chapter. This script turns it into a measurement.
+Fingerprinting is meant to collapse millions of raw error spans into one
+fingerprint per code path that throws them. This script measures whether the
+listing 9.2 normalization does exactly that.
 
 In production you can count issues but never grade the count, because nobody
 knows how many distinct bugs the service really has. Here the generator knows:
@@ -34,8 +33,8 @@ The assertions are mechanisms, not magic constants:
                     one that strips too much pulls F below P.
     D > 0.9 * N     the raw messages really are near-unique, so the compression
                     below is normalization's doing and not the generator's.
-    top-10 > 50%    the volume is Zipf across paths, so "a handful of code paths
-                    throw most of the errors" is modelled rather than asserted.
+    top-10 > 50%    the volume is Zipf across paths, so a few code paths
+                    throwing most of the errors is modelled, not assumed.
 
 The ratio N/F is reported and never asserted. It is a property of how many code
 paths were seeded, so it says nothing about your service.

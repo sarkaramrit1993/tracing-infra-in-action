@@ -1,12 +1,11 @@
 # Chapter 9 benchmarks
 
-Two measurements, both of which exist because the chapter makes a claim that
-would otherwise be an assertion.
+Two measurements, each of which turns a claim into a number.
 
-| Script | Replaces | Needs |
+| Script | Measures | Needs |
 |---|---|---|
-| `sampler_divergence.py` | "the post error rate reads inflated against the pre rate" | the stack up, traffic driven, Prometheus |
-| `fingerprint_compression.py` | "millions of error spans collapse to tens or low thousands of fingerprints" | the stack up, ClickHouse |
+| `sampler_divergence.py` | the error rate read before and behind the tail sampler | the stack up, traffic driven, Prometheus |
+| `fingerprint_compression.py` | how many fingerprints listing 9.2 leaves from millions of near-unique error spans | the stack up, ClickHouse |
 
 The rendered record of the last committed run is in [../RESULTS.md](../RESULTS.md),
 generated from the JSON in `results/` by `scripts/render_results.py` at the
@@ -83,9 +82,9 @@ than more history.
 
 ## fingerprint_compression.py
 
-Section 9.2.3 says the compression from fingerprinting is "dramatic and
-reliable", with millions of error spans collapsing to tens or low thousands of
-distinct fingerprints. That is the sentence this script exists to replace.
+Fingerprinting is meant to collapse millions of raw error spans into one
+fingerprint per code path that throws them. This script measures whether the
+listing 9.2 normalization does exactly that.
 
 The problem with measuring it in production is that nobody knows the right
 answer. You can count issues, but there is nothing to grade the count against,
@@ -145,16 +144,14 @@ carries three variable tokens: a seven-digit cart id, a duration in
 milliseconds, and a sixteen-character lowercase hex request id. The hex is what
 makes each message effectively unique.
 
-**Top ten over 50 percent.** Section 9.2.3's premise is that a handful of code
-paths throw the overwhelming majority of the errors. Volume is distributed Zipf
-across the paths, truncated Pareto with `alpha = 0.5`, so that premise is
-modelled rather than asserted. The busiest path takes about 30 percent and the
+**Top ten over 50 percent.** Volume is distributed Zipf across the paths,
+truncated Pareto with `alpha = 0.5`, so a few code paths throwing most of the
+errors is modelled rather than asserted. The busiest path takes about 30 percent and the
 top ten about 72.
 
 The `N/F` ratio is reported and never asserted. It is `N` divided by the number
 of code paths seeded here, so it is a property of this generator. Quoting 1,667x
-as a figure for a real service would be exactly the kind of unsupported number
-this script exists to remove.
+as a figure for a real service would be an unsupported number.
 
 ### What it does not touch
 
