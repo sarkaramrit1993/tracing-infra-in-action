@@ -77,8 +77,8 @@ Measured: 2026-08-03
 
 ## Hot-to-cold tiering
 
-Source: `tiering-move-2026-08-03T223109.json`
-Measured: 2026-08-03
+Source: `tiering-move-2026-09-28T041746.json`
+Measured: 2026-09-28
 
 | Metric | Value |
 |---|---|
@@ -91,12 +91,12 @@ Measured: 2026-08-03
 | s3_objects_for_moved_parts | 15 |
 | same_answer_after_move | True |
 | query_repeats | 10 |
-| hot_query_ms.median | 5.25 |
-| hot_query_ms.min | 4.72 |
-| hot_query_ms.max | 13.79 |
-| cold_query_ms.median | 9.51 |
-| cold_query_ms.min | 9.34 |
-| cold_query_ms.max | 11.08 |
-| cold_over_hot | 1.81 |
+| hot_query_ms.median | 8.26 |
+| hot_query_ms.min | 6.49 |
+| hot_query_ms.max | 12.57 |
+| cold_query_ms.median | 14.6 |
+| cold_query_ms.min | 10.38 |
+| cold_query_ms.max | 15.62 |
+| cold_over_hot | 1.77 |
 
-> Both tiers hold the same generated batch, so the latency gap is the storage path and nothing else. The absolute milliseconds include the client round trip and are specific to this laptop; the ratio is the number to read, and only its direction is stable. Repeated runs on one machine have landed between 1.4x and 1.9x, so treat the figure above as one draw and not a constant. The assertion is set at 1.3x for that reason. It is a floor, not a forecast: the cold tier here is MinIO on the same Docker network, and a real S3 endpoint across a network is slower than that. Nothing here reports how long the move itself took, because that is the background scheduler's backoff, not a property of the tier.
+> Both tiers hold the same generated batch, so the latency gap is the storage path and nothing else. The absolute milliseconds include the client round trip and are specific to this laptop; the ratio is the number to read, and only its direction is stable. Repeated runs on one machine have landed between 1.4x and 2.0x, so treat the figure above as one draw and not a constant. The assertion is set at 1.3x for that reason. It is a floor, not a forecast: the cold tier here is SeaweedFS on the same Docker network, and a real S3 endpoint across a network is slower than that. Nothing here reports how long the move itself took, because that is the background scheduler's backoff, not a property of the tier.

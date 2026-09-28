@@ -44,9 +44,9 @@ REPEATS = int(os.environ.get("REPEATS", "11"))
 DRAIN_ATTEMPTS = 3
 
 # The claim under test: reading from the cold tier costs more than reading the
-# same rows from the hot volume. The single run in results/ measured 1.72x,
-# 10.31ms cold against 5.99ms hot, over MinIO on the same Docker network. That is
-# the friendliest object store a cold tier will ever have, so read 1.72x as a
+# same rows from the hot volume. The run in results/ measured 1.77x,
+# 14.6ms cold against 8.26ms hot, over SeaweedFS on the same Docker network. That
+# is the friendliest object store a cold tier will ever have, so read 1.77x as a
 # floor and not a forecast, and the guard below sits well under it on purpose.
 # Fail the guard and the cold volume is no longer a distinct read path, which is
 # what a misrouted disk or a cache in front of S3 looks like.
@@ -326,7 +326,7 @@ def run():
             "the storage path and nothing else. The absolute milliseconds "
             "include the client round trip and are specific to this laptop; "
             "the ratio is the number to read, and only its direction is stable. "
-            "Repeated runs on one machine have landed between 1.4x and 1.8x, so "
+            "Repeated runs on one machine have landed between 1.4x and 2.0x, so "
             "treat the figure above as one draw and not a constant. The "
             "assertion is set at 1.3x for that reason. It is a floor, not a "
             "forecast: "

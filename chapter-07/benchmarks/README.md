@@ -189,8 +189,9 @@ ALTER to the part appearing on S3. Three runs of the old script gave 1.01s, 9.09
 and 13.11s, and the published number was the 1.01. The 9.09 and the 13.11 are not
 in `results/`, and they were not thrown out either: the old filenames carried a
 date and nothing finer, so a repeat run on the same day overwrote the one before
-it. The two `tiering-move` files that do survive read 1.02s and 1.01s, the low
-end of that spread and not the truth of it.
+it. The two `tiering-move` files that do survive, now in
+`results/historical-minio/`, read 1.02s and 1.01s, the low end of that spread and
+not the truth of it.
 
 It was never a storage measurement. ClickHouse's move-selecting task sleeps
 `merge_selecting_sleep_ms` (5000) when idle and multiplies that by
@@ -209,6 +210,13 @@ machine is doing; the ratio is the number to read. It is a floor, not a
 forecast. The cold tier here is SeaweedFS on the same Docker network, which is the
 friendliest object store a cold tier will ever have. A real S3 endpoint across a
 network is slower, and the gap widens with the size of the read.
+
+The files in `results/historical-minio/` were measured when the cold tier was
+MinIO, before its images stopped being published. They are kept as history and
+are not what `RESULTS.md` quotes. On SeaweedFS the structural numbers came back
+identical (one part, 50,000 rows, 348,677 bytes, 15 objects). The ratio in
+`RESULTS.md` is 1.77x against MinIO's 1.81x, and nine SeaweedFS runs landed
+between 1.38x and 1.96x, about the spread MinIO gave run to run.
 
 ## tenant_cardinality_blowup.py
 

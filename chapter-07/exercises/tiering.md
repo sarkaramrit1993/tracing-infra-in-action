@@ -167,7 +167,8 @@ echo "fs.tree /buckets/traces-cold" | docker compose exec -T seaweedfs weed shel
 ```
 
 ```
-@@OBJ_OUT@@
+block:  15	logical size:    841820	/buckets/traces-cold
+18 directories, 15 files
 ```
 
 Same object count, same bytes, from two sides that do not share a source. The
@@ -240,9 +241,9 @@ FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
 ```
 
 Same answers, and faster. Over eight interleaved rounds here the hot side ran
-0.004s to 0.006s and the cold side 0.007s to 0.009s, so about 1.5x. The two
-ranges are close enough that a single pair either way can look like 2x or like
-nothing.
+0.006s to 0.022s and the cold side 0.010s to 0.020s, with medians of 0.0085s
+and 0.0135s, so about 1.6x. The two ranges overlap, so a single pair either way
+can look like 2x or like nothing.
 One pair of readings is not a measurement, so take several of each before you
 believe the size of the gap. Read it as a floor and not a forecast either. This
 cold tier is SeaweedFS on the same Docker network, the friendliest object store
