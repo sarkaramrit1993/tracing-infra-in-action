@@ -151,9 +151,8 @@ the partition keeps all 132, the primary key keeps all 132. Nothing prunes,
 because the sort key leads with `service_name` and `span_name` and there is one
 service here, and because an hour of data is the whole table. The scan is the
 plan. A million spans is nothing, so it returns fast anyway, and that is exactly
-how this ships: at a hundred billion spans the same query is the 20-to-60-second
-aggregation section 8.4 calls the inflection point. The rollup is how you never
-find out.
+how this ships: at a hundred billion spans the same plan still reads every
+granule. The rollup is how you never find out.
 
 That 132 is stable because the generator ends with `OPTIMIZE TABLE
 tracing.otel_traces FINAL`, so the insert lands in one part rather than however
