@@ -25,7 +25,7 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 # Counts traces for checkout-service's /checkout operation specifically,
 # excluding the container's periodic /health check traffic.
 trace_count() {
-  curl -s "http://localhost:16686/api/traces?service=checkout-service&operation=%2Fcheckout&limit=1000" \
+  curl -s "http://localhost:16686/api/traces?service=checkout-service&operation=GET%20%2Fcheckout&limit=1000" \
     | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('data') or []))" 2>/dev/null || echo 0
 }
 

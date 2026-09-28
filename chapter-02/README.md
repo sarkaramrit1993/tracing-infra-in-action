@@ -95,7 +95,7 @@ curl http://localhost:8080/users/67890
 Both requests create spans with the **same name** (`fetch_user_data`), with the user ID in an **attribute**:
 
 ```
-GET /users/{user_id}  ← template, not actual ID
+GET /users/<user_id>  ← template, not actual ID
 └─ fetch_user_data
      attribute: user.id = 12345
 ```
