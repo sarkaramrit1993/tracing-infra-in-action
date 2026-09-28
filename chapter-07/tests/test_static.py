@@ -274,6 +274,16 @@ def test_consumer_inserts_listing_7_1_columns():
     }, f"consumer columns drift from listing 7.1: {cols}"
 
 
+def test_host_ports_bind_loopback_only():
+    """ClickHouse runs a password-less user and MinIO's credentials are in this
+    file, so no published port may listen beyond this machine."""
+    doc = yaml.safe_load(_read("docker-compose.yml"))
+    published = [(name, p) for name, svc in doc["services"].items() for p in svc.get("ports", [])]
+    assert published, "no published ports found"
+    for name, port in published:
+        assert str(port).startswith("127.0.0.1:"), f"{name} publishes {port} on every interface"
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

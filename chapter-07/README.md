@@ -363,7 +363,11 @@ Nothing below is needed to run anything above it.
 ### Ports
 
 The stack binds host ports 3200, 4317, 4318, 4417, 8080, 8123, 8888, 9000,
-9001, 9002, 9090 and 9363.
+9001, 9002, 9090 and 9363, all on 127.0.0.1. They are reachable from this
+machine and nowhere else, which is deliberate: ClickHouse here runs a
+password-less user and MinIO's credentials are in the compose file, so neither
+belongs on a shared network. If you need to reach the stack from another
+machine, put an SSH tunnel in front of it rather than widening the binding.
 
 ### Version manifest (one tag per image, N1)
 
