@@ -48,32 +48,63 @@ def health():
 # --- Checkout Endpoint ---
 # Listing 2.3: Context propagation in a checkout endpoint
 # Demonstrates: nested spans, context propagation, business attributes
+
+def validate(cart_id, item_count):
+    time.sleep(0.02)
+
+
+def reserve_stock(warehouse):
+    time.sleep(0.03)
+
+
+def charge_card(amount):
+    time.sleep(0.05)
+
+
+def score_fraud_risk(amount):
+    time.sleep(0.04)
+    return round(random.uniform(0, 1), 3)
+
+
+def send_email(cart_id):
+    time.sleep(0.01)
+
+
+# validate(), charge_card() and the rest stand in for
+# the downstream services a real checkout would call
 @app.route("/checkout")
 def checkout():
     cart_id = f"cart-{random.randint(1000, 9999)}"
-
-    with tracer.start_as_current_span("validate_cart") as span:
+    item_count = random.randint(1, 10)
+    with tracer.start_as_current_span(
+            "validate_cart") as span:
         span.set_attribute("cart.id", cart_id)
-        span.set_attribute("cart.items", random.randint(1, 10))
-        time.sleep(0.02)
+        span.set_attribute("cart.items", item_count)
+        validate(cart_id, item_count)
 
-    with tracer.start_as_current_span("check_inventory") as span:
-        span.set_attribute("inventory.warehouse", "us-west-2")
-        time.sleep(0.03)
+    with tracer.start_as_current_span(
+            "check_inventory") as span:
+        span.set_attribute(
+            "inventory.warehouse", "us-west-2")
+        reserve_stock("us-west-2")
 
-    with tracer.start_as_current_span("process_payment") as span:
-        span.set_attribute("payment.method", "credit_card")
-        span.set_attribute("payment.amount", round(random.uniform(10, 500), 2))
-        time.sleep(0.05)
+    with tracer.start_as_current_span(
+            "process_payment") as span:
+        amount = round(random.uniform(10, 500), 2)
+        span.set_attribute(
+            "payment.method", "credit_card")
+        span.set_attribute("payment.amount", amount)
+        charge_card(amount)
+        with tracer.start_as_current_span(
+                "fraud_check") as child:
+            child.set_attribute(
+                "fraud.score", score_fraud_risk(amount))
 
-        # Nested span: fraud_check is child of process_payment
-        with tracer.start_as_current_span("fraud_check") as child:
-            child.set_attribute("fraud.score", round(random.uniform(0, 1), 3))
-            time.sleep(0.04)
-
-    with tracer.start_as_current_span("send_confirmation") as span:
-        span.set_attribute("notification.channel", "email")
-        time.sleep(0.01)
+    with tracer.start_as_current_span(
+            "send_confirmation") as span:
+        span.set_attribute(
+            "notification.channel", "email")
+        send_email(cart_id)
 
     return jsonify({"status": "completed", "cart_id": cart_id})
 

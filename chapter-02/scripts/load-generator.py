@@ -96,7 +96,7 @@ def run_load(duration: int, rate: str) -> None:
         requests.get(f"{BASE_URL}/health", timeout=5)
         print("[OK] Service is healthy\n")
     except requests.RequestException:
-        print("[ERROR] Service not available. Run: docker-compose up")
+        print("[ERROR] Service not available. Run: docker compose up")
         return
 
     start_time = time.time()
