@@ -227,7 +227,7 @@ compaction. Here retention is a rename.
 
 ## Try this
 
-The drop above took your partition with it, so re-run "Stage a partition" first.
+The drop above took your partition with it, so re-run "Stage a partition" and "Move it to the cold volume" first.
 These all work from that point.
 
 **Move it back and time the same query again.** With the partition on `s3_cold`,
