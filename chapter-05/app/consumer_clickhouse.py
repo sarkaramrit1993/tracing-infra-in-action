@@ -1,10 +1,10 @@
 """
-Chapter 5: Storage-time consumer for the ClickHouse path.
+Chapter 5: Query-time consumer for the ClickHouse path.
 
 Reads raw OTLP-encoded spans from the otlp_spans Kafka topic, decodes the
 protobuf, flattens each span into one row, and batch-inserts into
 tracing.otel_traces. Every span lands as soon as it arrives. Trace assembly
-is deferred to query time, which is the store-then-stitch contract.
+is deferred to query time, which is the query-time contract.
 
 The atomicity imperative shapes the commit policy: offsets commit only after
 the batch insert returns success, so a crash mid-batch replays the same span

@@ -114,7 +114,7 @@ def test_duplicate_benchmark_keeps_only_latest_measurement(tmp_path, monkeypatch
     (results_dir / "store_then_stitch-2020-01-02.json").write_text(json.dumps(later))
 
     out = render_results.render_chapter("05")
-    assert out.count("## Store-then-stitch write cost") == 1
+    assert out.count("## Query-time write cost") == 1
     assert "Measured: 2020-01-02" in out
     assert "Measured: 2020-01-01" not in out
     assert "store_then_stitch-2020-01-02.json" in out

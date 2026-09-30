@@ -18,7 +18,7 @@ Source: `atomicity_audit-none-2026-06-17.json`, `atomicity_audit-drop-whole-trac
 
 > producer-crash and buffer-overflow both produce partial traces. A producer batch carries spans from many traces, so boundary 1 is the one the assembler cannot protect. buffer-overflow is the failure inside the assembler that the atomicity rule exists to prevent.
 
-## Store-then-stitch write cost
+## Query-time write cost
 
 Source: `store_then_stitch-2026-06-17.json`
 

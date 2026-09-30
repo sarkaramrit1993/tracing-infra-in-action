@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Chapter 5 stack test. Asserts five things against the LIVE stack:
-#   1. the storage-time path fills ClickHouse,
+#   1. the query-time path fills ClickHouse,
 #   2. the stream-time path assembles MORE traces than it had before,
 #   3. the atomicity invariant holds: no checkout trace in the store has
 #      fewer spans than the checkout endpoint emits,
@@ -75,9 +75,9 @@ echo "waiting for batch export, Kafka, the ClickHouse consumer, and Flink's"
 echo "decision_wait timer (10s event-time) to all drain (60s)..."
 sleep 60
 
-echo "== 1. storage-time path filled ClickHouse =="
+echo "== 1. query-time path filled ClickHouse =="
 ROWS=$(CH --query "SELECT count() FROM tracing.otel_traces")
-[ "${ROWS:-0}" -gt 0 ] || fail "tracing.otel_traces is empty (storage-time path did not deliver)"
+[ "${ROWS:-0}" -gt 0 ] || fail "tracing.otel_traces is empty (query-time path did not deliver)"
 pass "ClickHouse tracing.otel_traces holds $ROWS rows"
 
 echo "== 2. stream-time path produced assembled traces =="

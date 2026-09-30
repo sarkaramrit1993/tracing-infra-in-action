@@ -21,7 +21,7 @@ Results land in `results/` (gitignored).
 Run the benchmark unit tests with `python3 -m pytest` (from the chapter root or
 from here).
 
-## Storage-time write cost
+## Query-time write cost
 
 Measures Parquet block write throughput and compression ratio. The reported
 ratio is compressed Parquet size against a **verbose JSON** baseline, so treat

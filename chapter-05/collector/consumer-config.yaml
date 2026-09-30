@@ -1,4 +1,4 @@
-# Storage-time path control: reads raw spans from Kafka and writes them straight
+# Query-time path control: reads raw spans from Kafka and writes them straight
 # to Jaeger v2. Spans land in Jaeger as soon as they arrive, no assembly buffer.
 # Compare against the stream-time path in stream-config.yaml.
 receivers:
@@ -18,7 +18,7 @@ processors:
   resource:
     attributes:
       - key: assembly.source
-        value: store-then-stitch
+        value: query-time
         action: upsert
   batch:
     send_batch_size: 4096

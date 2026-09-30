@@ -51,7 +51,7 @@ TITLES = {
     "fingerprint_compression": "Error fingerprint compression",
     "exemplar_resolution": "Exemplar resolution either side of the sampler",
     "red_mv_vs_query": "Materialized view against full scan",
-    "store_then_stitch": "Store-then-stitch write cost",
+    "store_then_stitch": "Query-time write cost",
     "stream_time": "Stream-time buffer cost",
 }
 

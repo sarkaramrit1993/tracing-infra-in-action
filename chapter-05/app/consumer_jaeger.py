@@ -1,5 +1,5 @@
 """
-Chapter 5: Storage-time consumer for the Jaeger path.
+Chapter 5: Query-time consumer for the Jaeger path.
 
 The docker-compose stack runs this path via the OpenTelemetry Collector's
 built-in Kafka receiver (see collector/consumer-config.yaml). That collector
@@ -7,7 +7,7 @@ is the production-grade choice: it handles offset commit, cooperative
 rebalancing, and backpressure internally.
 
 This Python file exists as a reference implementation for readers who want to
-see what the Collector does under the hood and run the storage-time path
+see what the Collector does under the hood and run the query-time path
 outside the Collector binary. It reads OTLP-encoded spans from Kafka, forwards
 them to the Jaeger OTLP gRPC endpoint, and commits offsets after the forward
 returns success.
