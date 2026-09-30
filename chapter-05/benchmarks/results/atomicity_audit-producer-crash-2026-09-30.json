@@ -1,0 +1,36 @@
+{
+  "mode": "producer-crash",
+  "rate": 0.05,
+  "result": {
+    "whole": 534,
+    "absent": 0,
+    "partial": 466,
+    "partial_examples": [
+      {
+        "trace_id": "trace-000265",
+        "spans_present": 6,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000526",
+        "spans_present": 7,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000888",
+        "spans_present": 5,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000134",
+        "spans_present": 6,
+        "spans_expected": 8
+      },
+      {
+        "trace_id": "trace-000913",
+        "spans_present": 7,
+        "spans_expected": 8
+      }
+    ]
+  }
+}

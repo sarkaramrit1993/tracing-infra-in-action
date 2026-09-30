@@ -71,10 +71,13 @@ default 4).
 
 A self-contained model of the audit logic, not a probe of the running stack.
 It generates synthetic traces in memory, injects one failure mode, and asserts
-no partial traces emerge. The audit passes for `none`, `producer-crash`, and
-`drop-whole-trace` failure modes (all compliant with the atomicity imperative)
-and fails for `buffer-overflow` (which evicts random spans and violates the
-imperative). It demonstrates the detection logic you would run against real
+no partial traces emerge. The audit passes for `none` and `drop-whole-trace`
+(both compliant with the atomicity imperative). It fails for `producer-crash`,
+because a producer batch carries spans from many traces and a lost batch
+leaves part of each behind (boundary 1, which the assembler cannot protect),
+and for `buffer-overflow`, which evicts random spans inside the assembler and
+violates the imperative. `BATCH_SPANS` (default 50) sets the producer batch
+size. It demonstrates the detection logic you would run against real
 assembled traces.
 
 ```bash

@@ -8,8 +8,9 @@ is deferred to query time, which is the store-then-stitch contract.
 
 The atomicity imperative shapes the commit policy: offsets commit only after
 the batch insert returns success, so a crash mid-batch replays the same span
-range on restart. A duplicate (span_id, trace_id) row is fine because the
-MergeTree dedups on the sorting key during background merges.
+range on restart. The table is a plain MergeTree, which keeps duplicates, so
+a replayed span lands as a second (trace_id, span_id) row. Nothing here
+removes it, so a read that needs exact results dedupes by span_id.
 """
 
 import os

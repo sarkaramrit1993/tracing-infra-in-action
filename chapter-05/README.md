@@ -55,11 +55,12 @@ land in `spans.late` via a side output and never re-enter the main pipeline.
 
 | Listing | File | Pattern |
 |---------|------|---------|
-| 5.1 | `app/scatter_gather_query.py` | ClickHouse trace-assembly query |
-| 5.2 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
-| 5.4 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
+| 5.1 | `clickhouse/init.sql` | ClickHouse spans table for query-time assembly |
+| 5.2 | `app/scatter_gather_query.py` | ClickHouse trace-assembly query |
+| 5.3 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
+| 5.5 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
 
-Not mapped: 5.3 (`loadbalancingexporter` config for Kafka-free trace-aware routing; this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.5 (service graph derivation query; the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
+Not mapped: 5.4 (`loadbalancingexporter` config for Kafka-free trace-aware routing; this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.6 (service graph derivation query; the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
 
 ### Pinned versions
 
@@ -266,7 +267,7 @@ stack), followed by an in-memory assembly of the parent-child waterfall.
 The script prints each shard's response latency separately because Figure
 5.5's claim is that the slowest shard owns the p99 of the whole query.
 
-### 8. Service graph (proves F5.8 + listing 5.5)
+### 8. Service graph (proves F5.8 + listing 5.6)
 
 ```bash
 docker compose exec clickhouse clickhouse-client --query "$(cat <<'SQL'
@@ -308,12 +309,12 @@ or whole traces absent. A partial trace is silent data loss and fails the audit.
 It demonstrates how you would detect a partial-trace violation; wiring it to the
 live `traces.assembled` topic is left as an exercise.
 
-Run it four ways. Three pass and one fails, and the failure is the point:
+Run it four ways. Two pass and two fail, and the failures are the point:
 
 | Run | Expected |
 |---|---|
 | no failure mode | PASS (clean run) |
-| `FAILURE_MODE=producer-crash` | PASS (whole-trace drops) |
+| `FAILURE_MODE=producer-crash` | FAIL (a lost batch takes part of several traces) |
 | `FAILURE_MODE=drop-whole-trace` | PASS (controlled degradation) |
 | `FAILURE_MODE=buffer-overflow` | FAIL (random-span eviction) |
 
@@ -325,9 +326,12 @@ FAILURE_MODE=drop-whole-trace  python3 atomicity_audit.py
 FAILURE_MODE=buffer-overflow   python3 atomicity_audit.py
 ```
 
-The audit fails on `buffer-overflow` because that mode evicts random spans
-inside the assembler, exactly the failure mode section 5.3.4 calls out as
-unacceptable. The audit passes on `drop-whole-trace` because evicting whole
+The audit fails on `producer-crash` because a trace's spans leave different
+hosts through different gateways, so a producer batch never holds a whole
+trace and a lost batch leaves partial traces behind. That is boundary 1, the
+one the assembler cannot protect. The audit fails on `buffer-overflow` because
+that mode evicts random spans inside the assembler, exactly the failure mode
+section 5.3.4 calls out as unacceptable. The audit passes on `drop-whole-trace` because evicting whole
 traces preserves the imperative even under controlled degradation.
 
 ### 10. Failure test: a broker drops
@@ -367,7 +371,9 @@ span, and the Flink keyed state never corrupts.
   collector (`store-then-stitch` or `stream-then-store`). Use it to compare
   the two paths inside Jaeger or ClickHouse.
 - **Atomicity boundaries** (Figure 5.7): the four boundaries are realized
-  in this stack as: (1) the gateway's `partition_traces_by_id`, (2) the
+  in this stack as: (1) the gateway's `partition_traces_by_id`, which sends
+  a trace's spans to one partition but cannot put them in one producer
+  batch, so this boundary stays unprotected, (2) the
   Flink Kafka source offset commit at checkpoint, (3) the Flink keyed-state
   eviction policy (drop-whole-trace, never drop-random-spans), and (4) the
   collector OTLP exporter's `tls.insecure` ack-on-success semantics.

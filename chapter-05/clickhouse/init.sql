@@ -6,6 +6,7 @@
 
 CREATE DATABASE IF NOT EXISTS tracing;
 
+-- Listing 5.1: ClickHouse spans table for query-time assembly
 CREATE TABLE IF NOT EXISTS tracing.otel_traces
 (
     timestamp           DateTime64(9, 'UTC')        CODEC(Delta, ZSTD(1)),
