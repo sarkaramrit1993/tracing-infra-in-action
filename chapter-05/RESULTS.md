@@ -7,18 +7,18 @@ re-run the script.
 
 ## Atomicity audit
 
-Source: `atomicity_audit-none-2026-06-17.json`, `atomicity_audit-drop-whole-trace-2026-06-17.json`, `atomicity_audit-producer-crash-2026-06-17.json`, `atomicity_audit-buffer-overflow-2026-06-17.json`
+Source: `atomicity_audit-none-2026-06-17.json`, `atomicity_audit-drop-whole-trace-2026-06-17.json`, `atomicity_audit-producer-crash-2026-09-30.json`, `atomicity_audit-buffer-overflow-2026-06-17.json`
 
 | Scenario | Whole traces | Absent | Partial |
 |---|---|---|---|
 | none | 1000 | 0 | 0 |
 | drop-whole-trace | 950 | 50 | 0 |
-| producer-crash | 959 | 41 | 0 |
+| producer-crash | 534 | 0 | 466 |
 | buffer-overflow | 678 | 0 | 322 |
 
-> Only buffer-overflow produces partial traces. That is the failure the atomicity rule exists to prevent.
+> producer-crash and buffer-overflow both produce partial traces. A producer batch carries spans from many traces, so boundary 1 is the one the assembler cannot protect. buffer-overflow is the failure inside the assembler that the atomicity rule exists to prevent.
 
-## Store-then-stitch write cost
+## Query-time write cost
 
 Source: `store_then_stitch-2026-06-17.json`
 

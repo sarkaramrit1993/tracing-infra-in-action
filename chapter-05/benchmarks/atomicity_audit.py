@@ -10,9 +10,9 @@ what you would run against real assembled traces; wiring it to the live
 The model:
 
 1. Generates N synthetic traces with M spans each.
-2. Applies one failure mode: producer-crash (drop whole batches),
-   buffer-overflow (evict random spans), or drop-whole-trace (evict whole
-   traces).
+2. Applies one failure mode: producer-crash (drop whole producer batches,
+   each holding spans from many traces), buffer-overflow (evict random spans),
+   or drop-whole-trace (evict whole traces).
 3. Audits the surviving traces and asserts the only acceptable outcomes:
       A. Whole trace present (all M spans, root present).
       B. Whole trace absent (zero spans).
@@ -21,7 +21,8 @@ The model:
 
 Set FAILURE_MODE to one of:
   none              clean run, expect 100% whole-trace outcomes
-  producer-crash    drop whole batches at the producer (compliant)
+  producer-crash    drop whole batches at the producer (violation the
+                    assembler cannot prevent: boundary 1)
   buffer-overflow   evict random spans inside the assembler (violation)
   drop-whole-trace  evict whole traces inside the assembler (compliant)
 """
@@ -41,6 +42,7 @@ NUM_TRACES = int(os.environ.get("NUM_TRACES", "1000"))
 SPANS_PER_TRACE = int(os.environ.get("SPANS_PER_TRACE", "8"))
 FAILURE_MODE = os.environ.get("FAILURE_MODE", "none")
 FAILURE_RATE = float(os.environ.get("FAILURE_RATE", "0.05"))
+BATCH_SPANS = int(os.environ.get("BATCH_SPANS", "50"))
 
 
 def _gen_traces(num: int, spans_per: int) -> list:
@@ -53,14 +55,24 @@ def _gen_traces(num: int, spans_per: int) -> list:
 
 
 def _producer_crash_filter(traces: list, rate: float) -> list:
-    """Drop random whole batches. Each trace is a batch in this model, so a
-    dropped batch is a dropped whole trace. Compliant with the imperative."""
-    out = []
-    for trace_id, spans in traces:
-        if random.random() < rate:
-            continue
-        out.append((trace_id, spans))
-    return out
+    """Drop random whole producer batches.
+
+    A trace's spans leave different hosts through different gateway
+    collectors, so no producer batch holds a whole trace. Model that by
+    interleaving every span and cutting the stream into BATCH_SPANS-sized
+    batches. A lost batch takes part of several traces with it, so this mode
+    produces partial traces: boundary 1 is the one the assembler cannot
+    protect."""
+    all_spans = [span for _trace_id, spans in traces for span in spans]
+    random.shuffle(all_spans)
+    kept = []
+    for start in range(0, len(all_spans), BATCH_SPANS):
+        if random.random() >= rate:
+            kept.extend(all_spans[start:start + BATCH_SPANS])
+    by_trace = defaultdict(list)
+    for span in kept:
+        by_trace[span[0]].append(span)
+    return list(by_trace.items())
 
 
 def _buffer_overflow_filter(traces: list, rate: float) -> list:

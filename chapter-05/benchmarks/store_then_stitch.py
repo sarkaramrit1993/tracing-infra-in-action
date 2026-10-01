@@ -1,6 +1,6 @@
 """Chapter 5 benchmark: storage write cost on raw spans (Tempo / SigNoz style).
 
-Measures the cost of the store-then-stitch ingestion path: take a batch of
+Measures the cost of the query-time ingestion path: take a batch of
 synthetic OTLP spans, serialize them, batch them, and time the write to a
 local backend. The default backend is an in-process Parquet file with zstd
 compression (a Tempo block proxy). A ClickHouse backend can be selected by
@@ -142,7 +142,7 @@ def _clickhouse_write(spans: list) -> tuple:
 
 
 def run():
-    print(f"[store-then-stitch] backend={BACKEND} num_spans={NUM_SPANS} iters={NUM_ITERATIONS}")
+    print(f"[query-time] backend={BACKEND} num_spans={NUM_SPANS} iters={NUM_ITERATIONS}")
     spans = _gen_spans(NUM_SPANS)
     raw_size = _raw_size(spans)
     proto_size = _proto_proxy_size(spans)
@@ -164,18 +164,18 @@ def run():
     p95_ms = (sorted(write_times)[int(len(write_times) * 0.95)]) * 1000
     throughput = NUM_SPANS / statistics.mean(write_times)
 
-    print(f"[store-then-stitch] raw_json_bytes={raw_size:,} "
+    print(f"[query-time] raw_json_bytes={raw_size:,} "
           f"proto_proxy_bytes={proto_size:,}")
     if compressed_size:
         ratio_json = raw_size / compressed_size
         ratio_proto = proto_size / compressed_size
-        print(f"[store-then-stitch] compressed_size_bytes={compressed_size:,} "
+        print(f"[query-time] compressed_size_bytes={compressed_size:,} "
               f"ratio_vs_json={ratio_json:.1f}x (upper bound) "
               f"ratio_vs_proto={ratio_proto:.1f}x (honest)")
     else:
-        print(f"[store-then-stitch] compressed_size_bytes=0 "
+        print(f"[query-time] compressed_size_bytes=0 "
               f"(backend={BACKEND}: server owns compression, see system.parts)")
-    print(f"[store-then-stitch] avg_write_ms={avg_ms:.2f} p95={p95_ms:.2f} throughput={throughput:,.0f} spans/s")
+    print(f"[query-time] avg_write_ms={avg_ms:.2f} p95={p95_ms:.2f} throughput={throughput:,.0f} spans/s")
 
     out_dir = Path(__file__).parent / "results"
     out_dir.mkdir(exist_ok=True)

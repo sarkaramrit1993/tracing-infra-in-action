@@ -1,11 +1,12 @@
--- Chapter 5: ClickHouse schema for the storage-time path.
+-- Chapter 5: ClickHouse schema for the query-time path.
 -- Modeled after the SigNoz traces schema: one wide row per span with the
 -- attributes payload kept as a Map for late binding. The sorting key
--- (trace_id, start_time) keeps trace assembly to a contiguous range scan,
+-- (trace_id, timestamp) keeps trace assembly to a contiguous range scan,
 -- and the partition key bucketizes by hour for cheap retention drops.
 
 CREATE DATABASE IF NOT EXISTS tracing;
 
+-- Listing 5.1: ClickHouse spans table for query-time assembly
 CREATE TABLE IF NOT EXISTS tracing.otel_traces
 (
     timestamp           DateTime64(9, 'UTC')        CODEC(Delta, ZSTD(1)),

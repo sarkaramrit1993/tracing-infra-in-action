@@ -1,7 +1,7 @@
 """
 Chapter 5: Stream-time trace assembly job (PyFlink 2.2).
 
-Listing 5.2 plus listing 5.4 made concrete. The job:
+Listing 5.3 plus listing 5.5 made concrete. The job:
 
 1. Reads OTLP-encoded spans from the otlp_spans Kafka topic.
 2. Assigns event-time watermarks with 5 seconds of bounded out-of-orderness.
@@ -147,9 +147,9 @@ class SpanTimestampAssigner:
         return _event_time_ms_of(value)
 
 
-# Listing 5.2: KeyedProcessFunction skeleton for keyed trace assembly
+# Listing 5.3: KeyedProcessFunction skeleton for keyed trace assembly
 class TraceAssembler(KeyedProcessFunction):
-    """Listing 5.2 made concrete in PyFlink.
+    """Listing 5.3 made concrete in PyFlink.
 
     Per-key state:
       - spans       list of single-span OTLP payloads buffered for this trace
@@ -182,8 +182,10 @@ class TraceAssembler(KeyedProcessFunction):
 
     def process_element(self, value: bytes, ctx: 'KeyedProcessFunction.Context'):
         # The trace already shipped. Any span arriving now is a straggler that
-        # the bounded watermark did not classify as late (the watermark lags
-        # the slowest partition). Re-buffering it would register a fresh timer
+        # the bounded watermark did not classify as late: its event time is
+        # still ahead of the one watermark this job assigns after the source,
+        # for example a span that started more than DECISION_WAIT_MS after the
+        # trace's first span. Re-buffering it would register a fresh timer
         # and emit a SECOND single-span "trace", which is exactly the
         # atomicity-imperative violation the chapter warns against. Route it to
         # the late side output and stop.
@@ -277,7 +279,7 @@ def build_job():
     raw = env.from_source(
         source, WatermarkStrategy.no_watermarks(), "kafka-otlp-spans")
 
-    # Listing 5.4: Bounded watermark strategy and late-span side-output routing
+    # Listing 5.5: Bounded watermark strategy and late-span side-output routing
     watermark = (WatermarkStrategy
                  .for_bounded_out_of_orderness(Duration.of_seconds(OUT_OF_ORDER_SEC))
                  .with_timestamp_assigner(SpanTimestampAssigner()))

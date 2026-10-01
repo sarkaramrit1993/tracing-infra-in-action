@@ -114,7 +114,7 @@ def test_duplicate_benchmark_keeps_only_latest_measurement(tmp_path, monkeypatch
     (results_dir / "store_then_stitch-2020-01-02.json").write_text(json.dumps(later))
 
     out = render_results.render_chapter("05")
-    assert out.count("## Store-then-stitch write cost") == 1
+    assert out.count("## Query-time write cost") == 1
     assert "Measured: 2020-01-02" in out
     assert "Measured: 2020-01-01" not in out
     assert "store_then_stitch-2020-01-02.json" in out
@@ -135,8 +135,10 @@ def test_atomicity_audit_renders_as_one_comparison_table():
     modes = ["none", "drop-whole-trace", "producer-crash", "buffer-overflow"]
     positions = []
     for mode in modes:
-        data = json.loads((ROOT / "chapter-05/benchmarks/results"
-                            f"/atomicity_audit-{mode}-2026-06-17.json").read_text())
+        matches = sorted((ROOT / "chapter-05/benchmarks/results")
+                         .glob(f"atomicity_audit-{mode}-*.json"))
+        assert len(matches) == 1, f"expected one result file for {mode}"
+        data = json.loads(matches[0].read_text())
         result = data["result"]
         row = f"| {mode} | {result['whole']} | {result['absent']} | {result['partial']} |"
         assert row in out, f"row for {mode} missing or numbers don't match the source file"

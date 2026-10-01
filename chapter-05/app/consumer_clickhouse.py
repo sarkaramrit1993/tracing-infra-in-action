@@ -1,15 +1,16 @@
 """
-Chapter 5: Storage-time consumer for the ClickHouse path.
+Chapter 5: Query-time consumer for the ClickHouse path.
 
 Reads raw OTLP-encoded spans from the otlp_spans Kafka topic, decodes the
 protobuf, flattens each span into one row, and batch-inserts into
 tracing.otel_traces. Every span lands as soon as it arrives. Trace assembly
-is deferred to query time, which is the store-then-stitch contract.
+is deferred to query time, which is the query-time contract.
 
 The atomicity imperative shapes the commit policy: offsets commit only after
 the batch insert returns success, so a crash mid-batch replays the same span
-range on restart. A duplicate (span_id, trace_id) row is fine because the
-MergeTree dedups on the sorting key during background merges.
+range on restart. The table is a plain MergeTree, which keeps duplicates, so
+a replayed span lands as a second (trace_id, span_id) row. Nothing here
+removes it, so a read that needs exact results dedupes by span_id.
 """
 
 import os

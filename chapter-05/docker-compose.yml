@@ -1,5 +1,5 @@
 # Chapter 5 extends Chapter 4: same 3-broker KRaft Kafka cluster, adds Flink 2.2
-# for stream-time assembly and ClickHouse 25.8 for storage-time assembly. Both
+# for stream-time assembly and ClickHouse 25.8 for query-time assembly. Both
 # paths coexist so the reader can compare them on the same span stream.
 
 x-kafka-common-env: &kafka-common-env
@@ -170,7 +170,7 @@ services:
           --bootstrap-server kafka-1:9093,kafka-2:9093,kafka-3:9093
         echo "Topics created."
 
-  # --- ClickHouse (storage-time path target) ---
+  # --- ClickHouse (query-time path target) ---
   clickhouse:
     image: clickhouse/clickhouse-server:25.8
     networks: [ch5]
@@ -194,7 +194,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # --- Storage-time consumer: Kafka otlp_spans -> ClickHouse otel_traces ---
+  # --- Query-time consumer: Kafka otlp_spans -> ClickHouse otel_traces ---
   consumer-clickhouse:
     build: ./app
     networks: [ch5]
@@ -211,7 +211,7 @@ services:
       clickhouse:
         condition: service_healthy
 
-  # --- Storage-time consumer (control): Kafka otlp_spans -> Jaeger v2 ---
+  # --- Query-time consumer (control): Kafka otlp_spans -> Jaeger v2 ---
   otel-consumer:
     image: otel/opentelemetry-collector-contrib:0.154.0
     networks: [ch5]
@@ -319,7 +319,7 @@ services:
       jaeger:
         condition: service_started
 
-  # --- Jaeger v2 (trace backend for both storage-time and stream-time) ---
+  # --- Jaeger v2 (trace backend for both query-time and stream-time) ---
   jaeger:
     image: jaegertracing/jaeger:2.19.0
     networks: [ch5]

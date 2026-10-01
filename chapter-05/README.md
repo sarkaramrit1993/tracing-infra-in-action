@@ -2,8 +2,8 @@
 
 Code and exploration exercises for Chapter 5 of *Tracing Infrastructure in Action*.
 
-This chapter contrasts store-then-stitch (Tempo, Jaeger, SigNoz, X-Ray) with
-stream-then-store (Edgar, Refinery, Infinite Tracing, Salesforce). Both
+This chapter contrasts query-time assembly (Tempo, Jaeger, SigNoz, X-Ray) with
+stream-time assembly (Edgar, Refinery, Infinite Tracing, Salesforce). Both
 topologies coexist in this stack so the reader can compare them on the same
 span stream. The atomicity imperative governs every boundary: drop whole
 traces, never partial spans.
@@ -17,11 +17,11 @@ traces, never partial spans.
 ## Architecture
 
 ```
-                                      +--> consumer-clickhouse --> ClickHouse  (storage-time path)
+                                      +--> consumer-clickhouse --> ClickHouse  (query-time path)
                                       |
 checkout -> otel-agent -> otel-gateway --> kafka (otlp_spans, 16 partitions, RF=2)
                                       |
-                                      +--> otel-consumer --> Jaeger v2   (storage-time control)
+                                      +--> otel-consumer --> Jaeger v2   (query-time control)
                                       |
                                       +--> flink-jobmanager + taskmanager (stream-time assembly)
                                                   |
@@ -47,19 +47,20 @@ land in `spans.late` via a side output and never re-enter the main pipeline.
 - **clickhouse/**: storage schema (`otel_traces` wide table) and the
   `red_service_minute` materialized view. The service graph is derived by
   query, not a materialized view. See the walkthrough in step 8 below.
-- **collector/**: OTel agent, gateway, storage-time consumer, stream-time consumer.
-- **benchmarks/**: storage-time write cost, stream-time buffer cost,
+- **collector/**: OTel agent, gateway, query-time consumer, stream-time consumer.
+- **benchmarks/**: query-time write cost, stream-time buffer cost,
   atomicity audit.
 
 ## Listings
 
 | Listing | File | Pattern |
 |---------|------|---------|
-| 5.1 | `app/scatter_gather_query.py` | ClickHouse trace-assembly query |
-| 5.2 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
-| 5.4 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
+| 5.1 | `clickhouse/init.sql` | ClickHouse spans table for query-time assembly |
+| 5.2 | `app/scatter_gather_query.py` | ClickHouse trace-assembly query |
+| 5.3 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
+| 5.5 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
 
-Not mapped: 5.3 (`loadbalancingexporter` config for Kafka-free trace-aware routing; this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.5 (service graph derivation query; the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
+Not mapped: 5.4 (`loadbalancingexporter` config for Kafka-free trace-aware routing; this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.6 (service graph derivation query; the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
 
 ### Pinned versions
 
@@ -93,7 +94,7 @@ docker compose logs -f flink-job-submit
 bash tests/test_stack.sh
 ```
 
-Asserts that the storage-time path fills ClickHouse, that the stream-time
+Asserts that the query-time path fills ClickHouse, that the stream-time
 path produces assembled traces on `traces.assembled`, that no checkout trace
 in the store has fewer spans than the checkout endpoint emits, and that the
 late-span topic exists separate from the main path. Exits non-zero on any
@@ -162,15 +163,15 @@ In the Jaeger UI, the Service dropdown will show `checkout-service`. Each
 trace carries the `assembly.source` resource attribute set by the consumer
 collectors. Filter by:
 
-- `assembly.source=store-then-stitch` for the storage-time path
-- `assembly.source=stream-then-store` for the stream-time path
+- `assembly.source=query-time` for the query-time path
+- `assembly.source=stream-time` for the stream-time path
 
 The same logical trace appears under both labels because both consumers
-read the same `otlp_spans` topic. The storage-time path emits each span as
+read the same `otlp_spans` topic. The query-time path emits each span as
 it arrives. The stream-time path holds the whole trace in keyed state for
 the decision_wait window, then emits the assembled trace at once. Figure
 5.1's decision tree and Figure 5.7's atomicity boundaries both manifest
-here: the storage-time row never holds a hole because spans are written
+here: the query-time row never holds a hole because spans are written
 independently, and the stream-time row never holds a hole because the
 whole trace emits or none of it does.
 
@@ -266,7 +267,7 @@ stack), followed by an in-memory assembly of the parent-child waterfall.
 The script prints each shard's response latency separately because Figure
 5.5's claim is that the slowest shard owns the p99 of the whole query.
 
-### 8. Service graph (proves F5.8 + listing 5.5)
+### 8. Service graph (proves F5.8 + listing 5.6)
 
 ```bash
 docker compose exec clickhouse clickhouse-client --query "$(cat <<'SQL'
@@ -308,12 +309,12 @@ or whole traces absent. A partial trace is silent data loss and fails the audit.
 It demonstrates how you would detect a partial-trace violation; wiring it to the
 live `traces.assembled` topic is left as an exercise.
 
-Run it four ways. Three pass and one fails, and the failure is the point:
+Run it four ways. Two pass and two fail, and the failures are the point:
 
 | Run | Expected |
 |---|---|
 | no failure mode | PASS (clean run) |
-| `FAILURE_MODE=producer-crash` | PASS (whole-trace drops) |
+| `FAILURE_MODE=producer-crash` | FAIL (a lost batch takes part of several traces) |
 | `FAILURE_MODE=drop-whole-trace` | PASS (controlled degradation) |
 | `FAILURE_MODE=buffer-overflow` | FAIL (random-span eviction) |
 
@@ -325,9 +326,12 @@ FAILURE_MODE=drop-whole-trace  python3 atomicity_audit.py
 FAILURE_MODE=buffer-overflow   python3 atomicity_audit.py
 ```
 
-The audit fails on `buffer-overflow` because that mode evicts random spans
-inside the assembler, exactly the failure mode section 5.3.4 calls out as
-unacceptable. The audit passes on `drop-whole-trace` because evicting whole
+The audit fails on `producer-crash` because a trace's spans leave different
+hosts through different gateways, so a producer batch never holds a whole
+trace and a lost batch leaves partial traces behind. That is boundary 1, the
+one the assembler cannot protect. The audit fails on `buffer-overflow` because
+that mode evicts random spans inside the assembler, exactly the failure mode
+section 5.3.4 calls out as unacceptable. The audit passes on `drop-whole-trace` because evicting whole
 traces preserves the imperative even under controlled degradation.
 
 ### 10. Failure test: a broker drops
@@ -343,7 +347,7 @@ docker compose start kafka-2
 ```
 
 The blast radius of one broker loss stays inside the Kafka tier. The
-producer never sees an error, the storage-time consumer never drops a
+producer never sees an error, the query-time consumer never drops a
 span, and the Flink keyed state never corrupts.
 
 ## Tuning knobs worth poking
@@ -358,16 +362,18 @@ span, and the Flink keyed state never corrupts.
   to ForSt to demonstrate the disaggregated-state recovery characteristic
   from footnote [^16]. ForSt needs an S3-compatible target configured.
 - `BATCH_SIZE`, `BATCH_TIMEOUT_S` (`consumer-clickhouse` env): the
-  storage-time path's write batching. Tune to trade ingestion latency for
+  query-time path's write batching. Tune to trade ingestion latency for
   throughput.
 
 ## Operational notes
 
 - **Resource attribute label**: `assembly.source` is set by each consumer
-  collector (`store-then-stitch` or `stream-then-store`). Use it to compare
+  collector (`query-time` or `stream-time`). Use it to compare
   the two paths inside Jaeger or ClickHouse.
 - **Atomicity boundaries** (Figure 5.7): the four boundaries are realized
-  in this stack as: (1) the gateway's `partition_traces_by_id`, (2) the
+  in this stack as: (1) the gateway's `partition_traces_by_id`, which sends
+  a trace's spans to one partition but cannot put them in one producer
+  batch, so this boundary stays unprotected, (2) the
   Flink Kafka source offset commit at checkpoint, (3) the Flink keyed-state
   eviction policy (drop-whole-trace, never drop-random-spans), and (4) the
   collector OTLP exporter's `tls.insecure` ack-on-success semantics.

@@ -51,17 +51,21 @@ TITLES = {
     "fingerprint_compression": "Error fingerprint compression",
     "exemplar_resolution": "Exemplar resolution either side of the sampler",
     "red_mv_vs_query": "Materialized view against full scan",
-    "store_then_stitch": "Store-then-stitch write cost",
+    "store_then_stitch": "Query-time write cost",
     "stream_time": "Stream-time buffer cost",
 }
 
 # The four atomicity_audit modes are one experiment, not four. Control run
-# first, then the two modes that preserve the invariant, then the one that
+# first, then the mode that preserves the invariant, then the producer-side
+# loss the assembler cannot prevent, then the assembler-side eviction that
 # violates it -- this order carries the chapter's argument, so it is not
 # sorted alphabetically like every other section.
 ATOMICITY_MODES = ["none", "drop-whole-trace", "producer-crash", "buffer-overflow"]
-ATOMICITY_NOTE = ("Only buffer-overflow produces partial traces. That is the "
-                   "failure the atomicity rule exists to prevent.")
+ATOMICITY_NOTE = ("producer-crash and buffer-overflow both produce partial "
+                   "traces. A producer batch carries spans from many traces, "
+                   "so boundary 1 is the one the assembler cannot protect. "
+                   "buffer-overflow is the failure inside the assembler that "
+                   "the atomicity rule exists to prevent.")
 
 # A handful of result files (store_then_stitch, stream_time) predate the
 # "benchmark"/"mode" convention and carry no self-describing field at all.

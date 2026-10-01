@@ -27,14 +27,14 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(audit["whole"], 100)
         self.assertEqual(audit["absent"], 0)
 
-    def test_producer_crash_keeps_imperative(self):
+    def test_producer_crash_splits_traces(self):
         emitted = aa.FAILURE_FILTERS["producer-crash"](self.traces, 0.20)
         audit = aa._audit(emitted, 8)
         audit["absent"] += len(self.traces) - len(emitted)
-        self.assertEqual(audit["partial"], 0,
-                         "producer-crash drops whole batches, partial=0 expected")
-        self.assertGreater(audit["absent"], 0)
-        self.assertGreater(audit["whole"], 0)
+        self.assertGreater(audit["partial"], 0,
+                           "a producer batch spans many traces, so a lost "
+                           "batch leaves partial traces behind")
+        self.assertEqual(audit["whole"] + audit["absent"] + audit["partial"], 100)
 
     def test_drop_whole_trace_keeps_imperative(self):
         emitted = aa.FAILURE_FILTERS["drop-whole-trace"](self.traces, 0.30)
