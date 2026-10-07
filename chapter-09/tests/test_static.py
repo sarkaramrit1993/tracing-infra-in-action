@@ -297,11 +297,11 @@ def test_listing_9_2_regex_collapses_uuids_and_hex_in_any_case():
 
 @test
 def test_listing_9_2_fingerprints_on_the_innermost_frame():
-    """The book prints splitByChar('\\n', stacktrace)[1]. On a Python traceback
-    that is the literal line "Traceback (most recent call last):", identical for
-    every exception ever raised, so every issue in the service collapses into
-    one. The runnable file takes the LAST parsed frame and drops its line number
-    so an edit above the raise does not fork one issue into two."""
+    """splitByChar('\\n', stacktrace)[1] on a Python traceback is the literal line
+    "Traceback (most recent call last):", identical for every exception ever
+    raised, so every issue in the service would collapse into one. The book and
+    the file both take the LAST parsed frame and drop its line number, so an
+    edit above the raise does not fork one issue into two."""
     body = normalize(listing_body("clickhouse/error_index.sql", "9.2"))
     assert "extractAll(attributes['exception.stacktrace']" in body, \
         "top_frame must be parsed out of the traceback, not sliced off its first line"

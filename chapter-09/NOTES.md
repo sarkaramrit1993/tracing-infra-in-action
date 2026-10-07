@@ -151,7 +151,7 @@ dangling pointer section 9.3.1 names.
 wrong answer.** Errors are about 2.9 percent of spans and the sampler keeps all
 of them; successes are kept at one percent. Put those together and you would
 predict about four percent of pre-sampler exemplars resolving. Measured is
-roughly thirty, nearly an order of magnitude more, and the reason is that an
+37.5 percent (6 of 16 in the recorded run), nearly ten times more, and the reason is that an
 exemplar is minted **one per series per scrape, not one per span**. Error spans
 carry their own `status_code` label and land in their own buckets, so they hold
 series of their own, and those series are hugely over-represented against the
@@ -409,8 +409,7 @@ chapter's are not, and cannot be.
 
 The traffic here goes through a live sampler making a probabilistic decision per
 trace, over however many requests you happened to drive, flushed on a 15-second
-timer and scraped on another. 306 and 10 will be different numbers for you, and
-the post total especially: at one in a hundred, three hundred successful requests
+timer and scraped on another. The post total of 14 will be a different number for you: at one in a hundred, three hundred successful requests
 leave about three survivors, and three is a number with a lot of luck in it. What
 reproduces is the relationship: pre above post, error counts equal on both sides
 because the sampler keeps every error, and a post error rate many times the pre
@@ -437,37 +436,22 @@ number rather than compared against a direction.
 The book prints a readable excerpt and this repository ships a runnable file, so
 they differ in small ways throughout: qualified table names, callout markers,
 YAML that has to satisfy a real schema. One of the differences is worth knowing
-before you paste a printed listing into your own stack.
+before you write your own version of a listing.
 
 ### Listing 9.2's top frame
 
-The book prints:
-
-```
-splitByChar('\n', attributes['exception.stacktrace'])[1] AS top_frame
-```
+The book and the file take the same top frame: the innermost
+`File "...", line N, in name` entry of the traceback, with the line number
+stripped. Two details matter if you write your own version.
 
 Element 1 of a Python traceback split on newlines is the literal string
-`Traceback (most recent call last):`. It is identical for every exception the
-process will ever raise, so the fingerprint degenerates to a hash of type and
-message template alone and the top frame contributes nothing. In a service where
-two different call sites raise the same exception type with the same message
-shape, those two bugs become one issue and stay one issue.
+`Traceback (most recent call last):`, identical for every exception, so a
+fingerprint built on it hashes only type and message template, and two different
+call sites raising the same error become one issue.
 
-The file parses the frames out and takes the innermost:
-
-```
-replaceRegexpAll(
-    arrayElement(
-        extractAll(attributes['exception.stacktrace'],
-                   'File "[^"]*", line [0-9]+, in [A-Za-z_0-9<>.]+'),
-        -1),
-    ', line [0-9]+', '') AS top_frame
-```
-
-The line number is stripped on the way through. Without that, an edit anywhere
-above the raise site shifts the line and forks one ongoing issue into two, one
-of which is marked "first seen in this deploy". `benchmarks/fingerprint_compression.py`
+The line number has to go. Without stripping it, an edit anywhere above the
+raise site shifts the line and forks one ongoing issue into two, one of them
+marked "first seen in this deploy". `benchmarks/fingerprint_compression.py`
 varies the raise line across three values per code path to stand in for three
 deploys, so dropping the strip triples the issue count, measurably.
 

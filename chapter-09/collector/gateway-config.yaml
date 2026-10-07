@@ -21,9 +21,9 @@
 #      application code knows this happened, which is the honest version: the
 #      producer calls record_exception() the way any instrumented service does.
 #
-#   3. SPAN METRICS CARRY http.route. Without it every HTTP span in a service
-#      aggregates into one series and section 9.1's per-route RED breakdown has
-#      nothing to break down. It is on BOTH connectors so pre and post stay
+#   3. SPAN METRICS CARRY http.route. The route is already part of the span
+#      name, so it adds almost no series; it is there as a clean label to group
+#      and alert on per route. It is on BOTH connectors so pre and post stay
 #      comparable at the same grain.
 #
 #   4. LOGS TRAVEL THE SAME PIPELINE AS TRACES. The producer emits logs through
@@ -66,7 +66,7 @@ processors:
 
   # Keep every trace that carries an error span, plus a 1% probabilistic
   # sample of the rest. One in a hundred is the rate the book uses throughout,
-  # and the opening story's 50x inflation is arithmetic on it. Plain
+  # and the 50-to-1 inflation in Figure 9.6 (section 9.2.4) is arithmetic on it. Plain
   # probabilistic sampling: it does NOT stamp a W3C tracestate ot.th
   # probability threshold on kept spans, so the post connector cannot
   # reconstruct the pre population from a sampled span. That is deliberate. It
