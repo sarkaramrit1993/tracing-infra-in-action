@@ -1,32 +1,19 @@
 # Chapter 9: Trace-Driven Insights
 
-Runnable companion to chapter 9 of *Tracing Infrastructure in Action*. Chapter 7
-built the store and chapter 8 made it answerable. This chapter asks a different
-question: what can you learn from traces that a metric alone could not tell you?
+Runnable companion to chapter 9 of *Tracing Infrastructure in Action*.
 
-Answering it needs the whole path rather than the store, because every claim in
-chapter 9 is about something that happens **before the sampler** or **across two
-signals**. So the Collector here runs span metrics twice. `spanmetrics/pre`
-counts every span that arrives. The same stream is then handed to a tail sampler
-that keeps every error trace and one in a hundred of the rest, and
-`spanmetrics/post`
-counts what survives. Two series, one workload, one configuration file. Their
-disagreement is section 9.2.4's argument, and it is not a thing you can stage
-with a fixture.
+You will run one small checkout service and watch two things the chapter teaches:
 
-The same pipeline carries logs. The producer writes them through the
-OpenTelemetry logs SDK, so a line written inside a span already carries that
-span's TraceId and SpanId, and the Collector forwards them to Loki over OTLP.
-Nothing parses a log file and nothing greps for a hex string. That is why the
-trace-to-log jump in section 9.3 is exact rather than approximate, and it is
-also what lets you break it on purpose in `exercises/correlation.md` and watch
-the join return nothing with no error anywhere.
+1. **A sampled error rate is wrong.** The Collector counts span metrics twice:
+   `spanmetrics/pre` before the tail sampler and `spanmetrics/post` after it. The
+   sampler keeps every error trace but only one in a hundred of the rest, so the
+   two counts give very different error rates for the same traffic.
+2. **Traces, logs and metrics join on the trace ID.** Logs carry the trace ID of
+   the span they were written in, so you can go from a log line to its trace and
+   from a metric to an example trace.
 
-Three commands get you to the chapter's central comparison: `docker compose up
--d --build`, some traffic through `/checkout`, and the pre-versus-post read in
-[Look at your trace data](#look-at-your-trace-data). Everything after that is
-optional. [NOTES.md](NOTES.md) holds the why behind the design and is worth
-opening when something surprises you.
+The why behind each design choice is in [NOTES.md](NOTES.md). You don't need it
+to follow along.
 
 ## Listings
 
@@ -36,103 +23,43 @@ opening when something surprises you.
 | 9.2 | `clickhouse/error_index.sql` | An error-issue index as a materialized view, fingerprinting on a normalized message |
 | 9.3 | `collector/gateway-config.yaml` | The three bridges between signals, declared in one config |
 
-Listings 9.1 and 9.3 name the same file, and that is deliberate rather than an
-oversight. They are two readings of one Collector config: 9.1 asks what gets
-counted and on which side of the sampler, 9.3 asks which signal can be reached
-from which. Duplicating the config into two files so each listing could have one
-would have created two things to keep in step. The fences in the file overlap
-the way the listings do.
+Listings 9.1 and 9.3 are two parts of the same Collector config file.
 
-## Prerequisites
+## Before you start
 
-- Docker and Docker Compose v2
-- **About 5 GB of memory given to Docker**, and read the peak before you set it.
-  On macOS and Windows that is Docker Desktop's own setting under Settings,
-  Resources, not free host RAM. Measured with `docker stats --no-stream` across a
-  full pass through this file: the seven containers settle at about 2.2 GB with
-  traffic driven and the store loaded, ClickHouse 1.2 GB of that and Kafka
-  700 MB. The number that matters is the other one. `benchmarks/fingerprint_compression.py`
-  builds two million rows server-side and takes the stack to **3.9 GB peak, with
-  ClickHouse alone at 2.9 GB**. Size Docker for the settled figure and that
-  benchmark gets ClickHouse OOM-killed partway through, which looks like a query
-  that hung rather than like a memory limit
-- **About 4 GB of free disk inside the Docker VM.** This one is not the usual
-  boilerplate. If the VM's disk fills, Loki reports `Up` in `docker compose ps`
-  and returns 503 to every write, with a single `warn` line in its log as the
-  only clue that anything is wrong. Nothing else in the stack notices, and the
-  trace-to-log bridge simply comes back empty. Check with
-  `docker run --rm alpine df -h /` before you start, and reclaim with
-  `docker system prune --volumes` if it is tight
-- Python 3 on the host, for the benchmarks. Nothing to install for them: they
-  shell out to `clickhouse-client` inside the container and read Prometheus over
-  HTTP. The offline test suite needs PyYAML, in a venv
-- A POSIX shell, plus `curl`. On Windows, run this inside WSL2
+- Docker with Docker Compose v2, with **about 5 GB of memory** for Docker (Docker
+  Desktop: Settings, Resources). The fingerprint benchmark needs that much at its
+  peak.
+- **About 4 GB of free disk** inside Docker. Check with
+  `docker run --rm alpine df -h /`. If the disk fills, Loki silently stops
+  accepting logs.
+- Python 3 and `curl` on your machine. On Windows, use WSL2.
+- Stop any other chapter's stack first (`docker compose ls`). This one uses ports
+  8080, 3100, 4317, 4318, 8123, 8888, 8889, 9000, 9090 and 9363.
 
-Tear down any other chapter's stack first. This one binds host ports 8080, 3100,
-4317, 4318, 8123, 8888, 8889, 9000, 9090 and 9363, all on `127.0.0.1`, and
-chapters 5, 7 and 8 bind several of those. The [Ports](#ports) table below says
-what each one is for.
-
-```bash
-docker compose ls
-```
-
-## Bring it up
+## 1. Start the stack
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-About 90 seconds to settle, plus whatever the first image pull and the app build
-cost. Seven services run and one, `kafka-init`, is a one-shot that creates the
-`otlp_spans` topic and must have exited 0:
+Give it about 90 seconds. You should see seven services up. A one-shot job,
+`kafka-init`, creates the Kafka topic and exits.
 
-```
-SERVICE               STATUS
-checkout-service      Up 11 minutes (healthy)
-clickhouse            Up 11 minutes (healthy)
-consumer-clickhouse   Up 11 minutes
-kafka                 Up 11 minutes (healthy)
-loki                  Up 11 minutes
-otel-collector        Up 11 minutes
-prometheus            Up 11 minutes
-```
+## 2. Send some traffic
 
-`consumer-clickhouse`, `loki`, `otel-collector` and `prometheus` show no health
-state because their images ship no shell to run a check in. That is expected;
-NOTES has the detail, and it is why the test scripts poll endpoints from outside
-the containers instead of trusting `docker compose ps`.
-
-ClickHouse applies `clickhouse/init.sql` on the way up, which creates
-`tracing.otel_traces`: chapter 7's listing 7.1 table carried forward, with
-`parent_span_id` present so a trace can be reassembled and chapter 7's storage
-policy removed because that chapter's volume config is not here.
-
-Now give it a workload. Ordinary traffic fails one checkout in a hundred, so the
-`?fail=1` requests are there to make the error path deterministic rather than to
-change its shape:
+300 normal checkouts, plus 6 that are forced to fail so there are always errors
+to look at:
 
 ```bash
 for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
 for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
 ```
 
-Nothing below waits a fixed number of seconds. Every read polls for the series or
-the rows it needs, because the chain in front of them is longer than it looks:
-the tail sampler holds a trace for `decision_wait`, `spanmetrics` flushes every
-15 seconds, Prometheus scrapes every 15, and the service graph pairs a client
-span with a server span in a store of its own. A sleep long enough for the first
-of those is not long enough for the last, and a series that has not arrived yet
-looks exactly like a connector that is broken.
-
----
-
-## Look at your trace data
-
-Five helpers for everything below. `ch` runs a query, `ch_file` applies a `.sql`
-file, `promq` reads one scalar out of Prometheus, and `await` and `await_rows`
-block until a number reaches a target instead of sleeping and hoping:
+Paste these helpers into your shell. `ch` runs a ClickHouse query, `promq` reads
+one number from Prometheus, and `await` / `await_rows` wait until data has
+arrived instead of sleeping for a guessed time:
 
 ```bash
 ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
@@ -151,14 +78,7 @@ await_rows() { for _ in $(seq 1 180); do
                echo "timed out: $1 never reached $2" >&2; return 1; }
 ```
 
-NOTES says why `ch` closes stdin, and why merging it with `ch_file` breaks both.
-`await` treats a series Prometheus has never seen as zero, which is what you want
-here: `no data` and a genuine zero mean the same thing to a poll that is waiting
-for a number to come up.
-
-Start with the shape of one trace, because a wide table of spans does not look
-much like a trace until you group it. Wait for this run's nine error spans to
-reach the store first, then pull the most recent failing trace, root first:
+## 3. Look at one failing trace
 
 ```bash
 await_rows "SELECT count() FROM tracing.otel_traces WHERE status_code = 'STATUS_CODE_ERROR'" 9
@@ -186,19 +106,14 @@ ORDER BY parent_span_id = '' DESC, timestamp"
    d3035323  notification.send   10.9ms   STATUS_CODE_UNSET
 ```
 
-Your trace id and durations differ; the shape does not. Seven spans, one root,
-and two of them in error. The root is in error because it propagated: the
-request failed, so the span that answers the caller says so, and that is what
-makes an error ratio over server spans a ratio of requests. `fraud.score` is the
-one that actually threw, and it is the deepest span in the trace. That depth is
-the point of section 9.2.2: an origin query wants the deepest error span, not
-the first one it meets on the way down, and here there is a real pair to tell
-apart.
+Your IDs and timings will differ. Two spans are in error: `fraud.score` is where
+the error happened (the deepest error span, which is what section 9.2.2 calls the
+origin), and the root span `GET /checkout` failed because of it.
 
-Now the comparison the whole chapter turns on. Same service, same span, same
-15-second window, two series. The poll goes on the error series rather than on
-the totals, because the totals reach Prometheus a scrape before the error
-breakdown does and a poll that stops at them reads the errors as zero:
+## 4. Compare the error rate before and after the sampler
+
+This is the main result of the chapter. Count `fraud.score` calls and errors in
+both series:
 
 ```bash
 await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
@@ -215,16 +130,11 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 9
 ```
 
-306 calls became 14. The sampler dropped the other 292. That block is the
-committed reference run in [RESULTS.md](RESULTS.md), and your 14 will differ,
-because which successes the sampler keeps is a draw: nine errors plus a one-in-a-hundred
-draw over 297 successes, which averages three. The post total lands between 9 and
-16 on all but about one run in a hundred, so the post rate lands between 0.56 and
-1.0. The 306 and the two 9s do not move. The error counts are identical, 9 against 9, because the
-`keep-errors` policy keeps every trace that carries an error and drops nothing
-from that class. So the numerator survived
-whole while the denominator was cut by a factor of twenty-two, and the two error
-rates come out:
+Before the sampler: 306 calls, 9 errors. After it: 14 calls, still 9 errors. The
+sampler kept every error but dropped most of the successes. Your post-sampler
+total will vary a little from run to run; the other three numbers won't.
+
+Now the two error rates:
 
 ```bash
 promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
@@ -236,18 +146,13 @@ promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.sco
 0.6428571428571429
 ```
 
-2.9 percent against 64. One of those is the service's error rate and the other is
-an artifact of how the traces were selected. Sixty-four is loud enough to
-disbelieve; the dangerous version is the opener's, where the same arithmetic over
-a service failing one request in a hundred lands on 50 and reads as a real outage
-rather than as a broken denominator. Either way the panel has an axis, a line and
-a plausible number. `exercises/divergence.md` takes it apart, including what
-happens to the gap when you change the sample rate.
+The real error rate is 2.9 percent. The sampled data says 64 percent. Any
+dashboard or alert built on the post-sampler series would show the same wrong
+number. `exercises/divergence.md` walks through it.
 
-The service graph is derived off the same pre-sample stream. It needs its own
-poll: the connector pairs a client span with a server span in a store of its own,
-so its edges converge several scrapes after the span metrics have settled, and
-reading it early is what makes the arithmetic below come out one edge short:
+## 5. Look at the service graph
+
+The service graph is built from the same pre-sampler stream:
 
 ```bash
 await 'sum(traces_service_graph_request_total{client="user",server="checkout-service"})' 306
@@ -270,50 +175,29 @@ checkout-service -> fraud-service 9
 user -> checkout-service 9
 ```
 
-Seven edges over five destinations. `checkout-service -> fraud-service` and
-`user -> checkout-service` each appear twice because the connector carries a
-`failed` label the command above does not print, and the 9 on each is the same 9
-errors the RED series counted: once where the call failed, once where the request
-that made it failed. 297 plus 9 is 306, which is every call, on both edges.
+Two edges appear twice: once for successful calls (297) and once for failed ones
+(9). Together they add up to all 306 calls.
 
----
+## Exercises
 
-## The exercises
+Each exercise starts from a running stack and cleans up after itself, so do them
+in any order.
 
-Three separate things live in this chapter and none of them needs the others. So
-they are three separate files. Open any one in any order. Each brings the stack
-up, puts it into the state it needs, and clears up after itself, so none assumes
-you ran another and none leaves a mess behind.
-
-| Exercise | Listing | The question |
+| Exercise | Listing | What you'll learn |
 |---|---|---|
-| [exercises/divergence.md](exercises/divergence.md) | 9.1 | Two series over one workload disagree by a factor of twenty-two. Which one is lying, and what does the survivors' version look like on a dashboard? |
-| [exercises/fingerprints.md](exercises/fingerprints.md) | 9.2 | Normalization turns two million error spans into a triage list. Graded against the number of bugs the generator was told to seed. |
-| [exercises/correlation.md](exercises/correlation.md) | 9.3 | One trace id, three signals, three joins. All three break silently, and each one breaks differently. |
+| [exercises/divergence.md](exercises/divergence.md) | 9.1 | Why the post-sampler error rate is wrong, and how it changes with the sample rate |
+| [exercises/fingerprints.md](exercises/fingerprints.md) | 9.2 | How fingerprinting turns two million error spans into a short list of issues |
+| [exercises/correlation.md](exercises/correlation.md) | 9.3 | How traces, logs and metrics join on the trace ID, and how each join breaks |
 
-If you only do one, do divergence: it is the chapter's thesis, and it is the one
-whose wrong answer is most likely to already be on a dashboard somewhere.
+If you only do one, do divergence.
 
-## Beyond the book's listings
+## Alerting rules (not in the book)
 
-Three things here back no printed listing: `rules/burn_rate.yml`,
-`rules/span_ingest_gap.yml`, and the span counter in `app/checkout.py` that
-feeds the second of them. They ship anyway, and the reason is the same in both
-cases. The chapter's argument is that a pre-sample series and a post-sample
-series disagree and that only one of them is the truth. That argument is worth
-nothing until something reads the right series and pages a human when it moves,
-and these two files are that something.
-
-They are also where the argument got expensive. Each file had an earlier version
-that parsed, loaded clean, evaluated without error, and was wrong: one needed a
-10.1% request failure rate before it would fire, under a label promising 99.9%
-availability, and the other reported every span in a healthy stack lost.
-NOTES.md, under "Before you change either rule file", has both measurements.
-Read it before you edit either one. Neither defect announces itself.
-
-Both files load automatically. `rules/` is mounted into Prometheus and
-`prometheus.yml` globs it, so the eight recording rules and three alerts are
-live from the moment the stack is up:
+`rules/burn_rate.yml` alerts on the error budget using the **pre**-sampler
+series, because the post-sampler one is wrong. `rules/span_ingest_gap.yml`
+alerts when spans go missing between the app and the Collector. Both load
+automatically, so the eight recording rules and three alerts are live as soon as
+the stack is up. Check them:
 
 ```bash
 curl -s http://localhost:9090/api/v1/rules \
@@ -338,77 +222,11 @@ span_ingest_gap recording spans:ingest_gap:measurable ok
 span_ingest_gap alerting SpanIngestGap ok
 ```
 
-Eleven rules, all `ok`.
+Eleven rules, all `ok`. NOTES.md explains how each rule works.
 
-### The burn-rate rule
+## Run the tests
 
-Two things in `rules/burn_rate.yml` are worth reading, and both are about what
-the ratio is a ratio of.
-
-It burns against `pre_calls_total`, never `post_calls_total`. On this stack the
-post error rate reads twenty-two times the true one, so a burn-rate alert built
-on the survivors would page on a healthy service every time the sampler did its
-job. That is not a hypothetical: it is the 2.9-against-64 above, wired to a
-pager.
-
-It also selects `span_kind="SPAN_KIND_SERVER"`. `spanmetrics` counts spans and a
-checkout makes seven of them, so a ratio over every span is a seventh of the
-request error rate, and the fast threshold of 1.44% would need a real request
-error rate above 10% before it fired, under a label that promises 99.9%. The
-server span is opened once per request, which is what makes the selector count
-requests. It is also why `app/checkout.py` marks that span failed rather than
-leaving the error on `fraud.score` alone.
-
-All four windows are here, not just the 5m and 1h pair you would keep if you
-were trimming this for print. Both alerts read a short window against a long
-one, and a Prometheus alert whose expression names a recording rule that does
-not exist does not error. It evaluates to an empty vector and never fires, which
-is the quietest possible way for an alert to be broken.
-
-### The ingest gap
-
-The useful thing about `rules/span_ingest_gap.yml` is where its two numbers come
-from. Both sides are five-minute rates over counters that come from opposite ends
-of the pipeline, so the poll waits for a window of producer history to exist
-before there is anything to read:
-
-```bash
-await 'spans:expected:rate5m' 1
-promq 'spans:expected:rate5m'
-promq 'spans:received:rate5m'
-promq 'spans:ingest_gap:ratio5m'
-```
-
-```
-7.14
-7.14
-0
-```
-
-Equal, and a zero gap. That is what a healthy stack has to read: at this point the
-producer's counter and the Collector's both stood at 2,142, so any number other
-than zero would have been an artifact of the arithmetic rather than a
-measurement. Getting there took two departures from `rate()`, and
-`rules/span_ingest_gap.yml` carries both with the reasons. Sampled every ten
-seconds through a burst and the ten idle minutes after it, the gap peaked at
-3.7 percent while the windows drained and the alert never left `inactive`. `received` is `otelcol_receiver_accepted_spans_total`,
-the Collector's own telemetry off its `:8888` endpoint. `expected` is
-`checkout_spans_emitted_total`, a counter the producer increments from a
-`SpanProcessor` inside its own process, scraped by Prometheus **directly off the
-application container** and never through the Collector.
-
-That independence is the whole signal. Comparing the Collector's received count
-against a number that also travelled through the Collector proves nothing: an
-outage takes both to zero and the ratio sits at 1.0 while every span in the
-system is on the floor.
-
-## Run tests
-
-Offline, no Docker needed: the schema carries `parent_span_id`, the three
-listings match what the book prints, both rule files still say what the stack
-needs them to say, the connectors sit on the right side of the sampler,
-the histograms are explicit rather than exponential, and every window an alert
-names is a rule that exists. It reads YAML, so it needs PyYAML:
+Offline, no Docker needed:
 
 ```bash
 python3 -m venv .venv
@@ -417,34 +235,17 @@ pip install -r tests/requirements.txt
 python3 tests/test_static.py
 ```
 
-Live, so the stack must be up and must have had traffic:
+Against the running stack (after you have sent traffic):
 
 ```bash
 bash tests/test_stack.sh
 bash tests/test_correlation.sh
 ```
 
-`test_stack.sh` checks all eight services, then walks the chapter's claims: that
-`record_exception` detail reaches the span attributes, that the listing 9.2 index
-folds many raw error spans into one issue, that the post error rate reads above
-the pre one, that the service graph has edges, and that both sides of the
-ingest-gap rule report. `test_correlation.sh` fires one request with a trace id it chose itself
-and follows that id across the first two of section 9.3's crossings. Alongside
-it, it sends a hundred ordinary requests of its own, which the exemplar check and
-the third crossing need as traffic the sampler drops. For the third it waits for
-the post-sampler count to settle and checks it rose by less than half as much as
-the pre-sampler count. Both poll for
-every condition rather than sleeping, and both put the store back the way a fresh
-stack starts, so either can be run in any order and re-run from any state.
-
-The benchmarks are in [benchmarks/README.md](benchmarks/README.md), and
-[RESULTS.md](RESULTS.md) is the rendered record of the last committed run.
+Benchmarks are in [benchmarks/README.md](benchmarks/README.md). The last
+recorded run is in [RESULTS.md](RESULTS.md).
 
 ## Tear down
-
-The `-v` flag drops the named volumes holding the spans, the Kafka log and Loki's
-chunks. The last two lines undo the virtual environment from the test step, and
-are harmless if you never made one.
 
 ```bash
 docker compose down -v
@@ -452,30 +253,7 @@ deactivate 2>/dev/null
 rm -rf .venv
 ```
 
-## Notes on running the book's listings
-
-Listing 9.2 differs from the file that backs it in a way worth knowing before
-you paste it into your own stack, and both rule files differ from the version
-you would write straight from the chapter's description. All of it is in
-[NOTES.md](NOTES.md), and the short version is:
-
-- **Listing 9.2's `top_frame`.** The book slices the first line off the
-  stacktrace. On a Python traceback that line is `Traceback (most recent call
-  last):`, identical for every exception ever raised, so every issue in the
-  service folds into one. The file parses the innermost frame instead.
-- **The burn-rate rule's series name.** `traces_span_metrics_calls_total` is
-  what the connector emits with no `namespace` set. This stack sets
-  `namespace: pre` and `namespace: post`, so the two series are `pre_calls_total`
-  and `post_calls_total`. A rule naming the connector default here matches
-  nothing and never fires.
-- **The ingest gap's `expected` side.** Baselining against the same hour a week
-  earlier is the better input for a system that has been running a week. A stack
-  you brought up ten minutes ago has no week of history, so the file uses an
-  upstream emit counter. The alert arithmetic is identical.
-
 ## Reference
-
-Nothing below is needed to run anything above it.
 
 ### Ports
 
@@ -483,73 +261,22 @@ Nothing below is needed to run anything above it.
 |---|---|
 | 8080 | `checkout-service`, and its own `/metrics` |
 | 4317, 4318 | Collector OTLP gRPC and HTTP |
-| 8888 | Collector internal telemetry, the `received` half of the ingest gap |
+| 8888 | Collector internal telemetry |
 | 8889 | Collector span-metrics and service-graph scrape endpoint |
 | 8123, 9000 | ClickHouse HTTP and native |
 | 9363 | ClickHouse Prometheus endpoint |
 | 9090 | Prometheus |
 | 3100 | Loki HTTP |
 
-Everything binds to `127.0.0.1` rather than `0.0.0.0`, so nothing here is
-reachable from another machine on your network.
+All ports bind to `127.0.0.1` only.
 
-### Version manifest (one tag per image)
+### Versions
 
-| Component | Version | Role |
-|---|---|---|
-| OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` | span metrics before and after the sampler, service graph, tail sampling, the logs path to Loki |
-| ClickHouse | `clickhouse/clickhouse-server:26.1` | the span store and the listing 9.2 error-issue index |
-| Apache Kafka | `apache/kafka:4.3.1` | the `otlp_spans` topic between Collector and consumer, single-broker KRaft |
-| Prometheus | `prom/prometheus:v3.14.0` | span metrics, exemplar storage, the two rule files under `rules/` |
-| Loki | `grafana/loki:3.7.8` | logs, with `trace_id` as structured metadata |
-| Python | 3.12 in the app image, 3 on the host for benchmarks | producer, storage consumer, benchmark scripts |
-
-The ClickHouse tag matches `chapter-08/`. `chapter-07/` is still on 25.8, which
-predates the `use_skip_indexes_on_data_read` setting listing 8.2 needs, so chapter 8
-set the floor at 26.1 and chapter 9 follows it. Every difference between the three
-chapters that the text turns on is in the schema and the queries, not in the server.
-
-### File tree
-
-```
-chapter-09/
-├── docker-compose.yml
-├── README.md
-├── NOTES.md
-├── RESULTS.md
-├── app/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── checkout.py              producer: spans, logs and its own span counter
-│   └── consumer_clickhouse.py   Kafka otlp_spans -> ClickHouse otel_traces
-├── collector/
-│   └── gateway-config.yaml      listings 9.1 and 9.3
-├── clickhouse/
-│   ├── init.sql                 the span table, auto-applied on first boot
-│   ├── error_index.sql          listing 9.2, applied by hand before traffic
-│   ├── config.d/
-│   │   ├── network.xml
-│   │   └── prometheus.xml
-│   └── users.d/
-│       └── z-allow-network.xml
-├── loki/
-│   └── loki.yaml                structured metadata on, so trace_id survives
-├── prometheus.yml
-├── rules/
-│   ├── burn_rate.yml            burn-rate alerting on the pre-sample series
-│   └── span_ingest_gap.yml      emitted against received, two separate paths
-├── exercises/
-│   ├── divergence.md            listing 9.1: what the survivors' error rate is
-│   ├── fingerprints.md          listing 9.2: what normalization is worth
-│   └── correlation.md           listing 9.3: three joins, three silent breaks
-├── benchmarks/
-│   ├── README.md
-│   ├── sampler_divergence.py    pre against post, read out of Prometheus
-│   ├── fingerprint_compression.py   measured F against declared P
-│   └── results/                 dated JSON, gitignored except the committed runs
-└── tests/
-    ├── requirements.txt
-    ├── test_static.py           offline: listings, connectors, rules, compose
-    ├── test_stack.sh            live: the chapter's claims against the stack
-    └── test_correlation.sh      live: the three bridges, one traced id plus 100 requests
-```
+| Component | Image |
+|---|---|
+| OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` |
+| ClickHouse | `clickhouse/clickhouse-server:26.1` |
+| Apache Kafka | `apache/kafka:4.3.1` |
+| Prometheus | `prom/prometheus:v3.14.0` |
+| Loki | `grafana/loki:3.7.8` |
+| Python | 3.12 in the app image |

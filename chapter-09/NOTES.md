@@ -380,6 +380,27 @@ container, which is what the test scripts do: they poll `http://localhost:3100/r
 than sleeping a fixed number of seconds and hoping. A fixed sleep is a guess
 about a machine you are not sitting at.
 
+## How much memory and disk the stack needs
+
+Measured with `docker stats --no-stream` across a full pass through the README:
+the seven containers settle at about 2.2 GB with traffic driven and the store
+loaded, ClickHouse 1.2 GB of that and Kafka 700 MB. The figure to size Docker for
+is the peak. `benchmarks/fingerprint_compression.py` builds two million rows
+server-side and takes the stack to 3.9 GB, with ClickHouse alone at 2.9 GB. Size
+Docker for the settled figure and that benchmark gets ClickHouse OOM-killed
+partway through, which looks like a hung query rather than a memory limit. On
+macOS and Windows the limit is Docker Desktop's own setting, not free host RAM.
+
+Disk matters for a different reason: see the disk trap above.
+
+## Why ClickHouse is on 26.1
+
+The ClickHouse tag matches `chapter-08/`. `chapter-07/` is still on 25.8, which
+predates the `use_skip_indexes_on_data_read` setting listing 8.2 needs, so
+chapter 8 set the floor at 26.1 and chapter 9 follows it. Every difference
+between the three chapters that the text turns on is in the schema and the
+queries, not in the server.
+
 ## Why the numbers in the README are not exact
 
 Chapter 8's README prints numbers that reproduce on your machine, because its
