@@ -87,6 +87,15 @@ state() {
   echo "$value"
 }
 
+# For a step that reads what send-traffic.sh sent. The state file outlives
+# `docker compose down -v`, so it only counts while the same Collector runs.
+require_traffic() {
+  local id
+  id=$(state traffic COLLECTOR_ID "nothing sent yet: run ./scripts/send-traffic.sh first")
+  [ "$(q instance "$COLLECTOR")" = "$id" ] \
+    || die "nothing sent yet: run ./scripts/send-traffic.sh first"
+}
+
 # The span metrics connectors write their counts out once per
 # metrics_flush_interval, so anything the sampler has already decided is in the
 # counts one interval (plus a second for the batch processor) later. A

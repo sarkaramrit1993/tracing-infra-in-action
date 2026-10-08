@@ -5,7 +5,12 @@
 # Usage: ./scripts/compare-error-rates.sh
 # shellcheck source=scripts/lib.sh
 source "$(dirname "$0")/lib.sh"
-require prometheus
+require prometheus otel-collector
+require_traffic
+# The post side lands at least one sampler decision after the pre side, so a
+# complete pre count says nothing about the post one. Only wait-until-ready.sh
+# checks both.
+state traffic READY "still arriving: run ./scripts/wait-until-ready.sh first" > /dev/null
 
 SPAN='service_name="checkout-service",span_name="fraud.score"'
 ERR='status_code="STATUS_CODE_ERROR"'

@@ -7,6 +7,7 @@
 source "$(dirname "$0")/lib.sh"
 STARTED=$(state traffic STARTED "nothing sent yet: run ./scripts/send-traffic.sh first")
 require otel-collector
+require_traffic
 SINCE=$(python3 -c 'import datetime, sys; print(datetime.datetime.fromtimestamp(int(sys.argv[1]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$STARTED")
 
 rejections() { docker compose logs --since "$SINCE" otel-collector 2>/dev/null | grep -c 'not retryable error' || true; }
