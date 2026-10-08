@@ -20,51 +20,12 @@ is to make the bridge testable rather than to watch it.
 
 ## The starting state
 
-Three helpers, one per store:
-
-```bash
-ch()    { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-promq() { curl -s -G http://localhost:9090/api/v1/query --data-urlencode "query=$1" \
-            | python3 -c "import sys,json;r=json.load(sys.stdin)['data']['result'];print(r[0]['value'][1] if r else 'no data')"; }
-loki()  { curl -s -G http://localhost:3100/loki/api/v1/query_range --data-urlencode "query=$1" \
-            --data-urlencode "start=$(python3 -c 'import time;print(int((time.time()-900)*1e9))')" \
-            --data-urlencode "end=$(python3 -c 'import time;print(int(time.time()*1e9))')" \
-            --data-urlencode 'limit=20' \
-            | python3 -c "
-import sys,json
-d = json.load(sys.stdin)
-print('status:', d['status'], ' lines:', sum(len(s['values']) for s in d['data']['result']))
-for s in d['data']['result']:
-    for _, line in s['values']: print('   ', line)"; }
-```
-
-Three more that poll instead of sleeping. Nothing in this file waits a fixed
+Every step below is a script in `scripts/`. Nothing in this file waits a fixed
 number of seconds: a trace has to clear the tail sampler's `decision_wait`, then
 Kafka, then the storage consumer's batch, and an exemplar has to clear a
 15-second connector flush and a 15-second scrape on top of that. A sleep tuned
 to one machine is a guess on any other, and every silent failure in this file
-looks exactly like a wait that was too short.
-
-```bash
-await()      { for _ in $(seq 1 180); do
-                 awk -v v="$(promq "$1")" -v t="$2" 'BEGIN { exit !(v + 0 >= t) }' && return 0
-                 sleep 2
-               done
-               echo "timed out: $1 never reached $2" >&2; return 1; }
-await_rows() { for _ in $(seq 1 180); do
-                 [ "$(ch --query "$1" 2>/dev/null)" -ge "$2" ] 2>/dev/null && return 0
-                 sleep 2
-               done
-               echo "timed out: $1 never reached $2" >&2; return 1; }
-await_collector() { for _ in $(seq 1 90); do
-                      curl -sf -o /dev/null http://localhost:8888/metrics && return 0
-                      sleep 1
-                    done
-                    echo "the collector did not come back" >&2; return 1; }
-```
-
-The `< /dev/null` on `ch` is not decoration. Without it the client waits on a
-stdin that never reaches EOF. NOTES has the detail.
+looks exactly like a wait that was too short, so every wait checks the data.
 
 A run of any of the three exercises that was stopped between a backup and its
 restore leaves a `.bak` beside the file it edited, and a container still running
@@ -72,15 +33,15 @@ the edited copy. Put every such file back before anything else, whichever
 exercise left it:
 
 ```bash
-for f in collector/gateway-config.yaml docker-compose.yml loki/loki.yaml clickhouse/error_index.sql; do
-  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; echo "restored $f"; fi
-  rm -f "$f.tmp"
-done
+./scripts/restore-edited-files.sh
 ```
 
-Silence means there was nothing to restore. Then bring the stack up, and restart
-the two services that read a config file mounted from here, so neither keeps
-running a copy that was just put back:
+```
+nothing to restore: every file is the one that shipped
+```
+
+Then bring the stack up, and restart the two services that read a config file
+mounted from here, so neither keeps running a copy that was just put back:
 
 ```bash
 docker compose up -d --build
@@ -88,16 +49,23 @@ docker compose restart otel-collector loki
 docker compose ps
 ```
 
-Wait for the health column to settle, then give the exemplar buffer something to
-hold. Exemplars ride histogram buckets, and a bucket with no observations has
-nothing to attach one to:
+Then give the exemplar buffer something to hold. Exemplars ride histogram
+buckets, and a bucket with no observations has nothing to attach one to:
 
 ```bash
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 400); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 10); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 14
+./scripts/send-traffic.sh 400 10
+./scripts/wait-until-ready.sh
+```
+
+```
+sending 400 ordinary checkouts and 10 forced failures...
+sent 410 checkouts, 14 of them failed
+waiting for the Collector to receive all 2870 spans the app sent... ok
+waiting for the tail sampler to decide all 410 traces... ok
+waiting for span metrics to reach Prometheus... ok
+waiting for the 126 kept spans to reach ClickHouse... ok
+ready
 ```
 
 The ten forced failures are there because the sampler keeps one successful trace
@@ -106,33 +74,31 @@ them, which is not enough post-sampler traces for the exemplar buffer to be
 worth reading. The forced ones are kept unconditionally, so they are what puts
 pointers on the histogram.
 
-The restart zeroes the connector counters, so the poll waits for this traffic
-rather than for whatever an earlier walk left on the counter, and the totals
-under bridge 3 count this file's requests alone.
+The restart zeroes the connector counters, so the totals under bridge 3 count
+this file's requests alone.
 
 ## One request, chosen from outside
 
 The trick that makes this exercise falsifiable is picking the trace id yourself
-and handing it in on the wire. Nothing downstream guessed it, nothing generated
-it, and no query below can accidentally find it by matching something else:
+and handing it in on the wire, in a W3C `traceparent` header. Nothing downstream
+guessed it, nothing generated it, and no query below can accidentally find it by
+matching something else. The script picks a random id, sends one checkout under
+it, and remembers it for the scripts that follow:
 
 ```bash
-TID=$(python3 -c 'import os;print(os.urandom(16).hex())')
-SID=$(python3 -c 'import os;print(os.urandom(8).hex())')
-echo "$TID"
-curl -s -o /dev/null -H "traceparent: 00-$TID-$SID-01" "http://localhost:8080/checkout?fail=1"
-await_rows "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'" 7
+./scripts/send-traced-checkout.sh
 ```
 
 ```
-99cd424c32817c88f4193174fd126bdc
+trace id: 99cd424c32817c88f4193174fd126bdc
+cart:     cart-4647
+waiting for its 7 spans to reach ClickHouse... ok
+waiting for its 2 log lines to reach Loki... ok
+waiting for its spans to reach the span metrics in Prometheus... ok
 ```
 
-The poll is on ClickHouse and it covers Loki too. A log record leaves the
-producer on a two-second batch delay and reaches Loki in one hop; a span waits
-five seconds for the exporter's batch, then the sampler's `decision_wait`, then
-Kafka and the storage consumer. By the time the seventh span is in the store the
-log line has been in Loki for a while.
+The Loki wait finds the log lines by their cart id, not by the trace id, so it
+does not depend on the join this exercise is about to test.
 
 `?fail=1` is deliberate. The tail sampler keeps every trace carrying an error and
 one in a hundred of the rest, so a successful trace would be gone ninety-nine runs
@@ -141,20 +107,17 @@ in a hundred and this whole exercise would be a lottery.
 The trace itself, so there is something for the bridges to land on:
 
 ```bash
-ch --query "
-SELECT rpad(span_name, 18) AS span, status_code,
-       concat(toString(round(duration_ns/1e6,1)), 'ms') AS took
-FROM tracing.otel_traces WHERE trace_id = '$TID' ORDER BY timestamp"
+./scripts/show-trace.sh
 ```
 
 ```
-GET /checkout       STATUS_CODE_ERROR  181.5ms
-validate_cart       STATUS_CODE_UNSET  21.4ms
-inventory.reserve   STATUS_CODE_UNSET  31.3ms
-payment.charge      STATUS_CODE_UNSET  93.3ms
-fraud.score         STATUS_CODE_ERROR  42.3ms
-order.create        STATUS_CODE_UNSET  20.5ms
-notification.send   STATUS_CODE_UNSET  12.7ms
+GET /checkout      STATUS_CODE_ERROR  181.5ms
+validate_cart      STATUS_CODE_UNSET  21.4ms
+inventory.reserve  STATUS_CODE_UNSET  31.3ms
+payment.charge     STATUS_CODE_UNSET  93.3ms
+fraud.score        STATUS_CODE_ERROR  42.3ms
+order.create       STATUS_CODE_UNSET  20.5ms
+notification.send  STATUS_CODE_UNSET  12.7ms
 ```
 
 ## Bridge 1, trace to log
@@ -166,10 +129,11 @@ active span context, so the line is findable by an id only the caller knew.
 Try it the way that looks obvious first:
 
 ```bash
-loki "{trace_id=\"$TID\"}"
+./scripts/find-trace-logs.sh --label-selector
 ```
 
 ```
+logql: {trace_id="99cd424c32817c88f4193174fd126bdc"}
 status: success  lines: 0
 ```
 
@@ -182,10 +146,11 @@ no streams. Matching no streams is not an error condition.
 The selector has to lead with a real label and filter on the metadata afterwards:
 
 ```bash
-loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
+./scripts/find-trace-logs.sh
 ```
 
 ```
+logql: {service_name="checkout-service"} | trace_id="99cd424c32817c88f4193174fd126bdc"
 status: success  lines: 2
     fraud scoring failed for cart-4647: fraud scoring backend timed out after 30579ms (req 4969f476)
     checkout complete cart=cart-4647 order=ord-62656 amount=308.38 fraud_failed=True
@@ -203,23 +168,7 @@ A latency bucket is a number with no way back to the request that produced it,
 unless the histogram carries exemplars. Read them off the post-sampler histogram:
 
 ```bash
-exemplars() {
-  curl -s -G http://localhost:9090/api/v1/query_exemplars \
-    --data-urlencode "query=$1" \
-    --data-urlencode "start=$(python3 -c 'import time;print(time.time()-900)')" \
-    --data-urlencode "end=$(python3 -c 'import time;print(time.time())')" \
-  | python3 -c "
-import sys,json
-seen = set()
-for s in json.load(sys.stdin).get('data', []):
-    for e in s.get('exemplars', []):
-        t = e['labels'].get('trace_id')
-        if t and t not in seen:
-            seen.add(t); print(t)"
-}
-for tid in $(exemplars 'post_duration_milliseconds_bucket'); do
-  echo "$tid -> $(ch --query "SELECT count() FROM tracing.otel_traces WHERE trace_id='$tid'") spans"
-done
+./scripts/follow-exemplars.sh post
 ```
 
 ```
@@ -229,20 +178,23 @@ c4a3eb9685b88de2a6757eb7adbfe4f5 -> 7 spans
 49f90976af1afb3578d3efe7cf061868 -> 7 spans
 796a9d380f33390eb609301d0a47a4a7 -> 7 spans
 ...
+37 of 37 exemplars point at a stored trace
 ```
+
+It asks Prometheus's `/api/v1/query_exemplars` for
+`post_duration_milliseconds_bucket` over the last fifteen minutes, then counts
+the spans ClickHouse holds for each trace id it got back.
 
 Every exemplar resolves to a whole trace. How many there are follows the traffic
 in the query's fifteen-minute window, so it is yours alone: the block is one
-walk's list abridged to its first five, and a walk that ran the README and the
+walk's list abridged to its first five and its tally, and a walk that ran the README and the
 other two exercises first has more in the window than one that starts here. The trace this
 exercise picked is usually not among them. Prometheus keeps one exemplar per
-series per scrape, and the other failures share its buckets. Now run exactly the
-same loop against the pre-sampler histogram:
+series per scrape, and the other failures share its buckets. Now run the same
+script against the pre-sampler histogram:
 
 ```bash
-for tid in $(exemplars 'pre_duration_milliseconds_bucket'); do
-  echo "$tid -> $(ch --query "SELECT count() FROM tracing.otel_traces WHERE trace_id='$tid'") spans"
-done
+./scripts/follow-exemplars.sh pre
 ```
 
 ```
@@ -254,6 +206,7 @@ ff184ca0c25767f18e2d658d734a16e7 -> 7 spans
 bd5338a9e6cd556ff8d7297bca7edd4d -> 0 spans
 58fbc7766a9b50091e8c944a236973e7 -> 0 spans
 ...
+23 of 87 exemplars point at a stored trace
 ```
 
 The list is abridged because the interesting part is the tally rather than the
@@ -275,14 +228,16 @@ The third bridge is the one section 9.1 built and section 9.2.4 measured, and it
 is the reason the other two are worth having at this grain:
 
 ```bash
-promq 'sum(pre_calls_total{service_name="checkout-service"})'
-promq 'sum(post_calls_total{service_name="checkout-service"})'
+./scripts/show-span-totals.sh
 ```
 
 ```
-2877
-140
+spans before sampler   2877
+spans after sampler     140
 ```
+
+It reads `sum(pre_calls_total{service_name="checkout-service"})` and the same
+sum over `post_calls_total`.
 
 The first number is exact: 411 requests since the restart, at seven spans each.
 The second is a draw. It counts the fifteen error traces (the fourteen above and
@@ -328,45 +283,48 @@ t = t.replace("""      processors: [memory_limiter, batch]
 p.write_text(t)
 PY
 docker compose restart otel-collector
-await_collector
-TID=$(python3 -c 'import os;print(os.urandom(16).hex())')
-SID=$(python3 -c 'import os;print(os.urandom(8).hex())')
-curl -s -o /dev/null -H "traceparent: 00-$TID-$SID-01" "http://localhost:8080/checkout?fail=1"
-await_rows "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'" 7
-loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
-loki '{service_name="checkout-service"}'
+./scripts/send-traced-checkout.sh
+./scripts/find-trace-logs.sh
+./scripts/show-recent-logs.sh
 ```
 
 ```
+trace id: 93e94b77952990d9fef45a3149b08567
+cart:     cart-2882
+waiting for its 7 spans to reach ClickHouse... ok
+waiting for its 2 log lines to reach Loki... ok
+waiting for its spans to reach the span metrics in Prometheus... ok
+logql: {service_name="checkout-service"} | trace_id="93e94b77952990d9fef45a3149b08567"
 status: success  lines: 0
 status: success  lines: 20
-    fraud scoring failed for cart-4647: fraud scoring backend timed out after 30579ms (req 4969f476)
-    fraud scoring failed for cart-1593: fraud scoring backend timed out after 30580ms (req 3078086b)
-    fraud scoring failed for cart-4975: fraud scoring backend timed out after 30571ms (req 82391892)
-    fraud scoring failed for cart-8942: fraud scoring backend timed out after 30572ms (req c1ad723a)
-    fraud scoring failed for cart-3483: fraud scoring backend timed out after 30573ms (req 03786303)
-    fraud scoring failed for cart-8285: fraud scoring backend timed out after 30574ms (req 5381af3b)
-    fraud scoring failed for cart-4369: fraud scoring backend timed out after 30575ms (req 2f22b6c5)
-    fraud scoring failed for cart-2744: fraud scoring backend timed out after 30576ms (req 9aa84aba)
-    fraud scoring failed for cart-9077: fraud scoring backend timed out after 30577ms (req 92de9a45)
-    fraud scoring failed for cart-4370: fraud scoring backend timed out after 30578ms (req fa574eeb)
-    checkout complete cart=cart-4647 order=ord-62656 amount=308.38 fraud_failed=True
-    checkout complete cart=cart-1593 order=ord-96610 amount=327.97 fraud_failed=True
-    checkout complete cart=cart-4975 order=ord-33289 amount=420.05 fraud_failed=True
-    checkout complete cart=cart-8942 order=ord-45029 amount=448.16 fraud_failed=True
-    checkout complete cart=cart-3483 order=ord-90361 amount=358.53 fraud_failed=True
-    checkout complete cart=cart-8285 order=ord-85775 amount=240.09 fraud_failed=True
-    checkout complete cart=cart-4369 order=ord-69032 amount=95.74 fraud_failed=True
-    checkout complete cart=cart-2744 order=ord-31180 amount=54.35 fraud_failed=True
-    checkout complete cart=cart-9077 order=ord-30568 amount=293.13 fraud_failed=True
-    checkout complete cart=cart-4370 order=ord-28334 amount=326.83 fraud_failed=True
+    fraud scoring failed for cart-1948: fraud scoring backend timed out after 30579ms (req ca4fbd5c)
+    fraud scoring failed for cart-2882: fraud scoring backend timed out after 30580ms (req c0a71244)
+    fraud scoring failed for cart-9629: fraud scoring backend timed out after 30571ms (req 598a22a9)
+    fraud scoring failed for cart-7220: fraud scoring backend timed out after 30572ms (req 1c0aaa8e)
+    fraud scoring failed for cart-8278: fraud scoring backend timed out after 30573ms (req 81926e74)
+    fraud scoring failed for cart-4083: fraud scoring backend timed out after 30574ms (req af3cdeda)
+    fraud scoring failed for cart-6118: fraud scoring backend timed out after 30575ms (req 39e84bbc)
+    fraud scoring failed for cart-8076: fraud scoring backend timed out after 30576ms (req 268a4797)
+    fraud scoring failed for cart-3049: fraud scoring backend timed out after 30577ms (req 1c11210c)
+    fraud scoring failed for cart-5860: fraud scoring backend timed out after 30578ms (req bfde0170)
+    checkout complete cart=cart-1948 order=ord-37694 amount=411.75 fraud_failed=True
+    checkout complete cart=cart-2882 order=ord-35967 amount=244.07 fraud_failed=True
+    checkout complete cart=cart-9629 order=ord-68514 amount=50.65 fraud_failed=True
+    checkout complete cart=cart-7220 order=ord-29118 amount=291.18 fraud_failed=True
+    checkout complete cart=cart-8278 order=ord-80899 amount=373.53 fraud_failed=True
+    checkout complete cart=cart-4083 order=ord-93656 amount=71.95 fraud_failed=True
+    checkout complete cart=cart-6118 order=ord-65784 amount=445.16 fraud_failed=True
+    checkout complete cart=cart-8076 order=ord-17736 amount=229.02 fraud_failed=True
+    checkout complete cart=cart-3049 order=ord-39138 amount=276.67 fraud_failed=True
+    checkout complete cart=cart-5860 order=ord-40385 amount=174.57 fraud_failed=True
 ```
 
-The number that moved is the first one, from 2 to 0. The second is the `loki`
-helper's own `limit=20`, which is the point: the log lines are all still there,
-still readable, still carrying the cart id and the order id and the error text.
-This request's own pair is in there, the `cart-1593` lines, second in each group.
-Only the join is gone.
+The number that moved is the trace-id query's, from 2 to 0. The 20 is
+`show-recent-logs.sh` asking Loki for the newest twenty lines of the service,
+which is the point: the log lines are all still there, still readable, still
+carrying the cart id and the order id and the error text. This request's own
+pair is in there, the lines for the cart the script printed, second in each
+group. Only the join is gone.
 
 That is the worst version of this failure, worse than losing the logs entirely. A
 missing log is noticed within a day. A log that is present, correct and no longer
@@ -383,46 +341,39 @@ thing derived off the pre-sample stream, and its store is where client and serve
 halves wait to be paired:
 
 ```bash
-edges() { curl -s -G http://localhost:9090/api/v1/query \
-            --data-urlencode 'query=traces_service_graph_request_total' \
-            | python3 -c "
-import sys,json
-r = json.load(sys.stdin)['data']['result']
-print(len(r), 'edges')
-for x in r:
-    m = x['metric']; print('  ', m.get('client','?'), '->', m.get('server','?'), x['value'][1])"; }
 cp collector/gateway-config.yaml collector/gateway-config.yaml.bak
 sed -i.tmp 's/      max_items: 1000/      max_items: 1/' collector/gateway-config.yaml
 rm -f collector/gateway-config.yaml.tmp
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
-await 'sum(traces_service_graph_request_total)' 1
-edges
-promq 'sum(pre_calls_total{service_name="checkout-service"})'
-promq 'otelcol_connector_servicegraph_dropped_spans_total'
+./scripts/send-traffic.sh 200 0
+./scripts/wait-until-ready.sh
+./scripts/show-service-graph.sh
+./scripts/show-span-totals.sh
 ```
 
 ```
-2 edges
-   checkout-service -> fraud-service 4
-   checkout-service -> inventory-service 4
-1400
-992
+waiting for the service graph to reach Prometheus... ok
+checkout-service -> fraud-service 4
+checkout-service -> inventory-service 4
+checkout-service -> notification-service 1
+spans the service graph dropped: 991
+spans before sampler   1400
+spans after sampler      49
 ```
 
-Two edges where there were seven, and the two that survived carry 4 and 4
-requests out of 200. Which edges survive, and what they carry, depends on which
+Three edges where there were seven, and the three that survived carry 4, 4 and
+1 requests out of 200. Which edges survive, and what they carry, depends on which
 halves happened to meet in the one free slot, so the block is one draw: expect a
 few edges carrying a few requests each, never the seven edges and 1,400 calls the
 span metrics saw.
 The dependency graph is now wrong in a way no one would question: it is a
 plausible graph of a service with a couple of downstreams and light traffic. Read it a scrape too early and you get no edges at all, which is the
-same failure wearing a more obvious face, and the reason `await` above polls the
-service graph itself rather than the span metrics: the connector's store flushes
-on a schedule of its own, several scrapes behind `pre_calls_total`.
+same failure wearing a more obvious face, and the reason `show-service-graph.sh`
+waits on the service graph itself rather than on the span metrics: the
+connector's store flushes on a schedule of its own, several scrapes behind
+`pre_calls_total`.
 
-Now `pre_calls_total`, which reads 1,400: exactly 200 requests at seven spans
+Now the span totals. Before the sampler reads 1,400: exactly 200 requests at seven spans
 each, and the whole of what this Collector process has seen. Restarting it to
 apply the edit zeroed that counter, so 1,400 is not a number that survived the
 failure, it is a number taken cleanly after it. That is the stronger version of
@@ -431,8 +382,9 @@ traffic, in the same process, and the span metrics counted every one of them.
 RED is flat here not because nothing was measured but because nothing RED
 measures goes through the service-graph store.
 
-The third number is the one worth taking away. `otelcol_connector_servicegraph_dropped_spans_total`
-is about 990 (it moves by a span or two between runs, for the same reason the
+The dropped-spans line is the one worth taking away. The script reads it off the
+Collector's own `otelcol_connector_servicegraph_dropped_spans_total`, it is
+about 990 (it moves by a span or two between runs, for the same reason the
 edges move), and unlike the other two failures in this file, this one does announce
 itself. It announces itself on a series nobody has a panel for. Restore:
 
@@ -465,29 +417,20 @@ t = t.replace("""      explicit:
 p.write_text(t)
 PY
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
-await 'sum(pre_calls_total{service_name="checkout-service"})' 1050
-curl -s -G http://localhost:9090/api/v1/query \
-  --data-urlencode 'query=post_duration_milliseconds_bucket' \
-  | python3 -c "
-import sys,json
-r = json.load(sys.stdin)['data']['result']
-print(len(r), 'series; le values:', sorted({x['metric'].get('le') for x in r}))"
-curl -s -G http://localhost:9090/api/v1/query_exemplars \
-  --data-urlencode 'query=post_duration_milliseconds_bucket' \
-  --data-urlencode "start=$(python3 -c 'import time;print(time.time()-60)')" \
-  --data-urlencode "end=$(python3 -c 'import time;print(time.time())')" \
-  | python3 -c "
-import sys,json
-d = json.load(sys.stdin).get('data', [])
-print('exemplar series:', len(d), ' exemplars:', sum(len(s.get('exemplars', [])) for s in d))"
+./scripts/send-traffic.sh 200 0
+./scripts/wait-until-ready.sh
+./scripts/show-histogram-buckets.sh
+./scripts/count-exemplars.sh
 ```
 
 ```
 9 series; le values: ['+Inf']
 exemplar series: 0  exemplars: 0
 ```
+
+`show-histogram-buckets.sh` reads `post_duration_milliseconds_bucket` from
+Prometheus; `count-exemplars.sh` asks `/api/v1/query_exemplars` for the same
+metric since the Collector last started.
 
 Nine bucket series and one distinct `le` between them. You may see seven: the
 1-in-100 cadence puts two failures in those 200 requests, and their two error
@@ -526,16 +469,9 @@ cp docker-compose.yml docker-compose.yml.bak
 sed -i.tmp '/--enable-feature=exemplar-storage/d' docker-compose.yml
 rm -f docker-compose.yml.tmp
 docker compose up -d prometheus
-for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})' 1
-curl -s -G http://localhost:9090/api/v1/query_exemplars \
-  --data-urlencode 'query=post_duration_milliseconds_bucket' \
-  --data-urlencode "start=$(python3 -c 'import time;print(time.time()-900)')" \
-  --data-urlencode "end=$(python3 -c 'import time;print(time.time())')" \
-  | python3 -c "
-import sys,json
-d = json.load(sys.stdin).get('data', [])
-print('exemplar series:', len(d), ' exemplars:', sum(len(s.get('exemplars', [])) for s in d))"
+./scripts/send-traffic.sh 200 0
+./scripts/wait-until-ready.sh
+./scripts/count-exemplars.sh
 ```
 
 ```
@@ -561,12 +497,12 @@ cp loki/loki.yaml loki/loki.yaml.bak
 sed -i.tmp 's/allow_structured_metadata: true/allow_structured_metadata: false/' loki/loki.yaml
 rm -f loki/loki.yaml.tmp
 docker compose restart loki
-for _ in $(seq 1 20); do curl -s -o /dev/null http://localhost:8080/checkout; done
-sleep 20
-docker compose logs otel-collector | grep -o 'not retryable error' | head -1
+./scripts/send-traffic.sh 20 0
+./scripts/show-loki-rejections.sh
 ```
 
 ```
+waiting for the Collector to log what Loki did with the logs... ok
 not retryable error
 ```
 
@@ -621,42 +557,35 @@ If the last number is not zero, some edit was interrupted between its `cp` and
 its `mv`. It does not have to have been one of yours: `exercises/divergence.md`
 backs up the same file, so an abandoned run of either exercise leaves the same
 `.bak` behind, and the remedy is the same either way. This restores whichever of
-the three is there and leaves the other two alone:
+the three is there, restarts what reads it, and leaves the other two alone:
 
 ```bash
-if [ -f collector/gateway-config.yaml.bak ]; then
-  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
-  docker compose restart otel-collector
-fi
-if [ -f docker-compose.yml.bak ]; then
-  mv docker-compose.yml.bak docker-compose.yml
-  docker compose up -d prometheus
-fi
-if [ -f loki/loki.yaml.bak ]; then
-  mv loki/loki.yaml.bak loki/loki.yaml
-  docker compose restart loki
-fi
+./scripts/restore-edited-files.sh
 ```
-
-The guard matters because the block above just told you the count was zero. A
-bare `mv` on a path that is not there fails with `No such file or directory`,
-which reads like a broken instruction rather than the all-clear it is.
 
 Then confirm all three bridges are back, with one request and one id:
 
 ```bash
 docker compose restart otel-collector
-await_collector
-TID=$(python3 -c 'import os;print(os.urandom(16).hex())')
-SID=$(python3 -c 'import os;print(os.urandom(8).hex())')
-curl -s -o /dev/null -H "traceparent: 00-$TID-$SID-01" "http://localhost:8080/checkout?fail=1"
-await_rows "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'" 7
-ch --query "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'"
-loki "{service_name=\"checkout-service\"} | trace_id=\"$TID\""
+./scripts/send-traced-checkout.sh
+./scripts/show-trace.sh
+./scripts/find-trace-logs.sh
 ```
 
 ```
-7
+trace id: 5d0c4a1e9b7f4e2a8c6d3b1f0e9a8d7c
+cart:     cart-2418
+waiting for its 7 spans to reach ClickHouse... ok
+waiting for its 2 log lines to reach Loki... ok
+waiting for its spans to reach the span metrics in Prometheus... ok
+GET /checkout      STATUS_CODE_ERROR  180.4ms
+validate_cart      STATUS_CODE_UNSET  21.2ms
+inventory.reserve  STATUS_CODE_UNSET  30.9ms
+payment.charge     STATUS_CODE_UNSET  92.8ms
+fraud.score        STATUS_CODE_ERROR  41.7ms
+order.create       STATUS_CODE_UNSET  20.4ms
+notification.send  STATUS_CODE_UNSET  11.8ms
+logql: {service_name="checkout-service"} | trace_id="5d0c4a1e9b7f4e2a8c6d3b1f0e9a8d7c"
 status: success  lines: 2
     fraud scoring failed for cart-2418: fraud scoring backend timed out after 30201ms (req f9236f92)
     checkout complete cart=cart-2418 order=ord-63457 amount=431.98 fraud_failed=True

@@ -23,22 +23,8 @@ directions.
 
 ## The starting state
 
-Three helpers. `ch` runs a query, `ch_file` applies a `.sql` file, and
-`await_rows` blocks until a query comes back with a number rather than sleeping
-and hoping:
-
-```bash
-ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
-await_rows() { for _ in $(seq 1 180); do
-                 [ "$(ch --query "$1" 2>/dev/null)" -ge "$2" ] 2>/dev/null && return 0
-                 sleep 2
-               done
-               echo "timed out: $1 never reached $2" >&2; return 1; }
-```
-
-The `< /dev/null` is not decoration. Without it the client waits on a stdin that
-never reaches EOF. NOTES has the detail.
+Every step below is a script in `scripts/` or a single ClickHouse query. The
+waits poll the data itself rather than sleeping a fixed number of seconds.
 
 A run of any of the three exercises that was stopped between a backup and its
 restore leaves a `.bak` beside the file it edited, and a container still running
@@ -46,15 +32,15 @@ the edited copy. Put every such file back before anything else, whichever
 exercise left it:
 
 ```bash
-for f in collector/gateway-config.yaml docker-compose.yml loki/loki.yaml clickhouse/error_index.sql; do
-  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; echo "restored $f"; fi
-  rm -f "$f.tmp"
-done
+./scripts/restore-edited-files.sh
 ```
 
-Silence means there was nothing to restore. Then bring the stack up, and restart
-the two services that read a config file mounted from here, so neither keeps
-running a copy that was just put back:
+```
+nothing to restore: every file is the one that shipped
+```
+
+Then bring the stack up, and restart the two services that read a config file
+mounted from here, so neither keeps running a copy that was just put back:
 
 ```bash
 docker compose up -d --build
@@ -62,10 +48,9 @@ docker compose restart otel-collector loki
 docker compose ps
 ```
 
-Wait for the health column to settle. This exercise reads ClickHouse and nothing
-else, but its spans reach ClickHouse through the Collector's sampler, so a sampler
-left edited by another exercise would change every count below. The restore above
-is what rules that out.
+This exercise reads ClickHouse and nothing else, but its spans reach ClickHouse
+through the Collector's sampler, so a sampler left edited by another exercise
+would change every count below. The restore above is what rules that out.
 
 Arm the listing 9.2 index against live traffic first, because a materialized view
 fires on insert and never backfills. Order matters: the view has to exist before
@@ -73,13 +58,24 @@ the spans do.
 
 ```bash
 docker compose restart checkout-service
-ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
-ch --query "DROP TABLE IF EXISTS tracing.exceptions"
-ch_file clickhouse/error_index.sql
-for _ in $(seq 1 150); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await_rows "SELECT sum(error_count) FROM tracing.exceptions" 14
+./scripts/arm-error-index.sh
+./scripts/send-traffic.sh 150 6
+./scripts/wait-until-ready.sh
 ```
+
+```
+armed: tracing.exc_mv now feeds an empty tracing.exceptions
+sending 150 ordinary checkouts and 6 forced failures...
+sent 156 checkouts, 7 of them failed
+waiting for the Collector to receive all 1092 spans the app sent... ok
+waiting for the tail sampler to decide all 156 traces... ok
+waiting for span metrics to reach Prometheus... ok
+waiting for the 49 kept spans to reach ClickHouse... ok
+ready
+```
+
+`arm-error-index.sh` drops `tracing.exc_mv` and `tracing.exceptions` if they
+exist and applies `clickhouse/error_index.sql` to recreate them empty.
 
 The restart is what makes the counts below exact. The app numbers its checkouts
 off a counter that lives in the process, the 1-in-100 cadence fires on every
@@ -88,25 +84,31 @@ already running alone. Carried over from another exercise the counter starts
 somewhere in the middle, 150 requests can span two hundreds instead of one, and
 the failure count comes out one higher than what is printed here.
 
-Fourteen error spans, not seven: a failed checkout records the exception twice,
-on the span that threw and on the server span that reports the failure to the
-caller. The poll is on the index rather than on a clock, because a span has to
+Seven failed checkouts make fourteen error spans: a failed checkout records the
+exception twice, on the span that threw and on the server span that reports the
+failure to the caller. The wait is on ClickHouse itself, because a span has to
 clear the exporter's batch, the tail sampler, Kafka and the storage consumer
-before the materialized view has anything to fire on.
+before the materialized view has anything to fire on. The number of kept spans
+is a draw, so yours will differ.
 
 ## What the index holds
 
 ```bash
-ch --query "
-SELECT any(error_type)      AS error_type,
-       any(msg_template)    AS message,
-       sum(error_count)     AS errors,
-       any(sample_trace_id) AS trace
-FROM tracing.exceptions GROUP BY fingerprint ORDER BY errors DESC"
+./scripts/show-error-issues.sh
 ```
 
 ```
 TimeoutError  fraud scoring backend timed out after ?ms (req ?)  14  7b3fe72ed4203c5640b92e3ff849d968
+```
+
+It runs the read query from the listing's trailing comment:
+
+```sql
+SELECT any(error_type)      AS error_type,
+       any(msg_template)    AS message,
+       sum(error_count)     AS errors,
+       any(sample_trace_id) AS trace
+FROM tracing.exceptions GROUP BY fingerprint ORDER BY errors DESC
 ```
 
 One row. Fourteen error spans from seven failed checkouts, one issue, and a
@@ -117,10 +119,7 @@ land under the same fingerprint. The raw messages behind them differ per failure
 because each carried its own deadline in milliseconds and its own request id:
 
 ```bash
-ch --query "
-SELECT attributes['exception.message'] AS raw
-FROM tracing.otel_traces WHERE status_code = 'STATUS_CODE_ERROR'
-ORDER BY timestamp DESC LIMIT 3"
+./scripts/show-raw-error-messages.sh
 ```
 
 ```
@@ -128,6 +127,9 @@ fraud scoring backend timed out after 30156ms (req 1ea82f48)
 fraud scoring backend timed out after 30156ms (req 1ea82f48)
 fraud scoring backend timed out after 30155ms (req 8310823f)
 ```
+
+It reads `attributes['exception.message']` off the three newest spans in
+`tracing.otel_traces` with `status_code = 'STATUS_CODE_ERROR'`.
 
 Three rows, two distinct strings: the first two are the two spans of one failed
 checkout carrying the same text, the child ahead of the server span that reports
@@ -191,17 +193,17 @@ drops its scratch tables on the way out, so ask it not to:
 
 ```bash
 KEEP_SCRATCH=1 python3 benchmarks/fingerprint_compression.py
-ch --query "SELECT * FROM tracing.fp_bench_truth FORMAT Vertical"
+docker compose exec -T clickhouse clickhouse-client --query "SELECT * FROM tracing.fp_bench_truth FORMAT Vertical" < /dev/null
 ```
 
 That row is written before any measuring query runs, which is what makes it
 truth rather than a second opinion. Drop the scratch tables when you are done:
 
 ```bash
-ch --query "DROP VIEW IF EXISTS tracing.fp_bench_mv"
-ch --query "DROP TABLE IF EXISTS tracing.fp_bench_issues"
-ch --query "DROP TABLE IF EXISTS tracing.fp_bench_spans"
-ch --query "DROP TABLE IF EXISTS tracing.fp_bench_truth"
+docker compose exec -T clickhouse clickhouse-client --query "DROP VIEW IF EXISTS tracing.fp_bench_mv" < /dev/null
+docker compose exec -T clickhouse clickhouse-client --query "DROP TABLE IF EXISTS tracing.fp_bench_issues" < /dev/null
+docker compose exec -T clickhouse clickhouse-client --query "DROP TABLE IF EXISTS tracing.fp_bench_spans" < /dev/null
+docker compose exec -T clickhouse clickhouse-client --query "DROP TABLE IF EXISTS tracing.fp_bench_truth" < /dev/null
 ```
 
 All four, because `KEEP_SCRATCH=1` keeps all four: the truth table, the two
@@ -359,19 +361,20 @@ the live index, and the one armed at the top of this exercise has had its merges
 run long ago, so re-arm it and put a handful of fresh batches in:
 
 ```bash
-ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
-ch --query "DROP TABLE IF EXISTS tracing.exceptions"
-ch_file clickhouse/error_index.sql
-for wave in 1 2 3; do
-  for _ in $(seq 1 4); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-  sleep 4
-done
-await_rows "SELECT count() FROM tracing.exceptions" 1
+./scripts/arm-error-index.sh
+./scripts/send-traffic.sh 0 4
+./scripts/wait-until-ready.sh
+./scripts/send-traffic.sh 0 4
+./scripts/wait-until-ready.sh
+./scripts/send-traffic.sh 0 4
+./scripts/wait-until-ready.sh
 ```
 
-The waves are what make this worth running. The storage consumer batches on a
-two-second timer, so twelve requests fired back to back arrive as a single insert
-and there is one part to read whatever the merge did.
+The three waves are what make this worth running. The storage consumer batches
+on a two-second timer, so twelve requests fired back to back arrive as a single
+insert and there is one part to read whatever the merge did. Waiting for each
+wave to land in ClickHouse before sending the next is what makes them three
+inserts.
 
 The target table is an `AggregatingMergeTree` with `SimpleAggregateFunction`
 columns, and the read query in the listing's trailing comment does a `GROUP BY
@@ -379,8 +382,8 @@ fingerprint` even though the table is already keyed on it. Take the `GROUP BY`
 out and read the raw rows:
 
 ```bash
-ch --query "SELECT fingerprint, error_count FROM tracing.exceptions"
-ch --query "SELECT fingerprint, sum(error_count) FROM tracing.exceptions GROUP BY fingerprint"
+docker compose exec -T clickhouse clickhouse-client --query "SELECT fingerprint, error_count FROM tracing.exceptions" < /dev/null
+docker compose exec -T clickhouse clickhouse-client --query "SELECT fingerprint, sum(error_count) FROM tracing.exceptions GROUP BY fingerprint" < /dev/null
 ```
 
 How many rows the first query gives back is not a number to predict, which is why
@@ -402,9 +405,9 @@ Drop the live index this exercise armed, and check the listing is the one
 that shipped:
 
 ```bash
-ch --query "DROP VIEW IF EXISTS tracing.exc_mv"
-ch --query "DROP TABLE IF EXISTS tracing.exceptions"
-ch --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name"
+docker compose exec -T clickhouse clickhouse-client --query "DROP VIEW IF EXISTS tracing.exc_mv" < /dev/null
+docker compose exec -T clickhouse clickhouse-client --query "DROP TABLE IF EXISTS tracing.exceptions" < /dev/null
+docker compose exec -T clickhouse clickhouse-client --query "SELECT name FROM system.tables WHERE database = 'tracing' ORDER BY name" < /dev/null
 grep -c 'cityHash64(error_type, msg_template, top_frame)' clickhouse/error_index.sql
 grep -oF "'(?i)[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|[0-9]+'" clickhouse/error_index.sql
 ls clickhouse/*.bak clickhouse/*.tmp 2>/dev/null | wc -l

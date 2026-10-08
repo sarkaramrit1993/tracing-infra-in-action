@@ -33,26 +33,36 @@ would let the downstream weight its counts back up, the correction section 9.2.4
 describes, and there would be no divergence left to look at. The divergence here
 is the uncorrected case, which is also the common one.
 
-## Why two helpers, `ch` and `ch_file`
+## Why the scripts have two ClickHouse helpers
 
-```bash
-ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
-```
+Every command in the README and the exercises is a script in `scripts/`, so a
+reader pastes it and sees the result without defining anything in their shell.
+The scripts share `scripts/lib.sh`, which runs ClickHouse queries through two
+helpers, `ch` and `ch_file`.
 
 `clickhouse-client` reads standard input when it is given one. Inside a shell
 loop that also owns stdin, a client without `< /dev/null` sits there forever
 waiting on an EOF that never comes, producing no output and no error. That is
-the trap that hung both of chapter 7's scripts for readers running them.
+the trap that hung both of chapter 7's scripts for readers running them. `ch`
+redirects from `/dev/null`, and so does every raw ClickHouse query printed in
+the exercises.
 
-They cannot be one helper. `ch_file` needs its stdin for the file it is piping
-in, so it cannot redirect from `/dev/null`; `ch` must redirect or it hangs.
-`tests/test_static.py` has a check over this directory's markdown and shell
-scripts. Be exact about its reach: it fails the build on a `clickhouse-client`
-command that carries `--query` and no redirect, after joining backslash
-continuations so a command wrapped across two lines is read as one. It says
-nothing about a client invoked through a variable, through a wrapper this
+They cannot be one helper. `ch_file` needs its stdin for the `.sql` file it is
+piping in, so it cannot redirect from `/dev/null`; `ch` must redirect or it
+hangs. `tests/test_static.py` has a check over this directory's markdown and
+shell scripts. Be exact about its reach: it fails the build on a ClickHouse
+client command that carries a query and no redirect, after joining
+backslash continuations so a command wrapped across two lines is read as one. It
+says nothing about a client invoked through a variable, through a wrapper this
 directory does not define, or from a file type it does not glob.
+
+`scripts/wait-until-ready.sh` is the other thing worth knowing about. It never
+sleeps for a guessed time. It reads the Collector's own counters to see every
+span arrive and every trace get its sampling decision, then waits for a
+Prometheus scrape that started at least one connector flush interval after the
+last decision, then for ClickHouse to hold every span the Kafka exporter sent.
+Each of those is a check on the data, so a slow machine waits longer instead of
+reading a half-arrived number.
 
 ## The disk trap: Loki reports `Up` and 503s every write
 
@@ -73,8 +83,9 @@ On a VM with room to spare the grep prints nothing, and that is the healthy
 answer rather than a broken command.
 
 Loki's `log_level` is `warn` in `loki/loki.yaml` for exactly this reason: at
-`error` the line does not appear at all. Allow about 4 GB free inside the VM
-before starting, and reclaim with `docker system prune --volumes` when it is
+`error` the line does not appear at all. Loki starts throttling writes once the
+disk is 90 percent full, whatever the absolute size, so keep the VM's disk under
+that and allow about 4 GB free inside it before starting, and reclaim with `docker system prune --volumes` when it is
 tight. A macOS or Windows Docker Desktop VM is a fixed-size disk, so "free space
 on my laptop" is not the number that matters.
 
@@ -113,8 +124,8 @@ curl -s -G http://localhost:3100/loki/api/v1/query_range \
 
 The id in both queries is one request from the run these notes were written
 against, so on your stack both come back empty; put in one of your own, such as
-the `$TID` that `exercises/correlation.md` picks, and the second one returns its
-log lines.
+the trace id `scripts/send-traced-checkout.sh` prints in
+`exercises/correlation.md`, and the second one returns its log lines.
 
 `allow_structured_metadata: true` in `loki/loki.yaml` is what makes the field
 survive ingestion at all. Turn it off and Loki rejects every OTLP write that
@@ -151,7 +162,7 @@ dangling pointer section 9.3.1 names.
 wrong answer.** Errors are about 2.9 percent of spans and the sampler keeps all
 of them; successes are kept at one percent. Put those together and you would
 predict about four percent of pre-sampler exemplars resolving. Measured is
-roughly thirty, nearly an order of magnitude more, and the reason is that an
+37.5 percent (6 of 16 in the recorded run), nearly ten times more, and the reason is that an
 exemplar is minted **one per series per scrape, not one per span**. Error spans
 carry their own `status_code` label and land in their own buckets, so they hold
 series of their own, and those series are hugely over-represented against the
@@ -375,10 +386,31 @@ for a `test:` line to invoke. `consumer-clickhouse` is a plain Python process
 with no HTTP surface to check.
 
 Anything that needs to know those services are ready has to ask from outside the
-container, which is what the test scripts do: they poll `http://localhost:3100/ready`,
+container, which is what the test scripts and `scripts/` do: they poll `http://localhost:3100/ready`,
 `http://localhost:9090/-/ready` and a real ClickHouse query, on a budget, rather
 than sleeping a fixed number of seconds and hoping. A fixed sleep is a guess
 about a machine you are not sitting at.
+
+## How much memory and disk the stack needs
+
+Measured with `docker stats --no-stream` across a full pass through the README:
+the seven containers settle at about 2.2 GB with traffic driven and the store
+loaded, ClickHouse 1.2 GB of that and Kafka 700 MB. The figure to size Docker for
+is the peak. `benchmarks/fingerprint_compression.py` builds two million rows
+server-side and takes the stack to 3.9 GB, with ClickHouse alone at 2.9 GB. Size
+Docker for the settled figure and that benchmark gets ClickHouse OOM-killed
+partway through, which looks like a hung query rather than a memory limit. On
+macOS and Windows the limit is Docker Desktop's own setting, not free host RAM.
+
+Disk matters for a different reason: see the disk trap above.
+
+## Why ClickHouse is on 26.1
+
+The ClickHouse tag matches `chapter-08/`. `chapter-07/` is still on 25.8, which
+predates the `use_skip_indexes_on_data_read` setting listing 8.2 needs, so
+chapter 8 set the floor at 26.1 and chapter 9 follows it. Every difference
+between the three chapters that the text turns on is in the schema and the
+queries, not in the server.
 
 ## Why the numbers in the README are not exact
 
@@ -388,8 +420,7 @@ chapter's are not, and cannot be.
 
 The traffic here goes through a live sampler making a probabilistic decision per
 trace, over however many requests you happened to drive, flushed on a 15-second
-timer and scraped on another. 306 and 10 will be different numbers for you, and
-the post total especially: at one in a hundred, three hundred successful requests
+timer and scraped on another. The post total of 14 will be a different number for you: at one in a hundred, three hundred successful requests
 leave about three survivors, and three is a number with a lot of luck in it. What
 reproduces is the relationship: pre above post, error counts equal on both sides
 because the sampler keeps every error, and a post error rate many times the pre
@@ -416,37 +447,22 @@ number rather than compared against a direction.
 The book prints a readable excerpt and this repository ships a runnable file, so
 they differ in small ways throughout: qualified table names, callout markers,
 YAML that has to satisfy a real schema. One of the differences is worth knowing
-before you paste a printed listing into your own stack.
+before you write your own version of a listing.
 
 ### Listing 9.2's top frame
 
-The book prints:
-
-```
-splitByChar('\n', attributes['exception.stacktrace'])[1] AS top_frame
-```
+The book and the file take the same top frame: the innermost
+`File "...", line N, in name` entry of the traceback, with the line number
+stripped. Two details matter if you write your own version.
 
 Element 1 of a Python traceback split on newlines is the literal string
-`Traceback (most recent call last):`. It is identical for every exception the
-process will ever raise, so the fingerprint degenerates to a hash of type and
-message template alone and the top frame contributes nothing. In a service where
-two different call sites raise the same exception type with the same message
-shape, those two bugs become one issue and stay one issue.
+`Traceback (most recent call last):`, identical for every exception, so a
+fingerprint built on it hashes only type and message template, and two different
+call sites raising the same error become one issue.
 
-The file parses the frames out and takes the innermost:
-
-```
-replaceRegexpAll(
-    arrayElement(
-        extractAll(attributes['exception.stacktrace'],
-                   'File "[^"]*", line [0-9]+, in [A-Za-z_0-9<>.]+'),
-        -1),
-    ', line [0-9]+', '') AS top_frame
-```
-
-The line number is stripped on the way through. Without that, an edit anywhere
-above the raise site shifts the line and forks one ongoing issue into two, one
-of which is marked "first seen in this deploy". `benchmarks/fingerprint_compression.py`
+The line number has to go. Without stripping it, an edit anywhere above the
+raise site shifts the line and forks one ongoing issue into two, one of them
+marked "first seen in this deploy". `benchmarks/fingerprint_compression.py`
 varies the raise line across three values per code path to stand in for three
 deploys, so dropping the strip triples the issue count, measurably.
 
