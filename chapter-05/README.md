@@ -1,397 +1,473 @@
 # Chapter 5: Trace Assembly and Processing Patterns
 
-Code and exploration exercises for Chapter 5 of *Tracing Infrastructure in Action*.
+Code for Chapter 5 of *Tracing Infrastructure in Action*.
 
-This chapter contrasts query-time assembly (Tempo, Jaeger, SigNoz, X-Ray) with
-stream-time assembly (Edgar, Refinery, Infinite Tracing, Salesforce). Both
-topologies coexist in this stack so the reader can compare them on the same
-span stream. The atomicity imperative governs every boundary: drop whole
-traces, never partial spans.
+A checkout service and the four services it calls (inventory, payment, fraud,
+notification) send traces down both assembly paths the chapter compares, at the
+same time, from the same Kafka topic:
 
-## Prerequisites
-
-- Docker and Docker Compose
-- Python 3.10+ (only for the local benchmark runs)
-- Around 6 GB of free RAM for the full stack
-
-## Architecture
-
-```
-                                      +--> consumer-clickhouse --> ClickHouse  (query-time path)
-                                      |
-checkout -> otel-agent -> otel-gateway --> kafka (otlp_spans, 16 partitions, RF=2)
-                                      |
-                                      +--> otel-consumer --> Jaeger v2   (query-time control)
-                                      |
-                                      +--> flink-jobmanager + taskmanager (stream-time assembly)
-                                                  |
-                                                  v
-                                          traces.assembled (kafka)
-                                                  |
-                                                  v
-                                          otel-stream-consumer --> Jaeger v2  (stream-time path)
-                                                  |
-                                                  +--> spans.late (kafka)
-```
-
-Both paths key spans by trace_id through the gateway's `partition_traces_by_id`
-contract from chapter 4. The Flink job is a `KeyedProcessFunction` keyed on
-trace_id with a `decision_wait` event-time timer of 10 seconds. Late spans
-land in `spans.late` via a side output and never re-enter the main pipeline.
-
-### Components
-
-- **app/**: Flask checkout producer, ClickHouse consumer, Jaeger consumer
-  reference implementation, scatter-gather query, standalone agent helper.
-- **flink/**: PyFlink 2.2 assembly job, runtime config, Dockerfile.
-- **clickhouse/**: storage schema (`otel_traces` wide table) and the
-  `red_service_minute` materialized view. The service graph is derived by
-  query, not a materialized view. See the walkthrough in step 8 below.
-- **collector/**: OTel agent, gateway, query-time consumer, stream-time consumer.
-- **benchmarks/**: query-time write cost, stream-time buffer cost,
-  atomicity audit.
+1. **Query-time assembly.** Spans land in ClickHouse one by one, as they arrive.
+   A trace only exists as a whole when you read it.
+2. **Stream-time assembly.** A Flink job holds each trace's spans in keyed state
+   for 10 seconds, then emits the whole trace at once.
+3. **Whole traces or nothing.** Both paths deliver every checkout with all eleven
+   spans, and a small audit shows which failures break that rule and which don't.
 
 ## Listings
 
-| Listing | File | Pattern |
-|---------|------|---------|
+| Listing | File | What it shows |
+|---------|------|---------------|
 | 5.1 | `clickhouse/init.sql` | ClickHouse spans table for query-time assembly |
 | 5.2 | `app/scatter_gather_query.py` | ClickHouse trace-assembly query |
 | 5.3 | `flink/assembly_job.py` | KeyedProcessFunction skeleton for keyed trace assembly |
 | 5.5 | `flink/assembly_job.py` | Bounded watermark strategy and late-span side-output routing |
+| 5.6 | `clickhouse/service_graph.sql` | Service graph derivation from the spans table |
 
-Not mapped: 5.4 (`loadbalancingexporter` config for Kafka-free trace-aware routing; this stack routes by trace ID through Kafka's `partition_traces_by_id` instead, per chapter 4), 5.6 (service graph derivation query; the walkthrough command in step 8 below covers the same self-join pattern over a shorter demo window, but uses a different join type and quantile function than the book listing, so it is not a match).
+Listing 5.4 (`loadbalancingexporter`) is not in this stack: it routes by trace
+ID without Kafka, and this stack routes through Kafka instead. The book prints
+readable excerpts, so the files differ from it in small ways;
+[NOTES.md](NOTES.md) lists how, under "Running the book's listings verbatim".
 
-### Pinned versions
+## Before you start
 
-| Component | Version |
-|---|---|
-| Apache Kafka | 4.3.0 (KRaft) |
-| OpenTelemetry Collector contrib | 0.154.0 |
-| Jaeger | 2.19.0 |
-| Apache Flink | 2.2.1 |
-| ClickHouse | 25.8 (LTS) |
-| Prometheus | v3.12.0 |
+- Docker with Docker Compose v2, with **about 6 GB of memory** for Docker (Docker
+  Desktop: Settings, Resources). With less, Flink is killed partway through and
+  the stream-time path stops.
+- Python 3 and `curl` on your machine. On Windows, use WSL2.
+- Stop any other chapter's stack first (`docker compose ls`). The ports this one
+  uses are listed under [Reference](#ports).
+- If something else on your machine already has port 8081, give Flink another
+  one: save the snippet below as `docker-compose.override.yml` in this directory
+  (Docker Compose 2.24 or later reads it on its own), and run `export FLINK_PORT=18081` in the
+  terminal you run the scripts from.
 
-## Running
+  ```yaml
+  services:
+    flink-jobmanager:
+      ports: !override
+        - "18081:8081"
+        - "9249:9249"
+  ```
+
+Run every command from this `chapter-05/` directory. Each step runs a small
+script from `scripts/` that prints what it found, and the query inside it is
+shown under the step, so you can run it yourself.
+
+## 1. Start the stack
 
 ```bash
-docker compose up -d
-```
-
-This starts the full topology. Give it 60 to 90 seconds to settle: Kafka has
-to elect controllers, the topics have to land, ClickHouse has to apply the
-schema, and the Flink job has to submit. Watch progress with:
-
-```bash
+docker compose up -d --build
 docker compose ps
-docker compose logs -f flink-job-submit
 ```
 
-## Verify it works
+The first build takes a few minutes: the Flink image installs PyFlink.
+`kafka-init` creates the three topics and exits, so `docker compose ps` does
+not list it. `flink-job-submit` submits the assembly job and stays `Up` as long
+as the job runs. Flink is the last thing to come up; the next script waits for
+it, so you can go straight on.
+
+`docker compose down -v` throws everything away, and the next start is fresh.
+A plain restart (`docker compose stop`, then `docker compose up -d`) keeps
+Kafka and ClickHouse, and the Flink job picks up where it left off in the
+topic. Jaeger keeps traces in memory and comes back empty, so after a restart
+start again from step 2.
+
+## 2. Send some traffic
+
+120 checkouts, then wait until they have arrived on both paths:
+
+```bash
+./scripts/send-traffic.sh
+./scripts/wait-until-ready.sh
+```
+
+```
+waiting for checkout-service... ok
+waiting for ClickHouse... ok
+waiting for Jaeger... ok
+waiting for the Flink assembly job to start... ok
+sending 120 checkouts...
+sent 120 checkouts
+query-time path: waiting for ClickHouse to hold all 11 spans of all 120 checkouts... ok
+stream-time path: waiting for Flink to assemble the newest one and Jaeger to store it... ok
+ready
+```
+
+Each checkout is one trace of eleven spans: six in `checkout-service`, and five
+more recorded by the services it calls, each under its own service name.
+`payment-service` calls `fraud-service` in turn. The first wait is the query-time path
+filling ClickHouse. The second is the stream-time path: Flink holds each trace
+until its 10-second timer fires, so the newest checkout comes out last.
+
+What it sends:
+
+```text
+curl -s http://localhost:8080/checkout    120 times
+```
+
+## 3. Verify it works: one trace, both paths
+
+Take the newest checkout and count its spans everywhere it was delivered:
+
+```bash
+./scripts/show-both-paths.sh
+```
+
+```
+trace d7cbd91fb342829338b3ba2ab7a75c06
+
+where                                        spans
+ClickHouse tracing.otel_traces               11
+Jaeger, assembly.source=query-time           11
+Jaeger, assembly.source=stream-time          11
+
+open http://localhost:16686/trace/d7cbd91fb342829338b3ba2ab7a75c06 to see it in Jaeger
+```
+
+Your trace ID will differ. Eleven spans in each place. ClickHouse holds them as separate rows, written as
+they arrived. Jaeger holds the trace twice: one copy labelled
+`assembly.source=query-time`, forwarded span by span, and one labelled
+`stream-time`, which Flink emitted as a whole. Open the link the script prints
+to see both copies in the Jaeger UI.
+
+What it runs, for the Jaeger side:
+
+```text
+curl -s http://localhost:16686/api/traces/<trace_id>
+```
+
+and counts the spans under each `assembly.source` label.
+
+## 4. Assemble the trace at read time
+
+Query-time assembly in two steps: fetch every span with the trace ID (listing
+5.2), then rebuild the parent-child tree in memory:
+
+```bash
+./scripts/assemble-trace.sh
+```
+
+```
+scatter-gather across 1 shard(s) for trace_id=d7cbd91fb342829338b3ba2ab7a75c06
+shards: ['clickhouse']
+  shard=clickhouse returned=11 elapsed_ms=20.9
+
+assembled 11 spans in 111.3ms (tail-shard bound)
+
+waterfall:
+  checkout-service         GET /checkout                +     0.0us 175.25ms [STATUS_CODE_UNSET]
+    checkout-service         validate_cart                +   341.8us  20.93ms [STATUS_CODE_UNSET]
+    checkout-service         inventory.reserve            + 21358.9us  31.05ms [STATUS_CODE_UNSET]
+      inventory-service        POST /inventory/reserve      + 21404.6us  30.97ms [STATUS_CODE_UNSET]
+    checkout-service         payment.charge               + 52511.8us  91.46ms [STATUS_CODE_UNSET]
+      payment-service          POST /payments/charge        + 52572.1us  91.39ms [STATUS_CODE_UNSET]
+        payment-service          fraud.score                  +103050.9us  40.90ms [STATUS_CODE_UNSET]
+          fraud-service            POST /fraud/score            +103162.7us  40.74ms [STATUS_CODE_UNSET]
+    checkout-service         order.create                 +144109.8us  20.77ms [STATUS_CODE_UNSET]
+    checkout-service         notification.send            +164959.3us  10.15ms [STATUS_CODE_UNSET]
+      notification-service     process notification         +164995.4us  10.09ms [STATUS_CODE_UNSET]
+```
+
+Each call shows up twice: the caller's client span, then the called service's
+own span inside it. Your timings will differ. This stack has one ClickHouse, so the "scatter" is one request. The script still
+prints each shard's time separately, because a real query is only as fast as its
+slowest shard (Figure 5.5).
+
+What it runs (listing 5.2), with the trace ID filled in:
+
+```sql
+SELECT span_id, parent_span_id, service_name, span_name,
+       toUnixTimestamp64Nano(timestamp) AS start_ns, duration, status_code
+FROM tracing.otel_traces
+WHERE trace_id = '<trace_id>'
+  AND timestamp >= now() - INTERVAL 24 HOUR
+ORDER BY start_ns ASC
+SETTINGS optimize_read_in_order = 1
+```
+
+## 5. See how the table stores spans
+
+```bash
+./scripts/show-table-layout.sh
+```
+
+```
+parts (every insert writes one; background merges combine them)
+partition            part_type  parts  rows  on_disk
+2026-10-08 05:00:00  Compact    5      1327  52.21 KiB
+
+where trace d7cbd91fb342829338b3ba2ab7a75c06 sits
+part              spans  first_row  last_row
+1791435600_8_8_0  11     121        131
+```
+
+Your partition, part names, part count and row numbers will differ, since they
+depend on the hour you run in and how far the background merges have got. What
+stays the same: in each part that holds the trace, its spans sit on
+consecutive rows.
+
+Listing 5.1's table is partitioned by hour and sorted by `(trace_id,
+timestamp)`. Every consumer flush writes a new part, and ClickHouse merges small
+parts in the background, so the part count goes up and down as you watch. Inside
+a part, the newest checkout's eleven spans are eleven neighbouring rows, which is
+why the query in step 4 is a seek, not a scan. Small parts are stored in the
+`Compact` format, all columns in one file; past a size threshold they switch to
+`Wide`, one file per column.
+
+What it runs:
+
+```sql
+SELECT partition, part_type, count() AS parts, sum(rows) AS rows,
+       formatReadableSize(sum(bytes_on_disk)) AS on_disk
+FROM system.parts
+WHERE database = 'tracing' AND table = 'otel_traces' AND active
+GROUP BY partition, part_type ORDER BY partition, part_type;
+
+SELECT _part AS part, count() AS spans,
+       min(_part_offset) AS first_row, max(_part_offset) AS last_row
+FROM tracing.otel_traces
+WHERE trace_id = '<trace_id>'
+GROUP BY _part ORDER BY _part;
+```
+
+## 6. Read RED metrics without assembling anything
+
+```bash
+./scripts/show-red-metrics.sh
+```
+
+```
+service_name          span_name                spans  errors  p99_ms
+checkout-service      GET /checkout            120    0       182
+checkout-service      GET /health              7      0       4.4
+fraud-service         POST /fraud/score        120    8       42.3
+inventory-service     POST /inventory/reserve  120    0       33.3
+notification-service  process notification     120    0       13.5
+payment-service       POST /payments/charge    120    0       94.9
+```
+
+Rate, errors and duration per service and operation, read off a materialized
+view that rolls each receiving span (kind server or consumer) into a one-minute
+bucket as it is inserted. No trace was assembled to get them. Counting only
+receiving spans counts each request once, in the service that handled it; the
+caller's client span for the same call is left out. A fraud check fails about
+one time in twenty, so a few errors show up on `POST /fraud/score`.
+`GET /health` is the container healthcheck, traced like any request.
+
+Your errors, p99 values and `GET /health` count will differ: the fraud score is
+random, timings depend on your machine, and the healthcheck runs every 10
+seconds for as long as the stack is up. The 120 in every other row stays the
+same, until you send more traffic. The view covers the last hour, so if it is
+more than an hour since you sent traffic, the script tells you to send some.
+
+What it runs:
+
+```sql
+SELECT service_name, span_name,
+       countMerge(span_count) AS spans,
+       countIfMerge(error_count) AS errors,
+       round(quantileTDigestMerge(0.99)(duration_p99) / 1e6, 1) AS p99_ms
+FROM tracing.red_service_minute
+WHERE ts_bucket_start >= now() - INTERVAL 1 HOUR
+GROUP BY service_name, span_name
+ORDER BY service_name, spans DESC, span_name
+```
+
+The server-or-consumer filter lives in the view itself, in
+`clickhouse/materialized_views.sql`:
+`WHERE span_kind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER')`.
+
+## 7. Derive the service graph
+
+```bash
+./scripts/show-service-graph.sh
+```
+
+```
+parent_service    child_service         call_count  p99_duration_ns  error_count
+checkout-service  payment-service       120         94863300         0
+checkout-service  inventory-service     120         33255750         0
+payment-service   fraud-service         120         42314830         8
+checkout-service  notification-service  120         13460041         0
+```
+
+Listing 5.6 joins each span to its parent and keeps the pairs where the two sit
+in different services. Each such pair is one call: `checkout-service` calls
+three services, and `payment-service` calls `fraud-service`. A pair inside one
+service, such as `validate_cart` under `GET /checkout`, is internal work and is
+filtered out. `p99_duration_ns` is the callee's p99 in nanoseconds, so 94863300
+is about 95 ms.
+
+Your p99 values and fraud errors will differ, and so will the order of the four
+rows, since the listing sorts only by `call_count` and all four are tied at 120.
+The four edges themselves are always the same. Like step 6, the query reads the
+last hour only.
+
+What it runs: `clickhouse/service_graph.sql`, which is listing 5.6 as printed.
+
+## 8. Look inside the stream-time path
+
+```bash
+./scripts/show-flink-job.sh
+```
+
+```
+job state                      RUNNING
+spans into trace-assembly      1328
+watermark behind wall clock    11.6s
+checkpoints completed          2
+last checkpoint size           16.9 KiB
+checkouts in traces.assembled  120
+spans in spans.late            0
+```
+
+`checkouts in traces.assembled` is the number of checkouts you have sent, 120
+after step 2, and `spans.late` stays at 0. Those two print the same every time
+you run the script. The topic also holds one trace per healthcheck, which the
+count leaves out. `spans into trace-assembly` is the 1,320 checkout spans plus
+one healthcheck span every 10 seconds, so it creeps up from run to run. The
+watermark lag and checkpoint size depend on when you run the script.
+
+The `trace-assembly` operator (listing 5.3) reads every span. Its watermark
+(listing 5.5) trails the clock by the 5-second out-of-order bound, plus the
+seconds spans spend in export batches on the way, plus the gap since the last
+span arrived. A trace is emitted when the watermark passes its
+first span plus 10 seconds. `spans.late` is where spans that arrive after their
+trace has shipped go. On a clean local run it stays empty.
+
+What it reads: `http://localhost:8081/jobs/<job_id>` and its `watermarks` and
+`checkpoints` endpoints, then counts the committed records on the two output
+topics, reading each to its end. Open `http://localhost:8081` for the Flink UI.
+
+## 9. Stop a broker
+
+Stop one of the three Kafka brokers, send 20 checkouts, and check both paths
+still deliver every one whole:
+
+```bash
+./scripts/stop-a-broker.sh
+```
+
+```
+stopping kafka-2...
+sending 20 checkouts with kafka-2 down...
+all 20 checkouts answered
+query-time path: waiting for ClickHouse to hold all 11 spans of all 20 checkouts... ok
+stream-time path: waiting for Flink to assemble the newest one and Jaeger to store it... ok
+starting kafka-2 again...
+waiting for kafka-2 to rejoin... ok
+no checkout failed and no trace lost a span while a broker was down
+```
+
+Every topic keeps two copies of each partition, so one broker down loses
+nothing. The script starts `kafka-2` again before it exits, even if a check
+fails.
+
+What it runs:
+
+```text
+docker compose stop kafka-2
+curl -s http://localhost:8080/checkout    20 times
+docker compose start kafka-2
+```
+
+## 10. Break atomicity on purpose
+
+This step needs no stack. `benchmarks/atomicity_audit.py` builds 1,000 synthetic
+traces of 8 spans, applies one of four failure modes at a 5 percent rate
+(`FAILURE_RATE`), and fails if any trace comes out partial. `none` drops
+nothing, `drop-whole-trace` drops 5 percent of the traces whole,
+`producer-crash` drops 5 percent of the producer batches, and
+`buffer-overflow` drops 5 percent of the spans:
+
+```bash
+./scripts/run-atomicity-audit.sh
+```
+
+```
+failure mode        whole  absent  partial  verdict
+none                 1000       0        0  PASS
+drop-whole-trace      950      50        0  PASS
+producer-crash        534       0      466  FAIL
+buffer-overflow       678       0      322  FAIL
+```
+
+Dropping whole traces is allowed: 50 are gone, but none is half there. The two
+failures lose single spans. `producer-crash` loses whole producer batches, and
+since a batch carries spans of many traces, each lost batch leaves many traces
+partial; the assembler cannot prevent that. `buffer-overflow` evicts random
+spans inside the assembler, which is the mistake section 5.3.4 warns against.
+
+What it runs:
+
+```text
+FAILURE_MODE=none              python3 benchmarks/atomicity_audit.py
+FAILURE_MODE=drop-whole-trace  python3 benchmarks/atomicity_audit.py
+FAILURE_MODE=producer-crash    python3 benchmarks/atomicity_audit.py
+FAILURE_MODE=buffer-overflow   python3 benchmarks/atomicity_audit.py
+```
+
+## Run the tests
+
+Offline, no Docker needed:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r tests/requirements.txt
+python3 tests/test_static.py
+python3 -m pytest -q app/test_checkout.py app/test_consumer_clickhouse.py flink/test_assembly_helpers.py benchmarks/test_atomicity_audit.py
+```
+
+Against the running stack:
 
 ```bash
 bash tests/test_stack.sh
 ```
 
-Asserts that the query-time path fills ClickHouse, that the stream-time
-path produces assembled traces on `traces.assembled`, that no checkout trace
-in the store has fewer spans than the checkout endpoint emits, and that the
-late-span topic exists separate from the main path. Exits non-zero on any
-failure. Safe to re-run.
+It sends its own 120 checkouts and checks both paths, that no stored checkout is
+partial, that nothing reads `spans.late`, and that the Flink job is still alive
+at the end.
 
-Give this stack the memory it asks for. Both paths deliver and every checkout
-trace carries its full seven spans when Flink has room, but on a Docker
-allocation under roughly 6 GB the Flink taskmanager is OOM-killed partway
-through a run and the assembly job fails with it. Assertions 2 and 5 above
-exist to catch exactly that, because the traces assembled before the crash
-stay in the topic and make a dead stack look healthy. If the script fails on
-either, raise Docker's memory limit rather than reading the earlier
-assertions as a pass. See `troubleshooting.md`.
-
-Unit tests in `app/`, `flink/`, and `benchmarks/` pass independently of the
-stack (run `python3 -m pytest` from this directory).
-
-Pin versions in `docker-compose.yml` were chosen to match Ch4
-and the chapter prose. The `flink/Dockerfile` pulls `apache-flink==2.2.1` from
-pip and the matching `flink-sql-connector-kafka-5.0.0-2.2.jar`; if a wheel for
-the Python version you're on is not yet published, downgrade that pin to the
-closest available `apache-flink==2.2.x` (the `KeyedProcessFunction` API the
-assembly job uses is identical) and re-run `docker compose build
-flink-jobmanager flink-taskmanager flink-job-submit`.
-
-Each step below proves one of the chapter's figures or claims with a
-runnable command. Run them in order after the stack settles.
-
-### 1. Generate ten minutes of traffic
-
-```bash
-for i in $(seq 1 600); do
-    curl -s http://localhost:8080/checkout > /dev/null
-    sleep 1
-done &
-echo "traffic loop PID: $!"
-```
-
-This runs in the background (the trailing `&`), so steps 2 through 10 below
-execute concurrently against live traffic. Note the printed PID and stop the
-loop when you are done with `kill <PID>` (or run `jobs` then `kill %1`).
-
-The checkout endpoint produces a seven-span trace per call across five
-services, which is the depth Figure 5.8's service-graph derivation needs.
-Six of those spans are created explicitly by the endpoint; the seventh is the
-root span Flask auto-instrumentation opens for the request itself.
-
-### 2. Prometheus targets are healthy (proves the metrics surface)
-
-`open` is macOS; on Linux use `xdg-open`.
-
-```bash
-open http://localhost:9090/targets
-```
-
-All targets (otel-agent, otel-gateway, otel-consumer, otel-stream-consumer,
-flink-jobmanager, flink-taskmanager, clickhouse) should show as UP.
-
-### 3. Jaeger has traces from both paths (proves F5.1 + F5.7)
-
-```bash
-open http://localhost:16686
-```
-
-In the Jaeger UI, the Service dropdown will show `checkout-service`. Each
-trace carries the `assembly.source` resource attribute set by the consumer
-collectors. Filter by:
-
-- `assembly.source=query-time` for the query-time path
-- `assembly.source=stream-time` for the stream-time path
-
-The same logical trace appears under both labels because both consumers
-read the same `otlp_spans` topic. The query-time path emits each span as
-it arrives. The stream-time path holds the whole trace in keyed state for
-the decision_wait window, then emits the assembled trace at once. Figure
-5.1's decision tree and Figure 5.7's atomicity boundaries both manifest
-here: the query-time row never holds a hole because spans are written
-independently, and the stream-time row never holds a hole because the
-whole trace emits or none of it does.
-
-### 4. ClickHouse has spans (proves F5.4 block layout)
-
-```bash
-docker compose exec clickhouse clickhouse-client --query \
-    "SELECT count() FROM tracing.otel_traces \
-     WHERE timestamp > now() - INTERVAL 10 MINUTE"
-```
-
-Expect a count climbing with traffic. Inspect the block layout:
-
-```bash
-docker compose exec clickhouse clickhouse-client --query \
-    "SELECT partition, name, rows, bytes_on_disk, primary_key_bytes_in_memory \
-     FROM system.parts WHERE database='tracing' AND active=1 \
-     ORDER BY modification_time DESC LIMIT 10 FORMAT PrettyCompact"
-```
-
-This is the MergeTree column of Figure 5.4: parts keyed by
-`(trace_id, timestamp)`, partitioned by hour, with ZSTD compression on the
-column codecs.
-
-### 5. RED metrics roll up (proves section 5.4.2)
-
-```bash
-docker compose exec clickhouse clickhouse-client --query \
-    "SELECT service_name, \
-            countMerge(span_count) AS spans, \
-            countIfMerge(error_count) AS errors, \
-            quantileTDigestMerge(0.99)(duration_p99) AS p99_ns \
-     FROM tracing.red_service_minute \
-     WHERE ts_bucket_start > now() - INTERVAL 10 MINUTE \
-     GROUP BY service_name ORDER BY spans DESC FORMAT PrettyCompact"
-```
-
-The materialized view aggregates spans into per-service per-minute buckets
-without ever assembling a trace. This is the aggregate-first pattern that
-Lightstep and Datadog Live Search run at the high end of the volume axis.
-
-### 6. Flink keyed-state metrics (proves F5.6 watermark lifecycle)
-
-The Flink UI shows the job, the per-task state size, watermark lag, and the
-late-span counter.
-
-```bash
-open http://localhost:8081
-```
-
-Click into the `chapter5-trace-assembly` job, then the `trace-assembly`
-operator. The metrics tab surfaces:
-
-- `numRecordsIn` (spans arriving from Kafka)
-- `numRecordsOut` (assembled traces emitted)
-- `currentInputWatermark` (the watermark Figure 5.6 walks)
-- `numLateRecordsDropped` (spans diverted to the side output)
-- `lastCheckpointSize` (the keyed-state size at each checkpoint)
-
-Confirm the late-span side output is wired by checking the `spans.late`
-topic:
-
-```bash
-docker compose exec kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
-    --bootstrap-server kafka-1:9093 --topic spans.late \
-    --max-messages 1 --timeout-ms 5000
-```
-
-Under a clean local run with synchronized clocks, this topic stays at zero.
-It is the metric that fires when the watermark policy has work to do.
-
-### 7. Scatter-gather query (proves F5.5)
-
-Pick a trace_id out of ClickHouse:
-
-```bash
-TID=$(docker compose exec -T clickhouse clickhouse-client --query \
-    "SELECT trace_id FROM tracing.otel_traces ORDER BY timestamp DESC LIMIT 1")
-echo "trace_id=$TID"
-```
-
-Then run the scatter-gather query from the host:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r app/requirements.txt
-CLICKHOUSE_HOST=localhost python3 app/scatter_gather_query.py "$TID"
-```
-
-Expected output: a tail-latency-bounded fan-out (one shard in the dev
-stack), followed by an in-memory assembly of the parent-child waterfall.
-The script prints each shard's response latency separately because Figure
-5.5's claim is that the slowest shard owns the p99 of the whole query.
-
-### 8. Service graph (proves F5.8 + listing 5.6)
-
-```bash
-docker compose exec clickhouse clickhouse-client --query "$(cat <<'SQL'
-SELECT
-    parent_service,
-    child_service,
-    count() AS call_count,
-    quantileExact(0.99)(duration) AS p99_duration_ns,
-    countIf(status_code = 'STATUS_CODE_ERROR') AS error_count
-FROM (
-    SELECT
-        s.service_name AS child_service,
-        p.service_name AS parent_service,
-        s.duration,
-        s.status_code
-    FROM tracing.otel_traces AS s
-    LEFT JOIN tracing.otel_traces AS p
-        ON s.trace_id = p.trace_id AND s.parent_span_id = p.span_id
-    WHERE s.timestamp >= now() - INTERVAL 10 MINUTE
-)
-WHERE parent_service != ''
-GROUP BY parent_service, child_service
-ORDER BY call_count DESC
-FORMAT PrettyCompact
-SQL
-)"
-```
-
-This is the streaming-aggregation pattern of section 5.4.1 expressed as a
-ClickHouse self-join. Every span emits one edge contribution and the graph
-weighted by call count falls out.
-
-### 9. Atomicity audit (illustrates the atomicity imperative)
-
-`atomicity_audit.py` is a self-contained model of the audit logic. It does not
-read the running stack; it generates synthetic traces in memory, applies one
-failure mode, and asserts the only acceptable outcomes are whole traces present
-or whole traces absent. A partial trace is silent data loss and fails the audit.
-It demonstrates how you would detect a partial-trace violation; wiring it to the
-live `traces.assembled` topic is left as an exercise.
-
-Run it four ways. Two pass and two fail, and the failures are the point:
-
-| Run | Expected |
-|---|---|
-| no failure mode | PASS (clean run) |
-| `FAILURE_MODE=producer-crash` | FAIL (a lost batch takes part of several traces) |
-| `FAILURE_MODE=drop-whole-trace` | PASS (controlled degradation) |
-| `FAILURE_MODE=buffer-overflow` | FAIL (random-span eviction) |
-
-```bash
-cd benchmarks
-python3 atomicity_audit.py
-FAILURE_MODE=producer-crash    python3 atomicity_audit.py
-FAILURE_MODE=drop-whole-trace  python3 atomicity_audit.py
-FAILURE_MODE=buffer-overflow   python3 atomicity_audit.py
-```
-
-The audit fails on `producer-crash` because a trace's spans leave different
-hosts through different gateways, so a producer batch never holds a whole
-trace and a lost batch leaves partial traces behind. That is boundary 1, the
-one the assembler cannot protect. The audit fails on `buffer-overflow` because
-that mode evicts random spans inside the assembler, exactly the failure mode
-section 5.3.4 calls out as unacceptable. The audit passes on `drop-whole-trace` because evicting whole
-traces preserves the imperative even under controlled degradation.
-
-### 10. Failure test: a broker drops
-
-Stop one Kafka broker and confirm the producer keeps working and the Flink
-job keeps assembling. Replication factor 2 tolerates one node down, and the
-gateway holds a buffer, so the checkout call still succeeds.
-
-```bash
-docker compose stop kafka-2
-curl http://localhost:8080/checkout
-docker compose start kafka-2
-```
-
-The blast radius of one broker loss stays inside the Kafka tier. The
-producer never sees an error, the query-time consumer never drops a
-span, and the Flink keyed state never corrupts.
-
-## Tuning knobs worth poking
-
-- `DECISION_WAIT_MS` (Flink env): the chapter's central trade-off, set on
-  the `flink-jobmanager` and `flink-taskmanager` services. Default 10000
-  matches New Relic's Infinite Tracing. Raise to 30000 to match the
-  OpenTelemetry tail sampler default; watch keyed-state size grow.
-- `OUT_OF_ORDER_SEC` (Flink env): bounded out-of-orderness for the
-  watermark. Default 5. Lower for single-AZ; raise for cross-region.
-- `state.backend.type` (`flink/conf/flink-conf.yaml`): switch from RocksDB
-  to ForSt to demonstrate the disaggregated-state recovery characteristic
-  from footnote [^16]. ForSt needs an S3-compatible target configured.
-- `BATCH_SIZE`, `BATCH_TIMEOUT_S` (`consumer-clickhouse` env): the
-  query-time path's write batching. Tune to trade ingestion latency for
-  throughput.
-
-## Operational notes
-
-- **Resource attribute label**: `assembly.source` is set by each consumer
-  collector (`query-time` or `stream-time`). Use it to compare
-  the two paths inside Jaeger or ClickHouse.
-- **Atomicity boundaries** (Figure 5.7): the four boundaries are realized
-  in this stack as: (1) the gateway's `partition_traces_by_id`, which sends
-  a trace's spans to one partition but cannot put them in one producer
-  batch, so this boundary stays unprotected, (2) the
-  Flink Kafka source offset commit at checkpoint, (3) the Flink keyed-state
-  eviction policy (drop-whole-trace, never drop-random-spans), and (4) the
-  collector OTLP exporter's `tls.insecure` ack-on-success semantics.
-- **Hot-partition watch**: if you load-test with a small pool of trace IDs,
-  one Kafka partition will dominate ingestion and one Flink keyed-state
-  shard will dominate state size. This is the hot-partition failure mode
-  from section 5.2.3. Watch `kafka_log_log_size` per partition in
-  Prometheus to see it.
-- **Late-span audit**: under a clean stack with synchronized clocks the
-  `spans.late` topic stays empty. Under heavy producer load or a
-  deliberately skewed clock on one container, late spans appear, and the
-  Flink `numLateRecordsDropped` counter increments.
+Benchmarks are in [benchmarks/README.md](benchmarks/README.md). The last
+recorded run is in [RESULTS.md](RESULTS.md).
 
 ## Tear down
 
 ```bash
 docker compose down -v
+deactivate 2>/dev/null
+rm -rf .venv
 ```
 
-The `-v` flag drops the named volumes. Drop it to keep ClickHouse, Kafka,
-and Flink state across restarts.
+## Reference
+
+### Ports
+
+| Port | What |
+|---|---|
+| 8080 | `checkout-service` |
+| 4317, 4318 | OTel agent OTLP gRPC and HTTP |
+| 8888 | OTel agent internal telemetry |
+| 4327, 8889 | OTel gateway OTLP gRPC and internal telemetry |
+| 8890 | Query-time consumer internal telemetry |
+| 8891 | Stream-time consumer internal telemetry |
+| 8123, 9000 | ClickHouse HTTP and native |
+| 9363 | ClickHouse Prometheus endpoint |
+| 8081 | Flink UI and REST API |
+| 9249, 9250 | Flink jobmanager and taskmanager metrics |
+| 16686 | Jaeger UI and API |
+| 4319 | Jaeger OTLP gRPC |
+| 9090 | Prometheus |
+
+### Versions
+
+| Component | Image |
+|---|---|
+| OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` |
+| Apache Kafka (KRaft) | `apache/kafka:4.3.0` |
+| ClickHouse | `clickhouse/clickhouse-server:25.8` |
+| Apache Flink | `flink:2.2.1-scala_2.12-java17`, with `apache-flink==2.2.1` |
+| Jaeger | `jaegertracing/jaeger:2.19.0` |
+| Prometheus | `prom/prometheus:v3.12.0` |
+| Python | 3.12 in the app image |

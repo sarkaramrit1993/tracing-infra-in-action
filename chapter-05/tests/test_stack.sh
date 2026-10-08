@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Chapter 5 stack test. Asserts five things against the LIVE stack:
-#   1. the query-time path fills ClickHouse,
-#   2. the stream-time path assembles MORE traces than it had before,
+#   1. the query-time path fills ClickHouse, listing 5.6 run as printed
+#      finds the four service-to-service edges in it, and the RED view holds
+#      exactly the receiving operations, never a caller's client span,
+#   2. the stream-time path assembles MORE traces than it had before, and a
+#      checkout's assembled copy reaches Jaeger whole,
 #   3. the atomicity invariant holds: no checkout trace in the store has
 #      fewer spans than the checkout endpoint emits,
 #   4. nothing consumes the late-span side output, so it cannot feed back,
@@ -16,12 +19,14 @@
 # growth check rather than a total, and an explicit liveness check last.
 #
 # Assertion 3 is the chapter's central claim: whole traces or none, never a
-# partial trace. Live data shows the checkout endpoint emits a seven-span
-# trace per call, not the six the chapter prose describes: Flask's
-# auto-instrumentation adds one root "GET /checkout" server span on top of
-# the six manually created spans (validate_cart, inventory.reserve,
-# payment.charge, fraud.score, order.create, notification.send). The same
-# auto-instrumentation also traces the container healthcheck's GET /health
+# partial trace. The checkout endpoint emits an eleven-span trace per call:
+# Flask's auto-instrumentation opens the root "GET /checkout" server span,
+# checkout-service adds validate_cart, inventory.reserve, payment.charge,
+# order.create and notification.send, and each call lands in the called
+# service as a receiving span of its own (inventory-service, payment-service,
+# fraud-service, notification-service), with payment-service's fraud.score
+# client span between payment and fraud. The same auto-instrumentation also
+# traces the container healthcheck's GET /health
 # calls as their own one-span traces, which are not checkout traces and are
 # excluded below rather than miscounted as partial ones.
 #
@@ -42,6 +47,8 @@
 # Usage: bash tests/test_stack.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+SPANS=11
 
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
@@ -79,6 +86,16 @@ echo "== 1. query-time path filled ClickHouse =="
 ROWS=$(CH --query "SELECT count() FROM tracing.otel_traces")
 [ "${ROWS:-0}" -gt 0 ] || fail "tracing.otel_traces is empty (query-time path did not deliver)"
 pass "ClickHouse tracing.otel_traces holds $ROWS rows"
+EDGES=$(docker compose exec -T clickhouse clickhouse-client --format TSV --multiquery < clickhouse/service_graph.sql | cut -f1,2 | sort | tr '\t\n' '> ')
+WANT_EDGES="checkout-service>inventory-service checkout-service>notification-service checkout-service>payment-service payment-service>fraud-service "
+[ "$EDGES" = "$WANT_EDGES" ] || fail "listing 5.6 found edges [$EDGES], expected [$WANT_EDGES]"
+pass "listing 5.6 finds the four service edges: $EDGES"
+RED_OPS=$(CH --format TSV --query "
+    SELECT DISTINCT concat(service_name, '>', span_name) FROM tracing.red_service_minute
+    ORDER BY 1" | tr '\n' ' ')
+WANT_OPS="checkout-service>GET /checkout checkout-service>GET /health fraud-service>POST /fraud/score inventory-service>POST /inventory/reserve notification-service>process notification payment-service>POST /payments/charge "
+[ "$RED_OPS" = "$WANT_OPS" ] || fail "the RED view holds [$RED_OPS], expected only the receiving spans [$WANT_OPS]"
+pass "the RED view counts receiving spans only: $RED_OPS"
 
 echo "== 2. stream-time path produced assembled traces =="
 KTOPICS --list | grep -q "^traces.assembled$" || fail "topic traces.assembled does not exist"
@@ -90,6 +107,16 @@ ASSEMBLED_GROWTH=$((ASSEMBLED_AFTER - ASSEMBLED_BEFORE))
 MIN_ASSEMBLED_GROWTH=60
 [ "$ASSEMBLED_GROWTH" -ge "$MIN_ASSEMBLED_GROWTH" ] || fail "traces.assembled grew by only $ASSEMBLED_GROWTH (before=$ASSEMBLED_BEFORE, after=$ASSEMBLED_AFTER), expected at least $MIN_ASSEMBLED_GROWTH from the 120 checkouts sent; the Flink assembly job may not be running"
 pass "traces.assembled grew by $ASSEMBLED_GROWTH (before=$ASSEMBLED_BEFORE, after=$ASSEMBLED_AFTER)"
+# Growth on the topic proves Flink wrote something, not that anything can read
+# it. The stream-time collector once rejected every record on this topic as
+# malformed OTLP while the offsets kept climbing, so follow one checkout all the
+# way to Jaeger and count its stream-time spans there.
+NEWEST=$(CH --query "
+    SELECT trace_id FROM tracing.otel_traces WHERE span_name = 'GET /checkout'
+    AND timestamp < now() - INTERVAL 30 SECOND ORDER BY timestamp DESC LIMIT 1")
+STREAM_SPANS=$(python3 scripts/query.py jaeger-sources "$NEWEST" | sed -n 's/^stream-time //p')
+[ "${STREAM_SPANS:-0}" = "$SPANS" ] || fail "checkout trace $NEWEST has ${STREAM_SPANS:-0} stream-time spans in Jaeger, expected $SPANS; the stream-time path does not reach its reader"
+pass "checkout trace $NEWEST reached Jaeger through the stream-time path with all $SPANS spans"
 
 echo "== 3. atomicity: no partial checkout traces in the store =="
 # The grouped query below only examines trace_ids that carry a "GET
@@ -111,7 +138,7 @@ pass "checkout trace_ids grew by $CHECKOUT_TRACES_GROWTH (before=$CHECKOUT_TRACE
 
 # Scope to trace_ids that carry the "GET /checkout" root span so the
 # healthcheck's one-span "GET /health" traces (see header) are not
-# miscounted as partial. A real checkout trace has 7 spans; fewer than that
+# miscounted as partial. A real checkout trace has $SPANS spans; fewer than that
 # is a partial-trace violation.
 #
 # The max(timestamp) guard excludes traces that are still being written. Under
@@ -126,10 +153,10 @@ PARTIAL=$(CH --query "
             SELECT trace_id FROM tracing.otel_traces WHERE span_name = 'GET /checkout'
         )
         GROUP BY trace_id
-        HAVING n < 7 AND last_span < now() - INTERVAL 30 SECOND
+        HAVING n < $SPANS AND last_span < now() - INTERVAL 30 SECOND
     )")
-[ "${PARTIAL:-0}" = "0" ] || fail "$PARTIAL settled checkout trace_ids have fewer than 7 spans (partial traces in store)"
-pass "no partial traces: every settled checkout trace_id in tracing.otel_traces has 7 spans"
+[ "${PARTIAL:-0}" = "0" ] || fail "$PARTIAL settled checkout trace_ids have fewer than $SPANS spans (partial traces in store)"
+pass "no partial traces: every settled checkout trace_id in tracing.otel_traces has $SPANS spans"
 
 echo "== 4. the late-span side output is a dead end, not a feedback loop =="
 KTOPICS --list | grep -q "^spans.late$" || fail "topic spans.late does not exist"
@@ -152,8 +179,8 @@ echo "== 5. the assembly job is still alive at the end of the run =="
 # Check liveness last, or a dead stack looks like a healthy one.
 TM_OOM=$(docker inspect -f '{{.State.OOMKilled}}' \
     "$(docker compose ps -aq flink-taskmanager)" 2>/dev/null || echo unknown)
-[ "$TM_OOM" != "true" ] || fail "the Flink taskmanager was OOM-killed during this run; raise Docker's memory limit (see troubleshooting.md) and re-run, the results above are not trustworthy"
-JOB_STATE=$(curl -s http://localhost:8081/jobs/overview \
+[ "$TM_OOM" != "true" ] || fail "the Flink taskmanager was OOM-killed during this run; raise Docker's memory limit (see ../troubleshooting.md) and re-run, the results above are not trustworthy"
+JOB_STATE=$(curl -s "http://localhost:${FLINK_PORT:-8081}/jobs/overview" \
     | python3 -c "import sys,json;print(next((j['state'] for j in json.load(sys.stdin).get('jobs',[])),'NONE'))" 2>/dev/null || echo UNREACHABLE)
 [ "$JOB_STATE" = "RUNNING" ] || fail "the Flink assembly job is in state $JOB_STATE, expected RUNNING; the stream-time results above are not trustworthy"
 pass "the Flink assembly job is still RUNNING and the taskmanager was not OOM-killed"

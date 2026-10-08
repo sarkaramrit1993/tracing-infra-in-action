@@ -63,6 +63,7 @@ def _load_assembly_module():
         "pyflink.datastream.connectors",
         "pyflink.datastream.connectors.kafka",
         "pyflink.datastream.state",
+        "pyflink.java_gateway",
     ]
     saved = {name: sys.modules.get(name) for name in pyflink_mods}
     try:
@@ -254,6 +255,46 @@ class TraceAssemblerLogicTests(unittest.TestCase):
                     for ss in rs.scope_spans)
         self.assertEqual(total, 3)
 
+
+
+class StartingOffsetsTests(unittest.TestCase):
+    """A restarted job must resume from the group's committed offsets, not
+    replay the topic, and fall back to the start only when none exist."""
+
+    def test_committed_offsets_with_earliest_fallback(self):
+        mod = _load_assembly_module()
+        calls = []
+
+        class _Initializer:
+            @staticmethod
+            def committedOffsets(strategy):
+                calls.append(strategy)
+                return "committed-initializer"
+
+        class _Jvm:
+            pass
+
+        jvm = _Jvm()
+        jvm.org = types.SimpleNamespace(apache=types.SimpleNamespace(
+            kafka=types.SimpleNamespace(clients=types.SimpleNamespace(
+                consumer=types.SimpleNamespace(
+                    OffsetResetStrategy=types.SimpleNamespace(EARLIEST="EARLIEST")))),
+            flink=types.SimpleNamespace(connector=types.SimpleNamespace(
+                kafka=types.SimpleNamespace(source=types.SimpleNamespace(
+                    enumerator=types.SimpleNamespace(initializer=types.SimpleNamespace(
+                        OffsetsInitializer=_Initializer))))))))
+        wrapped = []
+        mod.get_gateway = lambda: types.SimpleNamespace(jvm=jvm)
+        mod.KafkaOffsetsInitializer = lambda j: wrapped.append(j) or "wrapped"
+
+        self.assertEqual(mod._committed_or_earliest(), "wrapped")
+        self.assertEqual(calls, ["EARLIEST"])
+        self.assertEqual(wrapped, ["committed-initializer"])
+
+    def test_source_does_not_start_from_earliest(self):
+        source = (Path(__file__).parent / "assembly_job.py").read_text()
+        self.assertNotIn("KafkaOffsetsInitializer.earliest()", source)
+        self.assertIn('.set_property("commit.offsets.on.checkpoint", "true")', source)
 
 if __name__ == "__main__":
     unittest.main()
