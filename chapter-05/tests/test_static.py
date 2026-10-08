@@ -317,6 +317,27 @@ def test_readers_refuse_to_run_before_their_data_exists():
 
 
 @test
+def test_topic_counts_split_binary_records_on_the_marker():
+    """OTLP records are binary and can hold newlines, so counting lines lies."""
+    import os
+    import subprocess
+    marker = re.search(r'RECORD_END="([^"]+)"', read("scripts/lib.sh")).group(1)
+    records = [b"\n\x0aGET /checkout\n", b"GET /health\x00\n", b"\x12GET /checkout"]
+    stdin = b"".join(r + marker.encode() for r in records)
+    env = dict(os.environ, RECORD_END=marker)
+
+    def count(*text):
+        return subprocess.run(
+            [sys.executable, str(CHAPTER / "scripts/query.py"), "count-records", *text],
+            input=stdin, env=env, capture_output=True, check=True).stdout.decode().strip()
+
+    assert count() == "3", "every record counts once"
+    assert count("GET /checkout") == "2", "only records holding the text count"
+    assert "group.protocol=consumer" in read("scripts/lib.sh"), \
+        "the classic group protocol's rebalance delay stops the read before the topic ends"
+
+
+@test
 def test_no_page_ships_an_uncaptured_output():
     """Every expected-output block is a capture from a real run."""
     for md in sorted(CHAPTER.glob("*.md")) + sorted(CHAPTER.glob("benchmarks/*.md")):

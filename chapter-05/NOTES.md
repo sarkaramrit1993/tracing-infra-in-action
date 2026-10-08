@@ -197,7 +197,11 @@ Every transaction commit writes a control record to each partition it touched,
 and a control record takes an offset like any other record. So the sum of end
 offsets from `kafka-get-offsets.sh` is higher than the number of traces on
 `traces.assembled`. `scripts/lib.sh` reads the topic with
-`--isolation-level read_committed` and counts records instead. `tests/test_stack.sh`
+`--isolation-level read_committed` and counts records instead. It counts
+records by a marker it puts after each one, since a binary OTLP record can hold
+a newline, and it reads with `group.protocol=consumer`: under the classic
+protocol the rebalance delay left gaps of several seconds between records, and
+an idle timeout stopped the read before the end of the topic. `tests/test_stack.sh`
 still uses end offsets, which is fine there: it only checks that the topic grew
 by at least half the checkouts it sent.
 

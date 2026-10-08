@@ -16,6 +16,8 @@ import urllib.request
 FLINK = f"http://localhost:{os.environ.get('FLINK_PORT', '8081')}"
 JAEGER = "http://localhost:16686"
 JOB = "chapter5-trace-assembly"
+# Flink's metrics.fetcher.update-interval, which the stack leaves at its default.
+METRICS_REFRESH_SECONDS = 10
 HINT = "Is the stack up? From chapter-05/ run: docker compose up -d --build"
 
 
@@ -49,25 +51,40 @@ def cmd_flink_state():
     print(job["state"] if job else "NONE")
 
 
+def assembly_vertex(jid):
+    detail = get(f"{FLINK}/jobs/{jid}")
+    vertex = next((v for v in detail["vertices"] if "trace-assembly" in v["name"]), None)
+    if vertex is None:
+        fail(f"job {jid} has no trace-assembly operator")
+    marks = get(f"{FLINK}/jobs/{jid}/vertices/{vertex['id']}/watermarks") or []
+    watermark = max((int(m["value"]) for m in marks if m["value"].lstrip("-").isdigit()), default=0)
+    return vertex, watermark
+
+
 def cmd_flink_summary():
     job = flink_job()
     if not job:
         fail(f"no {JOB} job on {FLINK}. Check docker compose logs flink-job-submit")
     jid = job["jid"]
-    # Flink's REST API serves metrics from a cache it refreshes every few
-    # seconds, so a job that has been working for a minute can still read zero.
-    # Give it one refresh before reporting what it says.
+    # Flink's REST API serves metrics from a cache it refreshes every 10
+    # seconds, so one read can be up to 10 seconds old, and a job that has been
+    # working for a minute can still read zero. Wait for a first count, then
+    # keep reading until it moves or a full refresh has passed: either way the
+    # number printed is no older than the last refresh.
+    vertex, watermark = assembly_vertex(jid)
     deadline = time.time() + 30
-    while True:
-        detail = get(f"{FLINK}/jobs/{jid}")
-        vertex = next((v for v in detail["vertices"] if "trace-assembly" in v["name"]), None)
-        if vertex is None:
-            fail(f"job {jid} has no trace-assembly operator")
-        marks = get(f"{FLINK}/jobs/{jid}/vertices/{vertex['id']}/watermarks") or []
-        watermark = max((int(m["value"]) for m in marks if m["value"].lstrip("-").isdigit()), default=0)
-        if (vertex["metrics"]["read-records"] > 0 and watermark > 0) or time.time() > deadline:
-            break
+    while vertex["metrics"]["read-records"] == 0 or watermark == 0:
+        if time.time() > deadline:
+            fail("Flink has reported no spans read yet. It publishes metrics every 10 seconds: run this again.")
         time.sleep(2)
+        vertex, watermark = assembly_vertex(jid)
+    seen = vertex["metrics"]["read-records"]
+    settled = time.time() + METRICS_REFRESH_SECONDS + 2
+    while time.time() < settled:
+        time.sleep(1)
+        vertex, watermark = assembly_vertex(jid)
+        if vertex["metrics"]["read-records"] != seen:
+            break
     checkpoints = get(f"{FLINK}/jobs/{jid}/checkpoints")
     latest = (checkpoints.get("latest") or {}).get("completed") or {}
     print(f"job state                      {job['state']}")
@@ -99,6 +116,12 @@ def cmd_jaeger_sources(trace_id):
         print(source, n)
 
 
+def cmd_count_records(text=""):
+    """Count the records topic_records pipes in, or those containing TEXT."""
+    records = sys.stdin.buffer.read().split(os.environ["RECORD_END"].encode())[:-1]
+    print(sum(text.encode() in r for r in records))
+
+
 def cmd_table():
     """Align tab-separated rows read from stdin into columns."""
     rows = [line.split("\t") for line in sys.stdin.read().splitlines() if line]
@@ -111,7 +134,7 @@ def cmd_table():
 
 COMMANDS = {
     "flink-state": cmd_flink_state, "flink-summary": cmd_flink_summary,
-    "jaeger-sources": cmd_jaeger_sources,
+    "jaeger-sources": cmd_jaeger_sources, "count-records": cmd_count_records,
     "table": cmd_table,
 }
 

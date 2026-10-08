@@ -313,18 +313,20 @@ What it runs: `clickhouse/service_graph.sql`, which is listing 5.6 as printed.
 
 ```
 job state                      RUNNING
-spans into trace-assembly      1327
-watermark behind wall clock    19.5s
-checkpoints completed          1
-last checkpoint size           389.6 KiB
-traces in traces.assembled     126
+spans into trace-assembly      1328
+watermark behind wall clock    11.6s
+checkpoints completed          2
+last checkpoint size           16.9 KiB
+checkouts in traces.assembled  120
 spans in spans.late            0
 ```
 
-Your numbers will differ, apart from the job state and an empty `spans.late`.
-The span and trace counts include the healthcheck's one-span traces, which keep
-arriving every 10 seconds, and the watermark lag and checkpoint size depend on
-when you run the script.
+`checkouts in traces.assembled` is the number of checkouts you have sent, 120
+after step 2, and `spans.late` stays at 0. Those two print the same every time
+you run the script. The topic also holds one trace per healthcheck, which the
+count leaves out. `spans into trace-assembly` is the 1,320 checkout spans plus
+one healthcheck span every 10 seconds, so it creeps up from run to run. The
+watermark lag and checkpoint size depend on when you run the script.
 
 The `trace-assembly` operator (listing 5.3) reads every span. Its watermark
 (listing 5.5) trails the clock by the 5-second out-of-order bound, plus the
@@ -335,7 +337,7 @@ trace has shipped go. On a clean local run it stays empty.
 
 What it reads: `http://localhost:8081/jobs/<job_id>` and its `watermarks` and
 `checkpoints` endpoints, then counts the committed records on the two output
-topics. Open `http://localhost:8081` for the Flink UI.
+topics, reading each to its end. Open `http://localhost:8081` for the Flink UI.
 
 ## 9. Stop a broker
 

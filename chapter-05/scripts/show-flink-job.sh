@@ -10,5 +10,5 @@ require clickhouse flink
 require_ready
 
 q flink-summary
-printf '%-30s %s\n' "traces in traces.assembled" "$(topic_records traces.assembled)"
+printf '%-30s %s\n' "checkouts in traces.assembled" "$(topic_records traces.assembled 'GET /checkout')"
 printf '%-30s %s\n' "spans in spans.late" "$(topic_records spans.late)"

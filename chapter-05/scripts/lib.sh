@@ -13,6 +13,8 @@ ARRIVING="still arriving: run ./scripts/wait-until-ready.sh first"
 # GET /checkout plus ten spans under it: five in checkout-service, and five in
 # the four services it calls. app/checkout.py has the shape.
 SPANS_PER_CHECKOUT=11
+# Records are binary OTLP, so topic_records ends each one with this, not a newline.
+export RECORD_END="@@ch5-record-end@@"
 
 die() { echo "$*" >&2; exit 1; }
 
@@ -29,16 +31,19 @@ ch_file() {
   docker compose exec -T clickhouse clickhouse-client "$@" --multiquery < "$file"
 }
 
-# Committed records on a topic. The Flink sinks write inside Kafka
-# transactions, and every commit marker takes an offset of its own, so summing
-# end offsets overcounts. Reading with read_committed and counting one line per
-# record does not.
+# topic_records TOPIC [TEXT]: committed records on a topic, or only those that
+# contain TEXT. The Flink sinks write inside Kafka transactions, and every
+# commit marker takes an offset of its own, so summing end offsets overcounts.
+# The consumer reads with read_committed and stops once no record has come for
+# 8 seconds. group.protocol=consumer gets it its partitions in about a second;
+# the classic protocol's rebalance delay left gaps long enough to stop it early.
 topic_records() {
   docker compose exec -T kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
     --bootstrap-server kafka-1:9093 --topic "$1" --from-beginning \
-    --isolation-level read_committed --timeout-ms 5000 \
-    --property print.value=false --property print.offset=true \
-    < /dev/null 2>/dev/null | grep -c '^Offset:' || true
+    --isolation-level read_committed --timeout-ms 8000 \
+    --consumer-property group.protocol=consumer \
+    --property line.separator="$RECORD_END" \
+    < /dev/null 2>/dev/null | q count-records "${2:-}"
 }
 
 answers() {
