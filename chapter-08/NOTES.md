@@ -32,15 +32,26 @@ which is exactly the situation the chapter is about, and it is also the situatio
 in which no claim about correctness can be tested. The generator gets to write
 down what it produced, because it produced it.
 
-## Why there are two helpers, `ch` and `ch_file`
+## Why there are two helpers, `ch` and `ch_file`, and why every step is a script
 
 <!-- Load-bearing. This is the only full statement of the stdin trap left in the
-     directory: README, both exercises, tests/test_stack.sh and
-     generate/generate.py were each cut back to one clause and a pointer here.
-     Shorten this section and five files lose their explanation. -->
+     directory: scripts/lib.sh, tests/test_stack.sh and generate/generate.py
+     each carry one clause and a pointer here. Shorten this section and three
+     files lose their explanation. -->
 
-Both are defined at the top of README's "Look at your trace data", and again at
-the top of each exercise, so each one stands alone.
+Every command in the README and the exercises is either `docker compose`,
+`python3 generate/generate.py`, or a script in `scripts/`. A reader pastes a
+block and sees the result, without defining a shell function or setting a
+variable first. That matters more than it sounds: a helper defined in one block
+and used in the next breaks for anyone who opens a new terminal, or starts an
+exercise in the middle. Each script prints labelled columns, says in one line
+what to run when the stack is down or the data is missing or too old, and the
+query it runs is printed under the step. `tests/test_static.py` checks that no
+bash block on any page defines a function or reads a shell variable, and that
+every script a page runs exists and is executable.
+
+The scripts share `scripts/lib.sh`, which runs ClickHouse through two helpers,
+`ch` and `ch_file`.
 
 `clickhouse-client` reads stdin for INSERT data even when the rows are already
 inline in `VALUES` or come from a `SELECT`, and `docker compose exec -T` hands it
@@ -49,11 +60,11 @@ the statement sits there forever with nothing printed. A terminal never sends
 EOF. That is why `ch` always redirects `/dev/null`: a query it runs can never end
 up waiting on your keyboard.
 
-Applying `skipindex.sql` and `rollup.sql` needs the opposite. They feed a whole
-`.sql` file to `--multiquery`, which means stdin has to carry the file. One
-helper cannot do both, and guessing from the shape of stdin gets it wrong
-somewhere. Guessing with `[ -t 0 ]` works at a terminal and hangs anywhere stdin
-is an open pipe, which includes CI. So the file case gets its own name,
+Applying `unbiased.sql`, `skipindex.sql` and `rollup.sql` needs the opposite.
+They feed a whole `.sql` file to `--multiquery`, which means stdin has to carry
+the file. One helper cannot do both, and guessing from the shape of stdin gets it
+wrong somewhere. Guessing with `[ -t 0 ]` works at a terminal and hangs anywhere
+stdin is an open pipe, which includes CI. So the file case gets its own name,
 `ch_file`, and it is the only thing here that puts anything on stdin.
 
 `tests/test_stack.sh` carries the same split as `CH` and `CH_FILE`, and
@@ -320,6 +331,25 @@ contain this" outright and the query reads nothing at all. Substitute an ID that
 is in your data and the bloom cannot prune the granule that really holds it,
 which is a correct reading rather than a failure, just a less dramatic one.
 
+## The hour-bounded lookup: listing 8.2's third `EXPLAIN`
+
+The third `EXPLAIN` bounds the same lookup with
+`AND timestamp >= now() - INTERVAL 1 HOUR`, so the primary key gets a time
+predicate to work with as well as the trace ID.
+
+On this data that reading matches the second one, and the reason is the
+generator rather than the index. Every row it writes falls in the twenty minutes
+before it ran, so a one-hour window already covers all of them and there is
+nothing outside it to prune. Narrowing the window does not reliably help
+either, and the `Condition` line says why: the primary key holds time as
+`toStartOfHour(timestamp)`, so a predicate prunes whole hour buckets and nothing
+finer. Those twenty minutes sit inside one bucket, or straddle two, depending on
+the minute you run at. Inside one bucket no window of any width cuts a single
+granule. Straddling, a window whose lower bound lands in the later bucket cuts to
+13 of 132, and that is where both the 27 and the 13 readings come from. On a
+real store, where the data is older than the window, the hour predicate is what
+keeps a trace-ID lookup from touching every bucket in retention.
+
 ## Running the book's listings verbatim
 
 The book's listings are kept terse. A few need a column, an index state or a run
@@ -356,6 +386,47 @@ unexpectedly, these are why:
    bucketed by minute, so a bare `now() - INTERVAL 1 HOUR` boundary would cut a
    bucket in half and the two queries would count that minute differently. Snap
    both sides or they disagree about traffic that never moved.
+
+## Why this directory runs ClickHouse 26.1 and chapter 7 runs 25.8
+
+Listing 8.2 is the reason. `use_skip_indexes_on_data_read` does not exist before
+25.9, so the listing's `SETTINGS` clause fails there with `UNKNOWN_SETTING`. The
+setting arrives off by default in 25.9 and on from 26.1, and the listing turns it
+off because 26.1 is the state worth turning off. Everything else in this
+directory runs on either tag, and the differences between the two chapters are
+still in the schema rather than in the server.
+
+## What the tests check
+
+`python3 tests/test_static.py` runs offline. It checks that the schema carries
+`parent_span_id` and ships without the trace-ID bloom, that the generator's
+arithmetic closes on ten million, and that the `.sql` files and the exercises
+still carry the shapes the chapter argues for: listing 8.2's three `EXPLAIN`s
+with both caches off on every one of them, and listing 8.3's minute-leading sort
+key. It also checks the pages a reader pastes from: no shell functions or shell
+variables in a bash block, every script a page runs exists and is executable,
+every SQL block shown under a step is the SQL a script or `.sql` file really
+runs, and every page generates its data before it reads any. It reads YAML, so
+it needs PyYAML.
+
+Given the book, the same run makes the stronger claim: it reads listings 8.1,
+8.2 and 8.3 out of the chapter's own source and compares them to the three
+`.sql` files line for line. The manuscript lives in its own repository rather
+than this one, so for anyone who cloned the code and not the book those three
+checks skip and everything else still runs. To run them, name a manuscript
+checkout, or the chapter file itself, in `TRACING_MANUSCRIPT`, or write the path
+into `tests/manuscript.path`, which is untracked and read when the variable is
+unset. A machine holding several checkouts of the book is asked which one counts
+rather than being picked for: they do not have to agree, and a comparison
+against a copy nobody is editing proves nothing.
+
+`bash tests/test_stack.sh` runs against the live stack, after
+`generate/generate.py`. It does not check that the biased and unbiased answers
+merely differ, which would pass on any pair of wrong numbers. It checks each
+against the recorded truth: `sum(adjusted_count)` against the population, the
+weighted p99 against the true p99, the distinct-user floor against the true user
+count, the rollup against the raw scan and against the errors the generator
+produced. It cleans up the index and view it creates, so run it whenever.
 
 ## Where section 8.4.1's benchmark numbers come from
 

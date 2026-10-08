@@ -20,6 +20,9 @@ CH_FILE() { docker compose exec -T clickhouse clickhouse-client --multiquery < "
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
+CH --query "SELECT 1" > /dev/null 2>&1 \
+  || fail "ClickHouse is not answering. Is the stack up? From chapter-08/ run: docker compose up -d --wait"
+
 WINDOW="timestamp >= toStartOfMinute(now() - INTERVAL 1 HOUR) AND parent_span_id = ''"
 
 echo "== 1. the table exists and carries chapter 8's two additions =="
@@ -104,7 +107,7 @@ awk -v s="$SEEN_USERS" -v t="$TRUE_USERS" 'BEGIN { exit !(s * 2 < t) }' \
 pass "distinct users reads $SEEN_USERS against a true $TRUE_USERS, a floor and not an estimate"
 SCALED=$(awk -v s="$SEEN_USERS" -v p="$POP" -v k="$BIASED" 'BEGIN { printf "%.0f", s * p / k }')
 awk -v c="$SCALED" -v t="$TRUE_USERS" 'BEGIN { exit !(c > t) }' \
-  || fail "scaling the distinct count by the count rule gave $c against a true $TRUE_USERS;
+  || fail "scaling the distinct count by the count rule gave $SCALED against a true $TRUE_USERS;
       it is supposed to overshoot, and section 8.2.3 has no example if it does not"
 pass "the count rule's own multiplier turns it into $SCALED, past the truth in the other direction"
 

@@ -1,27 +1,24 @@
 # Chapter 8: Query Patterns and Performance
 
-Runnable companion to chapter 8 of *Tracing Infrastructure in Action*. Chapter 7
-built the store. This makes it answerable, and it makes the chapter's claim
-checkable: the same bytes return a precise lie or a correct estimate depending on
-how the query weights what it reads.
+Runnable companion to chapter 8 of *Tracing Infrastructure in Action*.
 
-One service, ClickHouse, and no ingest path. Chapter 8 asks whether the answer is
-true, which is a question for the store rather than the path into it.
-`generate/generate.py` builds a ten-million-request population server-side, keeps
-it at a rate that differs by class the way a tail sampler does, and records what
-it produced before it sampled anything.
+Chapter 7 built the store. This one asks whether its answers are true. You will
+see the chapter's main claim with your own eyes: the same bytes on disk give a
+precise lie or a correct estimate, depending on whether the query weights what
+it reads by the sampling rate.
 
-That last part is the point of the whole directory. In production the population
-is gone, thrown away at the sampler, so an unbiased estimate can be compared with
-other estimates but never graded. Here it sits in `tracing.ground_truth`, one
-row, so you can put a biased `count()`, an unbiased `sum(adjusted_count)` and the
+There is one service, ClickHouse, and no ingest path. `generate/generate.py`
+builds a population of ten million requests inside ClickHouse, keeps them at a
+rate that differs by class the way a tail sampler does, and records what it
+produced before it sampled anything. In production that population is gone,
+thrown away by the sampler. Here it sits in `tracing.ground_truth`, one row, so
+you can put the biased `count()`, the unbiased `sum(adjusted_count)` and the
 number of requests that actually happened side by side and see which one is
 telling the truth.
 
-Three commands get you to that comparison: `docker compose up -d`, then
-`generate/generate.py`, then listing 8.1. Everything after that is optional.
-[NOTES.md](NOTES.md) holds the why behind the design and is worth opening when
-something surprises you.
+Steps 1 to 3 get you to that comparison. Everything after them is optional. The
+why behind each design choice is in [NOTES.md](NOTES.md). You don't need it to
+follow along, but it's worth opening when something surprises you.
 
 ## Listings
 
@@ -31,46 +28,42 @@ something surprises you.
 | 8.2 | `clickhouse/skipindex.sql` | A bloom-filter skip index, and the `EXPLAIN` that proves it prunes |
 | 8.3 | `clickhouse/rollup.sql` | A materialized view that pre-aggregates request and error rates |
 
-The table those three run against is `clickhouse/init.sql`, applied on first
+All three run against `clickhouse/init.sql`, which ClickHouse applies on first
 boot. It is chapter 7's listing 7.1 schema with two deliberate changes: it adds
-`parent_span_id`, and it leaves off listing 7.1's trace-ID bloom index. Both
-are explained in NOTES.
+`parent_span_id`, and it leaves off 7.1's trace-ID bloom filter. NOTES says why.
 
-## Prerequisites
+## Before you start
 
-- Docker and Docker Compose v2
-- About 2 GB of memory given to Docker. On macOS and Windows that is Docker
-  Desktop's own setting under Settings, Resources, not free host RAM. The single
-  container settles under 1 GB once the data is loaded
-- About 1 GB of free disk for the ClickHouse image, plus 38 MB for the data the
-  generator writes
-- Python 3 on the host, for `generate/generate.py`. Nothing to install: it shells
-  out to `clickhouse-client` inside the container
-- A POSIX shell. On Windows, run this inside WSL2
+- Docker with Docker Compose v2, with **about 2 GB of memory** for Docker
+  (Docker Desktop: Settings, Resources). The container settles under 1 GB once
+  the data is loaded.
+- **About 1 GB of free disk** for the ClickHouse image and the 38 MB of data the
+  generator writes.
+- Python 3 on your machine. Nothing to install: the generator runs
+  `clickhouse-client` inside the container. On Windows, use WSL2.
+- Stop any other chapter's stack first (`docker compose ls`). This one uses
+  ports 8123 and 9000, and chapter 7 uses both.
 
-Tear down any other chapter's stack first. This one binds host ports 8123 and
-9000, and chapter 7 binds both of those.
+Run every command from this `chapter-08/` directory. Each step runs a small
+script from `scripts/` that prints what it found, and the query inside it is
+shown under the step, so you can run it yourself.
 
-## Bring it up
+## 1. Start the stack
 
 ```bash
-docker compose up -d
-docker compose ps
+docker compose up -d --wait
 ```
 
-About 20 seconds to healthy, plus whatever the first image pull costs. ClickHouse
-applies `init.sql` on the way up, which creates three tables: `tracing.otel_traces`
-for the spans, `tracing.ground_truth` for what the generator produced before it
+It returns once ClickHouse is healthy, about 20 seconds after the first image
+pull. On the way up ClickHouse creates three tables: `tracing.otel_traces` for
+the spans, `tracing.ground_truth` for what the generator produced before it
 sampled, and `tracing.sampling_policy` for the keep rate per class.
 
-## Generate the data
+## 2. Generate the data
 
 ```bash
 python3 generate/generate.py
 ```
-
-A few seconds. It builds the rows server-side with `INSERT ... SELECT FROM
-numbers()`, so nothing large crosses the wire:
 
 ```
 [generate] population 10,000,000 requests, keeping 154,200 (1.54%)
@@ -80,67 +73,154 @@ numbers()`, so nothing large crosses the wire:
 [generate] done. The weighted total reproduces the population exactly.
 ```
 
-Those numbers reproduce exactly on your machine. The sampling is deterministic,
-every hundredth and every second rather than a coin flip per trace, which is what
-lets this file print a number you can check yours against.
+A few seconds. Those numbers come out the same on your machine, because the
+sampling is deterministic: every hundredth normal request, every second slow
+one, every error.
 
-The data ages out of the query window. NOTES explains the slack you have and
-when to rerun `generate/generate.py`.
+The data covers the twenty minutes before you ran the generator, and every
+query here reads the last hour. So you have about forty minutes. After that the
+scripts stop and tell you to run `python3 generate/generate.py` again.
 
-## The third command
+## 3. Ask listing 8.1's questions
 
-Listing 8.1 asks the same two questions twice, once ignoring the sampling weight
-and once respecting it:
-
-```bash
-docker compose exec -T clickhouse clickhouse-client \
-  --multiquery < clickhouse/unbiased.sql
-```
-
-```
-checkout-service   154200
-checkout-service   10000000
-checkout-service   1445
-checkout-service   180
-10000000   180
-```
-
-154,200 requests at a p99 of about 1445 ms is what the survivors say. 10,000,000
-at 180 ms is what happened. Both pairs came from the same rows and the same
-store, and the only thing separating a precise lie from a correct estimate is
-whether the query weighted what it read.
-
-The third line is the one number here that is not fixed. NOTES has the why. The
-weighted 180, the two totals and the ground-truth row are exact every time.
-
-The last line is the generator's own record, written before it sampled anything.
-It is the only reason you can tell which pair is which, and it is the one line
-production does not get to have. `exercises/unbiased.md` takes it apart.
-
----
-
-## Look at your trace data
-
-Two helpers for everything below. `ch` runs a query, `ch_file` applies a `.sql`
-file:
+This is the main result of the chapter. Listing 8.1 asks how many requests there
+were and what the p99 latency was, twice: once ignoring the sampling weight and
+once using it. The script lines the answers up against the truth:
 
 ```bash
-ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
+./scripts/compare-to-the-truth.sh
 ```
 
-NOTES says why `ch` closes stdin, and why merging the two helpers breaks both.
+```
+                       requests   p99_ms
+ignoring the weight      154200     1445
+using the weight       10000000      180
+what really happened   10000000      180
+```
 
-Start with the shape of one trace, because a wide table of spans does not look
-much like a trace until you group it. This pulls one trace from each sampling
-class, root first, and marks each root with a `>`:
+Ignoring the weight, the survivors say 154,200 requests and a p99 of about
+1445 ms. Using it, they say 10,000,000 and 180 ms, which is what happened. Same
+rows, same store. The only thing separating the precise lie from the correct
+estimate is whether the query weighted what it read.
+
+The unweighted p99 is the one number here that is not fixed: yours may read a
+little lower, down to about 1442. The weighted 180 and both request counts are exact every time. The
+last row is the generator's own record, written before it sampled anything. It
+is the only way to tell which answer is right, and it is the one row production
+does not get to have. `exercises/unbiased.md` takes it apart.
+
+What it runs: listing 8.1, `clickhouse/unbiased.sql`, plus one query for the
+truth. You can run the file directly with
+`docker compose exec -T clickhouse clickhouse-client --multiquery < clickhouse/unbiased.sql`.
+
+```sql
+SELECT service_name, count() AS requests
+FROM tracing.otel_traces
+WHERE timestamp >= toStartOfMinute(
+        now() - INTERVAL 1 HOUR)
+  AND parent_span_id = ''
+GROUP BY service_name;
+
+SELECT service_name,
+       sum(adjusted_count) AS requests
+FROM tracing.otel_traces
+WHERE timestamp >= toStartOfMinute(
+        now() - INTERVAL 1 HOUR)
+  AND parent_span_id = ''
+GROUP BY service_name;
+
+SELECT service_name,
+       round(quantile(0.99)(duration_ns)
+             / 1e6, 1) AS p99_ms
+FROM tracing.otel_traces
+WHERE timestamp >= toStartOfMinute(
+        now() - INTERVAL 1 HOUR)
+  AND parent_span_id = ''
+GROUP BY service_name;
+
+SELECT service_name,
+       round(quantileExactWeighted(0.99)(
+             duration_ns,
+             toUInt64(round(adjusted_count)))
+             / 1e6, 1) AS p99_ms
+FROM tracing.otel_traces
+WHERE timestamp >= toStartOfMinute(
+        now() - INTERVAL 1 HOUR)
+  AND parent_span_id = ''
+GROUP BY service_name;
+```
+
+```sql
+SELECT requests AS true_requests, p99_ms AS true_p99_ms
+FROM tracing.ground_truth;
+```
+
+## 4. Look at one trace from each class
+
+The span table doesn't look much like traces until you group it. This pulls one
+whole trace from each sampling class, root span first, marked `>`:
 
 ```bash
-ch --query "
+./scripts/show-one-trace-per-class.sh
+```
+
+```
+root   trace      span                took      weight   status_code
+>      00003e3b   GET /checkout       101ms        100   STATUS_CODE_UNSET
+       00003e3b   validate_cart       12.6ms       100   STATUS_CODE_UNSET
+       00003e3b   inventory.reserve   12.6ms       100   STATUS_CODE_UNSET
+       00003e3b   payment.charge      12.6ms       100   STATUS_CODE_UNSET
+       00003e3b   fraud.score         12.6ms       100   STATUS_CODE_UNSET
+       00003e3b   order.create        12.6ms       100   STATUS_CODE_UNSET
+       00003e3b   notification.send   12.6ms       100   STATUS_CODE_UNSET
+>      0001261e   GET /checkout       796ms          2   STATUS_CODE_UNSET
+       0001261e   validate_cart       99.5ms         2   STATUS_CODE_UNSET
+       0001261e   inventory.reserve   99.5ms         2   STATUS_CODE_UNSET
+       0001261e   payment.charge      99.5ms         2   STATUS_CODE_UNSET
+       0001261e   fraud.score         99.5ms         2   STATUS_CODE_UNSET
+       0001261e   order.create        99.5ms         2   STATUS_CODE_UNSET
+       0001261e   notification.send   99.5ms         2   STATUS_CODE_UNSET
+>      00031f14   GET /checkout       1444ms         1   STATUS_CODE_ERROR
+       00031f14   validate_cart       180.5ms        1   STATUS_CODE_OK
+       00031f14   inventory.reserve   180.5ms        1   STATUS_CODE_OK
+       00031f14   payment.charge      180.5ms        1   STATUS_CODE_OK
+       00031f14   fraud.score         180.5ms        1   STATUS_CODE_ERROR
+       00031f14   order.create        180.5ms        1   STATUS_CODE_OK
+       00031f14   notification.send   180.5ms        1   STATUS_CODE_OK
+```
+
+These come out the same on every run. Seven rows per `>`. The root's duration
+covers the six children under it, and the root is the only row with an empty
+`parent_span_id`, which is what makes it countable as one request. Every count
+and rate query in this chapter filters on that, because the table holds seven
+rows per request and a bare `count()` here answers a question nobody asked.
+
+The `weight` column is why these three traces are not interchangeable. The first
+is ordinary traffic kept at one in a hundred, so it stands for 100 requests. The
+second is slow, kept at one in two, standing for 2. The third failed and was kept
+whole, standing for 1. The store gives all three one row each. Only the weight
+remembers that the first one had 99 peers thrown away and the third had none.
+
+The third trace also shows where a failure sits. `fraud.score` returned
+`STATUS_CODE_ERROR` and the root carries the error too, the way an HTTP server
+records a response status. That is what lets a rollup count errors by reading
+root spans alone. A producer that marks only the failing child leaves the root
+looking healthy, and the error half of a RED dashboard then reads near zero.
+
+The weights are not invented per row. They are the reciprocal of the keep rate,
+and `tracing.sampling_policy` holds that rate per class so you can read the
+policy rather than trust it. It works out as 99,200 normal traces at weight 100,
+25,000 slow at 2 and 30,000 errors at 1: 9,920,000 + 50,000 + 30,000 =
+10,000,000, from 1,079,400 spans on disk. `exercises/unbiased.md` does that
+arithmetic against the table.
+
+What it runs:
+
+```sql
 SELECT
-  if(parent_span_id = '', '>', ' ') AS root,
+  if(parent_span_id = '', '>', '') AS root,
   substring(trace_id, 1, 8) AS trace,
-  rpad(span_name, 18) AS span,
+  span_name AS span,
   concat(toString(round(duration_ns / 1e6, 1)), 'ms') AS took,
   adjusted_count AS weight,
   status_code
@@ -153,191 +233,164 @@ ORDER BY
   trace_id,
   indexOf(['GET /checkout', 'validate_cart', 'inventory.reserve',
            'payment.charge', 'fraud.score', 'order.create',
-           'notification.send'], span_name)"
+           'notification.send'], span_name)
 ```
 
-```
->   00003e3b   GET /checkout       101ms     100   STATUS_CODE_UNSET
-    00003e3b   validate_cart       12.6ms    100   STATUS_CODE_UNSET
-    00003e3b   inventory.reserve   12.6ms    100   STATUS_CODE_UNSET
-    00003e3b   payment.charge      12.6ms    100   STATUS_CODE_UNSET
-    00003e3b   fraud.score         12.6ms    100   STATUS_CODE_UNSET
-    00003e3b   order.create        12.6ms    100   STATUS_CODE_UNSET
-    00003e3b   notification.send   12.6ms    100   STATUS_CODE_UNSET
->   0001261e   GET /checkout       796ms       2   STATUS_CODE_UNSET
-    0001261e   validate_cart       99.5ms      2   STATUS_CODE_UNSET
-    0001261e   inventory.reserve   99.5ms      2   STATUS_CODE_UNSET
-    0001261e   payment.charge      99.5ms      2   STATUS_CODE_UNSET
-    0001261e   fraud.score         99.5ms      2   STATUS_CODE_UNSET
-    0001261e   order.create        99.5ms      2   STATUS_CODE_UNSET
-    0001261e   notification.send   99.5ms      2   STATUS_CODE_UNSET
->   00031f14   GET /checkout       1444ms      1   STATUS_CODE_ERROR
-    00031f14   validate_cart       180.5ms     1   STATUS_CODE_OK
-    00031f14   inventory.reserve   180.5ms     1   STATUS_CODE_OK
-    00031f14   payment.charge      180.5ms     1   STATUS_CODE_OK
-    00031f14   fraud.score         180.5ms     1   STATUS_CODE_ERROR
-    00031f14   order.create        180.5ms     1   STATUS_CODE_OK
-    00031f14   notification.send   180.5ms     1   STATUS_CODE_OK
-```
+## 5. Read the answer sheet
 
-Seven rows per `>`. The root's duration covers the six children under it, and the
-root is the only row with an empty `parent_span_id`, which is what makes it
-countable as one request. Every count and rate query in this chapter filters on
-that, because the table holds seven rows per request and a bare `count()` here
-answers a question nobody asked.
-
-The `weight` column is the interesting one, and it is why these three traces are
-not interchangeable. The first is ordinary traffic kept at one in a hundred, so
-it stands for 100 requests. The second is slow, kept at one in two, standing for
-2. The third failed and was kept whole, standing for 1. The store gives all three
-one row each. Only the weight remembers that the first one had 99 peers thrown
-away and the third had none.
-
-The third trace also shows where the failure sits. `fraud.score` returned
-`STATUS_CODE_ERROR` and the root carries the error too, the way an HTTP server
-records a response status. That is what lets a rollup count errors by reading
-roots alone. A producer that marks only the failing child leaves the root looking
-healthy, and the error half of a RED dashboard then reads near zero.
-
-The weights are not invented per row. They are the reciprocal of the keep rate,
-and `tracing.sampling_policy` holds that rate per class so you can read the
-policy rather than trust it. It shakes out as 99,200 normal traces at weight 100,
-25,000 slow at 2 and 30,000 errors at 1: 9,920,000 + 50,000 + 30,000 =
-10,000,000, from 1,079,400 spans on disk. `exercises/unbiased.md` does that
-arithmetic against the table.
-
-And this is the answer sheet, written by the generator before it sampled a thing:
+The generator wrote this before it sampled a single trace:
 
 ```bash
-ch --query "
-SELECT requests AS true_requests, p99_ms AS true_p99_ms, errors AS true_errors
-FROM tracing.ground_truth FORMAT PrettyCompactMonoBlock"
+./scripts/show-ground-truth.sh
 ```
 
 ```
-   ┌─true_requests─┬─true_p99_ms─┬─true_errors─┐
-1. │      10000000 │         180 │       30000 │
-   └───────────────┴─────────────┴─────────────┘
+true_requests   true_p99_ms   true_errors
+     10000000           180         30000
 ```
 
 154,200 traces on disk. Ten million requests behind them. A true p99 of 180 ms
-that no unweighted query over those 154,200 rows will ever find, because the rows
-that survived are packed with the slow and failing traffic the sampler kept on
-purpose. That gap is the rest of this directory.
+that no unweighted query over those 154,200 rows will ever find, because the
+rows that survived are packed with the slow and failing traffic the sampler kept
+on purpose. That gap is what the rest of this directory is about.
 
----
+What it runs:
 
-## The two exercises
+```sql
+SELECT requests AS true_requests, p99_ms AS true_p99_ms, errors AS true_errors
+FROM tracing.ground_truth
+```
 
-Two separate things live in this chapter and neither needs the other. So they are
-two separate files. Open either one in any order. Each puts the table into the
-state it needs and clears up after itself, so neither assumes you ran the other
-and neither leaves a mess behind.
+## 6. Add a skip index (listing 8.2)
 
-| Exercise | Listing | The question |
-|---|---|---|
-| [exercises/unbiased.md](exercises/unbiased.md) | 8.1 | Four queries over one table, two of them wrong. The population is on disk, so which two is not a matter of opinion. |
-| [exercises/rollup.md](exercises/rollup.md) | 8.3 | A materialized view turns the RED dashboard into a lookup. Three ways to build it wrong, all three silent. |
-
-Both are optional and independent, so pick either. If you only do one, do
-unbiased: it is the chapter's thesis, and the only place in the book where you
-grade an estimate against the population it estimates. Each ends with a **Try
-this** section of one-line edits with visible consequences.
-
-## The skip index (listing 8.2)
-
-Short enough to run here. The table ships with no index on `trace_id`, so the
-first reading is a real before and not a formality:
+The table ships with no index on `trace_id`, so the first reading is a real
+"before". Listing 8.2 looks up one trace ID, adds a bloom filter index, and
+looks it up again:
 
 ```bash
-ch_file clickhouse/skipindex.sql
+./scripts/add-trace-id-index.sh
 ```
 
-Three `EXPLAIN` blocks come back around the `ALTER`. The first, from one real run:
-
 ```
-      PrimaryKey
-        Keys:
-          trace_id
-        Condition: (trace_id in [\'4bf92f3577b34da6a3ce929d0e0e4736\', \'4bf92f3577b34da6a3ce929d0e0e4736\'])
-        Parts: 1/1
-        Granules: 27/132
-        Search Algorithm: generic exclusion search
-        Ranges: 25
-```
+1. before the index
+  MinMax
+    Condition: true
+    Parts: 1/1
+    Granules: 132/132
+  Partition
+    Condition: true
+    Parts: 1/1
+    Granules: 132/132
+  PrimaryKey
+    Keys:
+      trace_id
+    Condition: (trace_id in [\'4bf92f3577b34da6a3ce929d0e0e4736\', \'4bf92f3577b34da6a3ce929d0e0e4736\'])
+    Parts: 1/1
+    Granules: 27/132
+    Search Algorithm: generic exclusion search
+  Ranges: 25
 
-The second, after `ADD INDEX` and `MATERIALIZE INDEX`:
+2. after ADD INDEX and MATERIALIZE INDEX
+  ...
+  PrimaryKey
+    ...
+    Granules: 27/132
+    Search Algorithm: generic exclusion search
+  Skip
+    Name: idx_trace_id
+    Description: bloom_filter GRANULARITY 1
+    Parts: 0/1
+    Granules: 0/27
+  Ranges: 0
 
-```
-      PrimaryKey
-        ...
-        Granules: 27/132
-        Search Algorithm: generic exclusion search
-      Skip
-        Name: idx_trace_id
-        Description: bloom_filter GRANULARITY 1
-        Parts: 0/1
-        Granules: 0/27
-        Ranges: 0
-```
+3. the same lookup, bounded to the last hour
+  ...
+  PrimaryKey
+    Keys:
+      toStartOfHour(timestamp)
+      trace_id
+    Condition: and((toStartOfHour(timestamp) in [1788321600, +Inf)), (trace_id in [...]))
+    Parts: 1/1
+    Granules: 27/132
+    Search Algorithm: generic exclusion search
+  Skip
+    Name: idx_trace_id
+    ...
+    Granules: 0/27
 
-Read that as a chain, not one ratio. The primary key reports first: `trace_id` is
-last in the sort key and the IDs are random, so all it can do is a generic
-exclusion search, and 27 of 132 granules is as far as it gets. The bloom prints
-below it, and its denominator is whatever that step left. Its line reads 0 out of
-27, not 0 out of 132. Credit an index with the fall between its own two numbers.
-
-Your primary-key numbers, both the granules and the ranges below them, probably
-will not be 27 and 25, and that is fine: they move with the clock. 13, 20 and 24
-are all real readings from this same generator. The 132
-does not move, apart from a run between 00:00 and 00:20 that can report 133, and
-neither does the bloom's 0. That 0 is the strongest reading available. NOTES has
-the long version of both.
-
-The third bounds the same lookup with `AND timestamp >= now() - INTERVAL 1 HOUR`,
-so the primary key gets a time predicate to work with as well as the trace ID:
-
-```
-      PrimaryKey
-        Keys:
-          toStartOfHour(timestamp)
-          trace_id
-        Condition: and((toStartOfHour(timestamp) in [1788321600, +Inf)), (trace_id in [...]))
-        Parts: 1/1
-        Granules: 27/132
-        Search Algorithm: generic exclusion search
-      Skip
-        Name: idx_trace_id
-        Granules: 0/27
+the bloom filter took the 27 granules the primary key left down to 0
 ```
 
-On this data that reading matches the second one, and the reason is the
-generator rather than the index. Every row it writes falls in the twenty minutes
-before it ran, so a one-hour window already covers all of them and there is
-nothing outside it to prune. Narrowing the window does not reliably help
-either, and the `Condition` line above says why: the primary key holds time as
-`toStartOfHour(timestamp)`, so a predicate prunes whole hour buckets and nothing
-finer. Those twenty minutes sit inside one bucket, or straddle two, depending on
-the minute you run at. Inside one bucket no window of any width cuts a single
-granule. Straddling, a window whose lower bound lands in the later bucket cuts to
-13 of 132, and that is where both the 27 and the 13 readings come from. On a
-real store, where the data is older than the window, the hour predicate is what
-keeps a trace-ID lookup from touching every bucket in retention.
+Read it as a chain, not one ratio. The primary key goes first. `trace_id` is the
+last column of the sort key and trace IDs are random, so all it can do is a
+generic exclusion search, which keeps 27 of 132 granules. The bloom filter runs
+below it, so its denominator is what the primary key left: 27 down to 0. Credit
+the index with that and nothing more.
+
+The primary key's 27, and the `Ranges` under it, will probably be different for you: 13, 20, 24 and 27 are
+all real readings of the same data, and the number moves with the clock. The 132
+and the bloom's 0 don't move. NOTES explains both, and the one time a day 132
+reads 133.
+
+The third reading adds `AND timestamp >= now() - INTERVAL 1 HOUR`, and on this
+data it matches the second. The generator's rows all fall inside the last hour,
+so there is nothing outside the window to prune. NOTES has the longer reading.
 
 Put the table back when you are done:
 
 ```bash
-ch --query "ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id"
+./scripts/drop-trace-id-index.sh
 ```
+
+```
+dropped idx_trace_id; tracing.otel_traces has no skip index
+```
+
+What it runs: listing 8.2, `clickhouse/skipindex.sql`, after dropping any index
+a previous run left. To see the full plans, run
+`docker compose exec -T clickhouse clickhouse-client --multiquery < clickhouse/skipindex.sql`.
+
+```sql
+EXPLAIN indexes = 1
+SELECT * FROM tracing.otel_traces
+WHERE trace_id = '4bf92f3577b34da6a3ce929d0e0e4736'
+SETTINGS use_query_condition_cache = 0,
+         use_skip_indexes_on_data_read = 0;
+
+ALTER TABLE tracing.otel_traces
+  ADD INDEX idx_trace_id trace_id
+  TYPE bloom_filter(0.01) GRANULARITY 1;
+
+ALTER TABLE tracing.otel_traces
+  MATERIALIZE INDEX idx_trace_id
+  SETTINGS mutations_sync = 2;
+```
+
+The file then runs the same `EXPLAIN` twice more: once as it is, and once with
+`AND timestamp >= now() - INTERVAL 1 HOUR` added. The drop is:
+
+```sql
+ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id
+```
+
+## Exercises
+
+Each exercise starts from a running stack, makes its own data and cleans up
+after itself, so do them in any order.
+
+| Exercise | Listing | What you'll learn |
+|---|---|---|
+| [exercises/unbiased.md](exercises/unbiased.md) | 8.1 | Four queries over one table, two of them wrong, graded against the real population |
+| [exercises/rollup.md](exercises/rollup.md) | 8.3 | How a materialized view turns a RED dashboard into a lookup, and three ways to build it wrong without any error |
+
+If you only do one, do unbiased. It is the chapter's main claim, and the only
+place in the book where you can grade an estimate against the population it
+estimates. Each ends with a **Try this** section of small changes with visible
+results.
 
 ## Run the tests
 
-Offline, no Docker needed: that the schema carries `parent_span_id` and ships
-without the trace-ID bloom, that the generator's arithmetic closes on ten
-million, and that the `.sql` files and the exercises still carry the shapes the
-chapter argues for, listing 8.2's three `EXPLAIN`s with both caches off on every
-one of them and listing 8.3's minute-leading sort key. It reads YAML, so it
-needs PyYAML:
+Offline, no Docker needed:
 
 ```bash
 python3 -m venv .venv
@@ -346,34 +399,24 @@ pip install -r tests/requirements.txt
 python3 tests/test_static.py
 ```
 
-Given the book, the same run makes the stronger claim: it reads listings 8.1,
-8.2 and 8.3 out of the chapter's own source and compares them to the three
-`.sql` files line for line. The manuscript lives in its own repository rather
-than this one, so for anyone who cloned the code and not the book those three
-checks skip and everything else still runs. To run them, name a manuscript
-checkout, or the chapter file itself, in `TRACING_MANUSCRIPT`, or write the path
-into `tests/manuscript.path`, which is untracked and read when the variable is
-unset. A machine holding several checkouts of the book is asked which one counts
-rather than being picked for: they do not have to agree, and a comparison
-against a copy nobody is editing proves nothing.
+If you have the book's manuscript checked out, the same run also compares
+listings 8.1, 8.2 and 8.3 against the chapter line by line. Without it, those
+three checks skip. NOTES says how to point the tests at a checkout.
 
-Live, so the stack must be up and `generate/generate.py` must have run:
+Against the running stack, after `python3 generate/generate.py`:
 
 ```bash
 bash tests/test_stack.sh
 ```
 
-It does not check that the biased and unbiased answers merely differ, which would
-pass on any pair of wrong numbers. It checks each against the recorded truth:
-`sum(adjusted_count)` against the population, the weighted p99 against the true
-p99, the rollup against the raw scan and against the errors the generator
-produced. It cleans up the index and view it creates, so run it whenever.
+It checks each answer against the recorded truth, not just that the biased and
+weighted answers differ. It removes the index and view it creates, so you can
+run it any time.
 
 ## Tear down
 
-The `-v` flag drops the named volume holding the generated spans. The last two
-lines undo the virtual environment from the test step, and are harmless if you
-never made one.
+`-v` also removes the data volume. The last two lines remove the test step's
+virtual environment, and are harmless if you never made one.
 
 ```bash
 docker compose down -v
@@ -381,57 +424,55 @@ deactivate 2>/dev/null
 rm -rf .venv
 ```
 
-## Notes on running the book's listings
-
-If you run a listing verbatim and it behaves unexpectedly, see "Running the
-book's listings verbatim" in [NOTES.md](NOTES.md).
-
 ## Reference
 
-Nothing below is needed to run anything above it.
+### Running the book's listings verbatim
+
+If you run a listing exactly as printed and it behaves unexpectedly, see
+"Running the book's listings verbatim" in [NOTES.md](NOTES.md).
 
 ### Ports
 
-The stack binds host ports 8123 (HTTP) and 9000 (native protocol).
+| Port | What |
+|---|---|
+| 8123 | ClickHouse HTTP |
+| 9000 | ClickHouse native protocol |
 
-### Version manifest (one tag per image)
+Both bind to `127.0.0.1` only.
+
+### Versions
 
 | Component | Version | Role |
 |---|---|---|
-| ClickHouse | `clickhouse/clickhouse-server:26.1` | the whole stack: query tier, storage, and the tables all three listings run against |
-| Python | 3 on the host, standard library only | `generate/generate.py`, which shells out to `clickhouse-client` in the container |
+| ClickHouse | `clickhouse/clickhouse-server:26.1` | The whole stack: query tier, storage, and the tables all three listings run against |
+| Python | 3 on the host, standard library only | `generate/generate.py`, which runs `clickhouse-client` in the container |
 
-`chapter-07/` runs 25.8. This one does not, and listing 8.2 is the reason.
-`use_skip_indexes_on_data_read` does not exist before 25.9, so the listing's
-`SETTINGS` clause fails there with `UNKNOWN_SETTING`. The setting arrives off by
-default in 25.9 and on from 26.1, and the listing turns it off because 26.1 is
-the state worth turning off. Everything else in this directory runs on either
-tag, and the differences between the two chapters are still in the schema rather
-than in the server.
+`chapter-07/` runs 25.8. This one can't, because of listing 8.2; NOTES says why.
 
-### File tree
+### Files
 
 ```
 chapter-08/
-├── docker-compose.yml          # one service, no ingest path
+├── docker-compose.yml        # one service, no ingest path
 ├── README.md
-├── NOTES.md                    # why everything here works the way it does
+├── NOTES.md                  # why everything works the way it does
 ├── generate/
-│   └── generate.py             # builds the population, samples it, records the truth
+│   └── generate.py           # builds the population, samples it, records the truth
+├── scripts/                  # one script per step; lib.sh holds what they share
 ├── exercises/
-│   ├── unbiased.md             # listing 8.1: grade four answers against the population
-│   └── rollup.md               # listing 8.3: pre-aggregation, and the silent ways to get it wrong
+│   ├── unbiased.md           # listing 8.1: grade four answers against the population
+│   └── rollup.md             # listing 8.3: pre-aggregation, and how to get it wrong
 ├── clickhouse/
-│   ├── init.sql                # the query-tier table (auto-applied on first boot)
-│   ├── unbiased.sql            # listing 8.1
-│   ├── skipindex.sql           # listing 8.2
-│   ├── rollup.sql              # listing 8.3
+│   ├── init.sql              # the query-tier table (auto-applied on first boot)
+│   ├── unbiased.sql          # listing 8.1
+│   ├── skipindex.sql         # listing 8.2
+│   ├── rollup.sql            # listing 8.3
 │   ├── config.d/
-│   │   └── network.xml         # listen on the container network, not just localhost
+│   │   └── network.xml       # listen on the container network, not just localhost
 │   └── users.d/
-│       └── z-allow-network.xml # let the default user connect from the network
+│       └── z-allow-network.xml  # let the default user connect over that network
 └── tests/
-    ├── requirements.txt        # PyYAML, the only install test_static.py needs
-    ├── test_static.py          # offline: schema shape, listings match the book, generator arithmetic
-    └── test_stack.sh           # live: the weighted answer equals the truth, the biased one does not
+    ├── requirements.txt      # PyYAML, the only install test_static.py needs
+    ├── test_static.py        # offline: schema shape, listings match the book, generator arithmetic
+    └── test_stack.sh         # live: the weighted answer equals the truth, the biased one does not
 ```

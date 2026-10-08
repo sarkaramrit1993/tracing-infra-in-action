@@ -229,20 +229,34 @@ def test_the_rollup_exercise_changes_one_thing_at_a_time():
     demonstration is of nothing in particular. The sort key is the one that
     bites. Trailing `minute` is what callout 2 of listing 8.3 warns against, so
     an exercise shipping it teaches the opposite of the lesson it is printed for.
+
+    The views are built by scripts and printed in the exercise, so both are read.
+    The SummingMergeTree demos further down build different views on purpose and
+    are not listing 8.3 variants.
     """
-    body = read("exercises/rollup.md")
-    blocks = body.split("CREATE MATERIALIZED VIEW ")[1:]
-    assert blocks, "exercises/rollup.md builds no view any more; has it been rewritten?"
-    for block in blocks:
-        name = block.split("\n", 1)[0].strip()
-        head = block.split("AS SELECT", 1)[0]
-        for clause in ("ENGINE = SummingMergeTree",
-                       "PARTITION BY toYYYYMM(minute)",
-                       "ORDER BY (minute, service_name, status_code)",
-                       "TTL minute + INTERVAL 90 DAY"):
-            assert clause in head, (
-                f"the {name} view leaves out `{clause}`, so it differs from "
-                "listing 8.3 by more than the one edit the exercise demonstrates")
+    sources = {"exercises/rollup.md": read("exercises/rollup.md")}
+    for path in sorted((CHAPTER / "scripts").glob("build-view-*.sh")):
+        sources[f"scripts/{path.name}"] = path.read_text()
+    seen = set()
+    for rel, body in sources.items():
+        for block in body.split("CREATE MATERIALIZED VIEW ")[1:]:
+            name = block.split("\n", 1)[0].strip()
+            if not name.startswith("tracing.red_no_"):
+                continue
+            seen.add((rel.startswith("scripts/"), name))
+            head = block.split("AS SELECT", 1)[0]
+            for clause in ("ENGINE = SummingMergeTree",
+                           "PARTITION BY toYYYYMM(minute)",
+                           "ORDER BY (minute, service_name, status_code)",
+                           "TTL minute + INTERVAL 90 DAY"):
+                assert clause in head, (
+                    f"{rel}: the {name} view leaves out `{clause}`, so it differs from "
+                    "listing 8.3 by more than the one edit the exercise demonstrates")
+    for where in (True, False):
+        names = {n for w, n in seen if w is where}
+        assert names == {"tracing.red_no_populate", "tracing.red_no_root"}, (
+            f"expected both demo views in {'the scripts' if where else 'exercises/rollup.md'}, "
+            f"found {sorted(names)}")
 
 
 # ----------------------------------------------------------------- the stack
@@ -323,19 +337,205 @@ def test_no_hash_comments_inside_bash_blocks():
     assert not offenders, "bare # inside a bash block: " + ", ".join(offenders)
 
 
+def _shell_commands(text):
+    """Yield (first line number, whole command) with backslash continuations joined.
+
+    A `clickhouse-client \\` at the end of one line puts its redirect on the
+    next one. Read line by line and that command looks like it has no redirect.
+    """
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        start = i + 1
+        parts = [lines[i]]
+        while parts[-1].rstrip().endswith("\\") and i + 1 < len(lines):
+            i += 1
+            parts.append(lines[i])
+        yield start, " ".join(part.rstrip().rstrip("\\") for part in parts)
+        i += 1
+
+
 @test
 def test_every_clickhouse_helper_closes_stdin():
     """The trap that hung both of chapter 7's scripts for a reviewer."""
     offenders = []
     for path in (sorted(CHAPTER.glob("*.md")) + sorted(CHAPTER.glob("exercises/*.md"))
-                 + sorted(CHAPTER.glob("tests/*.sh"))):
-        for n, line in enumerate(path.read_text().splitlines(), 1):
-            if "clickhouse-client" not in line or line.strip().startswith("#"):
+                 + sorted(CHAPTER.glob("tests/*.sh"))
+                 + sorted(CHAPTER.glob("scripts/*.sh"))):
+        for n, command in _shell_commands(path.read_text()):
+            if "clickhouse-client" not in command or command.strip().startswith("#"):
                 continue
-            if "< /dev/null" in line or "--multiquery <" in line or "--query" not in line:
+            if "< /dev/null" in command or "--multiquery <" in command or "--query" not in command:
                 continue
             offenders.append(f"{path.relative_to(CHAPTER)}:{n}")
     assert not offenders, "clickhouse-client without stdin closed: " + ", ".join(offenders)
+
+
+# ------------------------------------------------------- the reader's path
+
+READER_DOCS = ("README.md", "exercises/unbiased.md", "exercises/rollup.md")
+GENERATE = "python3 generate/generate.py"
+
+
+def _fences(rel, lang):
+    """Yield (first body line number, [body lines]) for each ```lang fence."""
+    lines = read(rel).splitlines()
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() == f"```{lang}":
+            start = i + 2
+            body = []
+            i += 1
+            while i < len(lines) and lines[i].strip() != "```":
+                body.append(lines[i])
+                i += 1
+            yield start, body
+        i += 1
+
+
+def _steps(rel):
+    """Every command a page runs, in order: a script name, or GENERATE."""
+    for start, body in _fences(rel, "bash"):
+        for ln in body:
+            if ln.strip() == GENERATE:
+                yield start, GENERATE
+            for m in re.findall(r"\./scripts/([\w-]+\.sh)", ln):
+                yield start, m
+
+
+def _scripts_that(marker):
+    return {p.name for p in (CHAPTER / "scripts").glob("*.sh")
+            if p.name != "lib.sh" and marker in p.read_text()}
+
+
+@test
+def test_no_bash_block_defines_a_function():
+    """A reader pastes a block and expects a result, not a shell to set up.
+
+    The `ch` and `ch_file` helpers used to be pasted in first. A function
+    defined in one block and used in another breaks for anyone who opens a new
+    terminal, or starts an exercise in the middle.
+    """
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _fences(rel, "bash"):
+            for ln in body:
+                if re.match(r"\s*(function\s+)?[A-Za-z_][\w-]*\s*\(\)\s*\{?", ln):
+                    offenders.append(f"{rel}:{start}: {ln.strip()}")
+    assert not offenders, "shell function defined in a bash block: " + "; ".join(offenders)
+
+
+@test
+def test_no_bash_block_leans_on_a_shell_variable():
+    """`MIN=$(...)` set in one line and read in the next was the old pattern. A
+    new terminal, or a block skipped, and the query runs on an empty string."""
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _fences(rel, "bash"):
+            for ln in body:
+                if re.search(r"\$(?!\?)[{(A-Za-z_]", ln):
+                    offenders.append(f"{rel}:{start}: {ln.strip()}")
+    assert not offenders, "shell variable in a bash block: " + "; ".join(offenders)
+
+
+@test
+def test_every_script_a_page_runs_exists_and_is_executable():
+    referenced = {name for rel in READER_DOCS for _, name in _steps(rel)} - {GENERATE}
+    assert referenced, "no page runs a script; the regex has stopped matching"
+    for name in sorted(referenced):
+        path = CHAPTER / "scripts" / name
+        assert path.exists(), f"a page runs scripts/{name}, which is not here"
+        assert path.stat().st_mode & 0o111, f"scripts/{name} is not executable"
+
+
+@test
+def test_every_script_is_strict_bash_and_used():
+    """Every script must fail loudly, which is what lib.sh's `set -euo pipefail`
+    gives it, and run on the bash 3.2 macOS ships."""
+    used = {name for rel in READER_DOCS for _, name in _steps(rel)}
+    lib = read("scripts/lib.sh")
+    assert "set -euo pipefail" in lib
+    for path in sorted((CHAPTER / "scripts").glob("*.sh")):
+        text = path.read_text()
+        assert not re.search(r"declare -A|mapfile|readarray|\$\{\w+,,\}|\$\{\w+\^\^\}", text), \
+            f"{path.name} uses a bash 4 feature that macOS bash 3.2 does not have"
+        if path.name == "lib.sh":
+            continue
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{path.name} has no bash shebang"
+        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{path.name} does not source lib.sh"
+        assert path.name in used, f"scripts/{path.name} is never run by any page"
+
+
+@test
+def test_every_sql_block_on_a_page_is_sql_that_really_runs():
+    """The SQL printed under a step is what the reader copies to run it by hand.
+
+    It has to be the SQL the script runs, or the page teaches one query and the
+    output comes from another. Whitespace is ignored; nothing else is.
+    """
+    def squash(text):
+        return " ".join(text.split()).rstrip(";").strip()
+    corpus = squash("\n".join(p.read_text() for p in
+                              sorted((CHAPTER / "scripts").glob("*.sh"))
+                              + sorted((CHAPTER / "clickhouse").glob("*.sql"))))
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _fences(rel, "sql"):
+            if squash("\n".join(body)) not in corpus:
+                offenders.append(f"{rel}:{start}")
+    assert not offenders, "SQL block that no script or .sql file runs: " + ", ".join(offenders)
+
+
+@test
+def test_every_page_generates_before_it_reads():
+    """Each page stands alone, so a reader who starts one cold gets the data its
+    first read needs from the page itself, not from a page they skipped."""
+    readers = _scripts_that("require_data")
+    assert readers, "no script calls require_data any more; the check reads nothing"
+    offenders = []
+    for rel in READER_DOCS:
+        generated = False
+        for start, step in _steps(rel):
+            if step == GENERATE:
+                generated = True
+            elif step in readers and not generated:
+                offenders.append(f"{rel}:{start} runs {step} before {GENERATE}")
+    assert not offenders, "; ".join(offenders)
+
+
+@test
+def test_every_page_puts_back_what_it_changed():
+    """Each page cleans up after itself, so the next one starts from what boot
+    left. A page that strips the weights, edits the generator, adds the index or
+    builds a view has to undo it before it ends."""
+    undo = {
+        "strip-the-weights.sh": ({GENERATE}, "regenerate"),
+        "add-trace-id-index.sh": ({"drop-trace-id-index.sh"}, "drop the index"),
+        "build-rollup.sh": ({"drop-rollup-views.sh", "clean-up-rollup.sh"}, "drop the view"),
+        "build-view-without-populate.sh": ({"drop-rollup-views.sh", "clean-up-rollup.sh"}, "drop the view"),
+        "build-view-without-root-filter.sh": ({"drop-rollup-views.sh", "clean-up-rollup.sh"}, "drop the view"),
+        "send-live-batch.sh": ({"clean-up-rollup.sh"}, "delete the demo rows"),
+    }
+    offenders = []
+    for rel in READER_DOCS:
+        pending = {}
+        edited = False
+        for start, step in _steps(rel):
+            for made, (cleaners, _) in list(undo.items()):
+                if step in cleaners:
+                    pending.pop(made, None)
+            if step == "widen-the-tail.sh":
+                edited = True
+                pending["widen-the-tail.sh"] = start
+            elif step == "restore-edited-files.sh":
+                edited = False
+            elif step == GENERATE and not edited:
+                pending.pop("widen-the-tail.sh", None)
+            if step in undo:
+                pending[step] = start
+        for step, start in pending.items():
+            offenders.append(f"{rel}:{start} runs {step} and the page never puts it back")
+    assert not offenders, "; ".join(offenders)
 
 
 def main():
