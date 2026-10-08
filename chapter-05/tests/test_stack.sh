@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Chapter 5 stack test. Asserts five things against the LIVE stack:
 #   1. the query-time path fills ClickHouse,
-#   2. the stream-time path assembles MORE traces than it had before,
+#   2. the stream-time path assembles MORE traces than it had before, and a
+#      checkout's assembled copy reaches Jaeger whole,
 #   3. the atomicity invariant holds: no checkout trace in the store has
 #      fewer spans than the checkout endpoint emits,
 #   4. nothing consumes the late-span side output, so it cannot feed back,
@@ -90,6 +91,16 @@ ASSEMBLED_GROWTH=$((ASSEMBLED_AFTER - ASSEMBLED_BEFORE))
 MIN_ASSEMBLED_GROWTH=60
 [ "$ASSEMBLED_GROWTH" -ge "$MIN_ASSEMBLED_GROWTH" ] || fail "traces.assembled grew by only $ASSEMBLED_GROWTH (before=$ASSEMBLED_BEFORE, after=$ASSEMBLED_AFTER), expected at least $MIN_ASSEMBLED_GROWTH from the 120 checkouts sent; the Flink assembly job may not be running"
 pass "traces.assembled grew by $ASSEMBLED_GROWTH (before=$ASSEMBLED_BEFORE, after=$ASSEMBLED_AFTER)"
+# Growth on the topic proves Flink wrote something, not that anything can read
+# it. The stream-time collector once rejected every record on this topic as
+# malformed OTLP while the offsets kept climbing, so follow one checkout all the
+# way to Jaeger and count its stream-time spans there.
+NEWEST=$(CH --query "
+    SELECT trace_id FROM tracing.otel_traces WHERE span_name = 'GET /checkout'
+    AND timestamp < now() - INTERVAL 30 SECOND ORDER BY timestamp DESC LIMIT 1")
+STREAM_SPANS=$(python3 scripts/query.py jaeger-sources "$NEWEST" | sed -n 's/^stream-time //p')
+[ "${STREAM_SPANS:-0}" = "7" ] || fail "checkout trace $NEWEST has ${STREAM_SPANS:-0} stream-time spans in Jaeger, expected 7; the stream-time path does not reach its reader"
+pass "checkout trace $NEWEST reached Jaeger through the stream-time path with all 7 spans"
 
 echo "== 3. atomicity: no partial checkout traces in the store =="
 # The grouped query below only examines trace_ids that carry a "GET
@@ -153,7 +164,7 @@ echo "== 5. the assembly job is still alive at the end of the run =="
 TM_OOM=$(docker inspect -f '{{.State.OOMKilled}}' \
     "$(docker compose ps -aq flink-taskmanager)" 2>/dev/null || echo unknown)
 [ "$TM_OOM" != "true" ] || fail "the Flink taskmanager was OOM-killed during this run; raise Docker's memory limit (see troubleshooting.md) and re-run, the results above are not trustworthy"
-JOB_STATE=$(curl -s http://localhost:8081/jobs/overview \
+JOB_STATE=$(curl -s "http://localhost:${FLINK_PORT:-8081}/jobs/overview" \
     | python3 -c "import sys,json;print(next((j['state'] for j in json.load(sys.stdin).get('jobs',[])),'NONE'))" 2>/dev/null || echo UNREACHABLE)
 [ "$JOB_STATE" = "RUNNING" ] || fail "the Flink assembly job is in state $JOB_STATE, expected RUNNING; the stream-time results above are not trustworthy"
 pass "the Flink assembly job is still RUNNING and the taskmanager was not OOM-killed"

@@ -68,7 +68,11 @@ OUT_OF_ORDER_SEC = int(os.environ.get("OUT_OF_ORDER_SEC", "5"))
 # TaskManager slot, so parallelism is 1; raise both together to scale out.
 PARALLELISM = int(os.environ.get("PARALLELISM", "1"))
 
-LATE_TAG = OutputTag("late-spans", Types.PICKLED_BYTE_ARRAY())
+# The two sinks write with ByteArraySchema, which takes a Java byte[]. Typing
+# these streams PICKLED_BYTE_ARRAY would hand the sinks a pickle of the bytes,
+# and every record on the topic would carry a pickle header no OTLP reader can
+# parse.
+LATE_TAG = OutputTag("late-spans", Types.PRIMITIVE_ARRAY(Types.BYTE()))
 
 # Tombstone state for emitted traces lives at most this long after a trace
 # ships. Long enough to catch the stragglers that drift in behind a lagging
@@ -290,7 +294,7 @@ def build_job():
 
     assembled = (spans
                  .key_by(_trace_id_of, key_type=PyTypes.STRING())
-                 .process(TraceAssembler(), output_type=PyTypes.PICKLED_BYTE_ARRAY())
+                 .process(TraceAssembler(), output_type=PyTypes.PRIMITIVE_ARRAY(PyTypes.BYTE()))
                  .name("trace-assembly"))
 
     # Exactly-once sinks. The transactional-id prefix scopes the producer
