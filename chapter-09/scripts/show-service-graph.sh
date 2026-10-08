@@ -12,6 +12,7 @@
 # shellcheck source=scripts/lib.sh
 source "$(dirname "$0")/lib.sh"
 require prometheus otel-collector
+require_traffic
 
 EDGE='traces_service_graph_request_total'
 EXPORTER=http://localhost:8889/metrics

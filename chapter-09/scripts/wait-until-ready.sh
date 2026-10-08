@@ -53,4 +53,5 @@ clickhouse_has_every_kept_span() {
 }
 poll "waiting for the $KEPT kept spans to reach ClickHouse" 120 clickhouse_has_every_kept_span
 
+echo READY=1 >> "$STATE_DIR/traffic"
 echo ready
