@@ -33,26 +33,36 @@ would let the downstream weight its counts back up, the correction section 9.2.4
 describes, and there would be no divergence left to look at. The divergence here
 is the uncorrected case, which is also the common one.
 
-## Why two helpers, `ch` and `ch_file`
+## Why the scripts have two ClickHouse helpers
 
-```bash
-ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
-```
+Every command in the README and the exercises is a script in `scripts/`, so a
+reader pastes it and sees the result without defining anything in their shell.
+The scripts share `scripts/lib.sh`, which runs ClickHouse queries through two
+helpers, `ch` and `ch_file`.
 
 `clickhouse-client` reads standard input when it is given one. Inside a shell
 loop that also owns stdin, a client without `< /dev/null` sits there forever
 waiting on an EOF that never comes, producing no output and no error. That is
-the trap that hung both of chapter 7's scripts for readers running them.
+the trap that hung both of chapter 7's scripts for readers running them. `ch`
+redirects from `/dev/null`, and so does every raw ClickHouse query printed in
+the exercises.
 
-They cannot be one helper. `ch_file` needs its stdin for the file it is piping
-in, so it cannot redirect from `/dev/null`; `ch` must redirect or it hangs.
-`tests/test_static.py` has a check over this directory's markdown and shell
-scripts. Be exact about its reach: it fails the build on a `clickhouse-client`
-command that carries `--query` and no redirect, after joining backslash
-continuations so a command wrapped across two lines is read as one. It says
-nothing about a client invoked through a variable, through a wrapper this
+They cannot be one helper. `ch_file` needs its stdin for the `.sql` file it is
+piping in, so it cannot redirect from `/dev/null`; `ch` must redirect or it
+hangs. `tests/test_static.py` has a check over this directory's markdown and
+shell scripts. Be exact about its reach: it fails the build on a ClickHouse
+client command that carries a query and no redirect, after joining
+backslash continuations so a command wrapped across two lines is read as one. It
+says nothing about a client invoked through a variable, through a wrapper this
 directory does not define, or from a file type it does not glob.
+
+`scripts/wait-until-ready.sh` is the other thing worth knowing about. It never
+sleeps for a guessed time. It reads the Collector's own counters to see every
+span arrive and every trace get its sampling decision, then waits for a
+Prometheus scrape that started at least one connector flush interval after the
+last decision, then for ClickHouse to hold every span the Kafka exporter sent.
+Each of those is a check on the data, so a slow machine waits longer instead of
+reading a half-arrived number.
 
 ## The disk trap: Loki reports `Up` and 503s every write
 
@@ -73,8 +83,9 @@ On a VM with room to spare the grep prints nothing, and that is the healthy
 answer rather than a broken command.
 
 Loki's `log_level` is `warn` in `loki/loki.yaml` for exactly this reason: at
-`error` the line does not appear at all. Allow about 4 GB free inside the VM
-before starting, and reclaim with `docker system prune --volumes` when it is
+`error` the line does not appear at all. Loki starts throttling writes once the
+disk is 90 percent full, whatever the absolute size, so keep the VM's disk under
+that and allow about 4 GB free inside it before starting, and reclaim with `docker system prune --volumes` when it is
 tight. A macOS or Windows Docker Desktop VM is a fixed-size disk, so "free space
 on my laptop" is not the number that matters.
 
@@ -113,8 +124,8 @@ curl -s -G http://localhost:3100/loki/api/v1/query_range \
 
 The id in both queries is one request from the run these notes were written
 against, so on your stack both come back empty; put in one of your own, such as
-the `$TID` that `exercises/correlation.md` picks, and the second one returns its
-log lines.
+the trace id `scripts/send-traced-checkout.sh` prints in
+`exercises/correlation.md`, and the second one returns its log lines.
 
 `allow_structured_metadata: true` in `loki/loki.yaml` is what makes the field
 survive ingestion at all. Turn it off and Loki rejects every OTLP write that
@@ -375,7 +386,7 @@ for a `test:` line to invoke. `consumer-clickhouse` is a plain Python process
 with no HTTP surface to check.
 
 Anything that needs to know those services are ready has to ask from outside the
-container, which is what the test scripts do: they poll `http://localhost:3100/ready`,
+container, which is what the test scripts and `scripts/` do: they poll `http://localhost:3100/ready`,
 `http://localhost:9090/-/ready` and a real ClickHouse query, on a budget, rather
 than sleeping a fixed number of seconds and hoping. A fixed sleep is a guess
 about a machine you are not sitting at.

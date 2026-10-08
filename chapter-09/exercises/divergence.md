@@ -25,36 +25,11 @@ with nothing else different between them.
 
 ## The starting state
 
-Five helpers. `ch` runs a query, `ch_file` applies a `.sql` file, `promq` reads
-one scalar out of Prometheus, `await` blocks until a series reaches a number, and
-`await_collector` blocks until the Collector is answering again after a restart:
-
-```bash
-ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
-promq()   { curl -s -G http://localhost:9090/api/v1/query --data-urlencode "query=$1" \
-              | python3 -c "import sys,json;r=json.load(sys.stdin)['data']['result'];print(r[0]['value'][1] if r else 'no data')"; }
-await()   { for _ in $(seq 1 180); do
-              awk -v v="$(promq "$1")" -v t="$2" 'BEGIN { exit !(v + 0 >= t) }' && return 0
-              sleep 2
-            done
-            echo "timed out: $1 never reached $2" >&2; return 1; }
-await_collector() { for _ in $(seq 1 90); do
-                      curl -sf -o /dev/null http://localhost:8888/metrics && return 0
-                      sleep 1
-                    done
-                    echo "the collector did not come back" >&2; return 1; }
-```
-
-The `< /dev/null` is not decoration. Without it the client waits on a stdin that
-never reaches EOF. NOTES has the detail.
-
-Every measurement below polls. Nothing here sleeps a fixed number of seconds and
-hopes, because the chain in front of a span metric is the tail sampler's
+Every step below is a script in `scripts/`. Each one prints what it found, and
+each wait polls the data itself instead of sleeping a fixed number of seconds,
+because the chain in front of a span metric is the tail sampler's
 `decision_wait`, then a 15-second connector flush, then a 15-second Prometheus
-scrape, and a wait tuned to one machine is a guess on any other. A poll that
-times out tells you which series never arrived; a sleep that was too short tells
-you the opposite of what the exercise is about.
+scrape, and a wait tuned to one machine is a guess on any other.
 
 A run of any of the three exercises that was stopped between a backup and its
 restore leaves a `.bak` beside the file it edited, and a container still running
@@ -62,15 +37,15 @@ the edited copy. Put every such file back before anything else, whichever
 exercise left it:
 
 ```bash
-for f in collector/gateway-config.yaml docker-compose.yml loki/loki.yaml clickhouse/error_index.sql; do
-  if [ -f "$f.bak" ]; then mv "$f.bak" "$f"; echo "restored $f"; fi
-  rm -f "$f.tmp"
-done
+./scripts/restore-edited-files.sh
 ```
 
-Silence means there was nothing to restore. Then bring the stack up, and restart
-the two services that read a config file mounted from here, so neither keeps
-running a copy that was just put back:
+```
+nothing to restore: every file is the one that shipped
+```
+
+Then bring the stack up, and restart the two services that read a config file
+mounted from here, so neither keeps running a copy that was just put back:
 
 ```bash
 docker compose up -d --build
@@ -78,54 +53,55 @@ docker compose restart otel-collector loki
 docker compose ps
 ```
 
-Wait for the health column to settle, then drive a workload. Ordinary traffic
-fails one checkout in a hundred; the `?fail=1` requests make the error path
-deterministic without changing its shape:
+Drive a workload. Ordinary traffic fails one checkout in a hundred; the
+`?fail=1` requests make the error path deterministic without changing its shape:
 
 ```bash
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
+./scripts/send-traffic.sh
+./scripts/wait-until-ready.sh
+```
+
+```
+sending 300 ordinary checkouts and 6 forced failures...
+sent 306 checkouts, 9 of them failed
+waiting for the Collector to receive all 2142 spans the app sent... ok
+waiting for the tail sampler to decide all 306 traces... ok
+waiting for span metrics to reach Prometheus... ok
+waiting for the 98 kept spans to reach ClickHouse... ok
+ready
 ```
 
 The restart zeroes the connector counters, so every number below counts this
-workload and nothing before it. Skip it after walking the README and the poll
-returns at once, because the counter already stood at nine, and the reads that
-follow catch the pipeline mid-flight.
+workload and nothing before it. `send-traffic.sh` waits for the Collector to come
+back before it sends anything.
 
 Nine errors: the six forced ones plus the three the 1-in-100 cadence produces
-over 300 requests. The poll waits on the error series rather than on the totals,
-because the totals reach Prometheus a scrape earlier and a poll that stops there
-reads the errors as zero.
+over 300 requests.
 
 ## Two series, one workload
 
-Start with the totals, at the deepest span in the trace:
+Count calls and errors at the deepest span in the trace, `fraud.score`, on both
+sides of the sampler:
 
 ```bash
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+./scripts/compare-error-rates.sh
 ```
 
 ```
-306
-14
+                  calls  errors  error rate
+before sampler      306       9        2.9%
+after sampler        14       9       64.3%
 ```
 
-306 calls in, 14 kept. The sampler dropped the other 292, which is what a sampler
-is for. Now the same two series filtered to errors:
+It runs four PromQL sums, the `pre_calls_total` and `post_calls_total` series
+for `service_name="checkout-service",span_name="fraud.score"`, each once as is
+and once filtered to `status_code="STATUS_CODE_ERROR"`, and divides errors by
+calls.
 
-```bash
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
-```
-
-```
-9
-9
-```
+Start with the calls column. 306 calls in, 14 kept. The sampler dropped the
+other 292, which is what a sampler is for. Now the errors column: 9 before, 9
+after.
 
 Identical. Not close, equal. The `keep-errors` policy in `tail_sampling` keeps
 every trace carrying an error, so the sampler dropped nothing at all from that
@@ -133,24 +109,14 @@ class. The denominator fell by a factor of twenty-two and the numerator did not
 move.
 
 Your four numbers will differ from these, and the post total most of all. The
-blocks in this section are the committed reference run in `RESULTS.md`, the same
-one the README prints. At one in a hundred, 297 successful requests leave about
-three survivors, and three is a number with a lot of luck in it: that run kept
-five. The post total is nine plus that draw, so it lands between 9 and 16 on all
-but about one run in a hundred. What reproduces is the relationship: pre above
-post, and the two error counts equal.
+table is the committed reference run in `RESULTS.md`, the same one the README
+prints. At one in a hundred, 297 successful requests leave about three
+survivors, and three is a number with a lot of luck in it: that run kept five.
+The post total is nine plus that draw, so it lands between 9 and 16 on all but
+about one run in a hundred. What reproduces is the relationship: pre above post,
+and the two error counts equal.
 
 ## The two rates
-
-```bash
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-```
-
-```
-0.029411764705882353
-0.6428571428571429
-```
 
 2.9 percent against 64.3. One of those is this service's error rate. The other is
 a property of how its traces were selected for storage, and there is nothing in
@@ -203,21 +169,15 @@ cp collector/gateway-config.yaml collector/gateway-config.yaml.bak
 sed -i.tmp 's/sampling_percentage: 1/sampling_percentage: 50/' collector/gateway-config.yaml
 rm -f collector/gateway-config.yaml.tmp
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+./scripts/send-traffic.sh
+./scripts/wait-until-ready.sh
+./scripts/compare-error-rates.sh
 ```
 
 ```
-306
-161
-0.029411764705882353
-0.055900621118012424
+                  calls  errors  error rate
+before sampler      306       9        2.9%
+after sampler       161       9        5.6%
 ```
 
 2.9 percent against 5.6, an inflation of 1.90 where it was 21.9. The formula
@@ -250,37 +210,22 @@ block = """      - name: keep-errors
 p.write_text(p.read_text().replace(block, ""))
 PY
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 600); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 600); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 606
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 1
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})'
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+./scripts/send-traffic.sh 600 600
+./scripts/wait-until-ready.sh
+./scripts/compare-error-rates.sh
 ```
 
 ```
-1200
-12
-606
-7
-0.505
-0.5833333333333334
+                  calls  errors  error rate
+before sampler     1200     606       50.5%
+after sampler        12       7       58.3%
 ```
 
-Both polls wait on an error series, and the first one waits on the pre side.
 Twelve hundred requests with 606 of them failing are both deterministic: 600 are
 forced, and the 1-in-100 cadence adds exactly six more inside the 600 plain ones.
-Waiting on a total here would release a scrape early, for the reason this file
-gave the first time it polled, and every number in the block would read short by
-one scrape rather than wrong in a way you could see. The second poll is a
-readiness gate rather than a count. It waits only until the post side has a
-status breakdown at all, because what the post side settles on is a sample and
-there is no deterministic number to wait for.
+`wait-until-ready.sh` does not need to know which policy is in force: it waits
+for the sampler to decide every trace and for the counts to be scraped after
+that, so it works the same with `keep-errors` gone.
 
 50.5 percent against 58.3, an inflation of 1.15. The error count fell from 606 to
 7 along with everything else, and the ratio came back near where it started. This
@@ -337,23 +282,17 @@ t = t.replace("exporters: [kafka, spanmetrics/post]",
 p.write_text(t)
 PY
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 300); do curl -s -o /dev/null http://localhost:8080/checkout; done
-for _ in $(seq 1 6); do curl -s -o /dev/null "http://localhost:8080/checkout?fail=1"; done
-await 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"})' 9
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(pre_calls_total{service_name="checkout-service",span_name="fraud.score"})'
-promq 'sum(post_calls_total{service_name="checkout-service",span_name="fraud.score",status_code="STATUS_CODE_ERROR"}) / sum(post_calls_total{service_name="checkout-service",span_name="fraud.score"})'
+./scripts/send-traffic.sh
+./scripts/wait-until-ready.sh
+./scripts/compare-error-rates.sh
 python3 benchmarks/sampler_divergence.py
 echo "exit $?"
 ```
 
 ```
-14
-14
-0.6428571428571429
-0.6428571428571429
+                  calls  errors  error rate
+before sampler       14       9       64.3%
+after sampler        14       9       64.3%
 [divergence] Prometheus=http://localhost:9090 grain=checkout-service/fraud.score
 [divergence] pre : total=14 errors=9 rate=64.286%
 [divergence] post: total=14 errors=9 rate=64.286%
@@ -416,38 +355,32 @@ file left in `collector/`.
 If the last number is not zero, some edit was interrupted between its `cp` and
 its `mv`. It does not have to have been one of yours: `exercises/correlation.md`
 backs up the same file, so an abandoned run of either exercise leaves the same
-`.bak` behind, and the remedy is the same either way.
+`.bak` behind, and the remedy is the same either way. This puts back whatever is
+there, restarts what reads it, and says so:
 
 ```bash
-if [ -f collector/gateway-config.yaml.bak ]; then
-  mv collector/gateway-config.yaml.bak collector/gateway-config.yaml
-  docker compose restart otel-collector
-fi
+./scripts/restore-edited-files.sh
 ```
-
-The guard matters because the block above just told you the count was zero. A
-bare `mv` on a path that is not there fails with `No such file or directory`,
-which reads like a broken instruction rather than the all-clear it is.
 
 Then confirm the Collector is running the file that shipped:
 
 ```bash
 docker compose restart otel-collector
-await_collector
-for _ in $(seq 1 200); do curl -s -o /dev/null http://localhost:8080/checkout; done
-await 'sum(post_calls_total{service_name="checkout-service"})' 7
-promq 'sum(pre_calls_total{service_name="checkout-service"}) > bool sum(post_calls_total{service_name="checkout-service"})'
+./scripts/send-traffic.sh 200 0
+./scripts/wait-until-ready.sh
+./scripts/compare-error-rates.sh
 ```
 
 ```
-1
+                  calls  errors  error rate
+before sampler      200       2        1.0%
+after sampler         4       2       50.0%
 ```
 
-`1` means the comparison held: the pre series is above the post series again,
-which is only true when the sampler sits on the far side of the pre connector. A
-`0` is the wrong-side failure from Going deeper, both series counting the same
-survivors. The check prints a verdict rather than the pre total because the poll
-releases on the first kept trace, and a total read at that moment can still be a
-flush short of the 1,400 the 200 requests will reach.
+The before row has more calls than the after row again, which is only true when
+the sampler sits on the far side of the pre connector. Both rows showing the
+same calls is the wrong-side failure from Going deeper, both series counting the
+same survivors. The after row is a draw: two failures plus whichever successes
+the sampler kept.
 
 This exercise never wrote to ClickHouse, so there is nothing to delete there.

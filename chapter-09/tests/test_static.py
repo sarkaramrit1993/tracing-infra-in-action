@@ -575,15 +575,18 @@ def test_the_readme_divergence_block_is_the_committed_measurement():
                                read("RESULTS.md"), flags=re.M))
     assert recorded, "RESULTS.md carries no divergence measurement to check against"
     readme = read("README.md")
-    block = re.search(r"```\n(\d+)\n(\d+)\n(\d+)\n(\d+)\n```", readme)
-    assert block, "the README no longer prints the four-number divergence block"
-    got = [int(x) for x in block.groups()]
+    rows = dict(re.findall(r"^(before sampler|after sampler)\s+(\d+\s+\d+\s+[\d.]+%)$",
+                           readme, flags=re.M))
+    assert len(rows) == 2, "the README no longer prints the before/after error-rate table"
+    got = [int(x) for side in ("before sampler", "after sampler")
+           for x in rows[side].split()[:2]]
     want = [int(float(recorded[k])) for k in
-            ("pre.total", "post.total", "pre.errors", "post.errors")]
+            ("pre.total", "pre.errors", "post.total", "post.errors")]
     assert got == want, f"the README prints {got} against a recorded {want}"
-    rate = float(recorded["post.errors"]) / float(recorded["post.total"])
-    assert str(rate) in readme, \
-        "the README's post error rate is not the one the measurement recorded"
+    for side, prefix in (("before sampler", "pre"), ("after sampler", "post")):
+        rate = 100 * float(recorded[f"{prefix}.errors"]) / float(recorded[f"{prefix}.total"])
+        assert rows[side].split()[2] == f"{rate:.1f}%", \
+            f"the README's {side} error rate is not the one the measurement recorded"
 
 
 @test
@@ -698,63 +701,112 @@ def _bash_fences(rel):
 
 EXERCISES = ("exercises/divergence.md", "exercises/correlation.md",
              "exercises/fingerprints.md")
+READER_DOCS = ("README.md",) + EXERCISES
 
-ERROR_SELECTOR = 'status_code="STATUS_CODE_ERROR"'
+# Scripts that read what send-traffic.sh produced. Run before the data has
+# arrived, each prints a number that is short by a scrape or a batch and looks
+# perfectly plausible.
+READERS = ("compare-error-rates.sh", "show-failing-trace.sh",
+           "show-service-graph.sh", "show-error-issues.sh",
+           "show-raw-error-messages.sh", "follow-exemplars.sh",
+           "show-span-totals.sh", "show-histogram-buckets.sh",
+           "count-exemplars.sh")
 
-# checkout.py opens one server span and six children per request.
-SPANS_PER_CHECKOUT = 7
+
+def _script_calls(rel):
+    """Yield (fence start, [script names in the order the fence runs them])."""
+    for start, body in _bash_fences(rel):
+        yield start, [m for ln in body for m in re.findall(r"\./scripts/([\w-]+\.sh)", ln)]
 
 
 @test
-def test_an_error_read_is_gated_on_an_error_series():
-    """The rule each exercise states and one of them then broke.
+def test_every_read_after_new_traffic_waits_for_it():
+    """The rule the old exercises stated and one of them then broke.
 
     The totals reach Prometheus a scrape ahead of the status breakdown, so a
-    poll that releases on a total reads the errors a scrape short. It does not
-    read them as obviously wrong, which is the whole problem: the committed
-    capture behind this check printed 1173 and 579 against a deterministic 1200
-    and 606, both light by exactly one scrape.
+    read that does not wait for the whole chain reads the errors a scrape short.
+    It does not read them as obviously wrong, which is the whole problem: the
+    committed capture behind this check once printed 1173 and 579 against a
+    deterministic 1200 and 606, both light by exactly one scrape. Every page
+    that sends traffic must wait for it before the next read, in the same page.
     """
     offenders = []
-    for rel in EXERCISES:
-        for start, body in _bash_fences(rel):
-            reads = [ln for ln in body if ln.lstrip().startswith("promq ")
-                     and ERROR_SELECTOR in ln]
-            if not reads:
-                continue
-            gates = [ln for ln in body if ln.lstrip().startswith("await ")]
-            if gates and not any(ERROR_SELECTOR in ln for ln in gates):
-                offenders.append(f"{rel}:{start}")
-    assert not offenders, \
-        "an error series read behind a poll that waits on a total: " + ", ".join(offenders)
+    for rel in READER_DOCS:
+        pending = None
+        for start, calls in _script_calls(rel):
+            for name in calls:
+                if name == "send-traffic.sh":
+                    pending = start
+                elif name == "wait-until-ready.sh":
+                    pending = None
+                elif name in READERS and pending is not None:
+                    offenders.append(f"{rel}:{start} runs {name} before waiting "
+                                     f"for the traffic sent at line {pending}")
+    assert not offenders, "; ".join(offenders)
 
 
 @test
-def test_no_poll_sits_at_its_own_arithmetic_ceiling():
-    """A gate set to exactly what the traffic can produce has no slack.
+def test_no_bash_block_defines_a_function():
+    """A reader pastes a block and expects a result, not a shell to set up.
 
-    Restarting the Collector zeroes the connector counters, so a fence that
-    restarts it and then drives N checkouts can reach at most N times seven
-    spans. Gate on all of them and one span lost anywhere in the chain turns
-    into a six-minute poll and a `timed out`, which is the reader's first
-    reading of an edit they were told would break something.
+    The helpers that used to be pasted in first are scripts now. A function
+    defined in one block and used in another breaks for anyone who opens a new
+    terminal, or starts an exercise in the middle.
     """
     offenders = []
-    for rel in EXERCISES:
+    for rel in READER_DOCS:
         for start, body in _bash_fences(rel):
-            if not any("restart otel-collector" in ln for ln in body):
-                continue
-            driven = sum(int(m) for ln in body
-                         for m in re.findall(r"for _ in \$\(seq 1 (\d+)\); do curl", ln))
-            if not driven:
-                continue
-            ceiling = driven * SPANS_PER_CHECKOUT
             for ln in body:
-                m = re.match(r"""\s*await 'sum\(pre_calls_total\{service_name="checkout-service"\}\)' (\d+)""", ln)
-                if m and int(m.group(1)) >= ceiling:
-                    offenders.append(
-                        f"{rel}:{start} gates at {m.group(1)} against a ceiling of {ceiling}")
-    assert not offenders, "; ".join(offenders)
+                if re.match(r"\s*(function\s+)?[A-Za-z_][\w-]*\s*\(\)\s*\{?", ln):
+                    offenders.append(f"{rel}:{start}: {ln.strip()}")
+    assert not offenders, "shell function defined in a bash block: " + "; ".join(offenders)
+
+
+@test
+def test_no_bash_block_leans_on_a_shell_variable():
+    """`$TID` set in one block and read in the next was the old pattern. A new
+    terminal, or a block skipped, and the query runs on an empty string. The
+    one exception is `$?`, which reads the command just above it."""
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _bash_fences(rel):
+            for ln in body:
+                if re.search(r"\$(?!\?)[{(A-Za-z_]", ln):
+                    offenders.append(f"{rel}:{start}: {ln.strip()}")
+    assert not offenders, "shell variable in a bash block: " + "; ".join(offenders)
+
+
+@test
+def test_every_script_a_page_runs_exists_and_is_executable():
+    referenced = set()
+    for rel in READER_DOCS:
+        for _, calls in _script_calls(rel):
+            referenced.update(calls)
+    assert referenced, "no page runs a script; the regex has stopped matching"
+    for name in sorted(referenced):
+        path = CHAPTER / "scripts" / name
+        assert path.exists(), f"a page runs scripts/{name}, which is not here"
+        assert path.stat().st_mode & 0o111, f"scripts/{name} is not executable"
+
+
+@test
+def test_every_script_is_strict_bash_and_used():
+    """Every script must fail loudly, which is what lib.sh's `set -euo pipefail`
+    gives it, and run on the bash 3.2 macOS ships."""
+    used = set()
+    for rel in READER_DOCS:
+        for _, calls in _script_calls(rel):
+            used.update(calls)
+    assert "set -euo pipefail" in read("scripts/lib.sh")
+    for path in sorted((CHAPTER / "scripts").glob("*.sh")):
+        if path.name == "lib.sh":
+            continue
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{path.name} has no bash shebang"
+        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{path.name} does not source lib.sh"
+        assert not re.search(r"declare -A|mapfile|readarray|\$\{\w+,,\}|\$\{\w+\^\^\}", text), \
+            f"{path.name} uses a bash 4 feature that macOS bash 3.2 does not have"
+        assert path.name in used, f"scripts/{path.name} is never run by any page"
 
 
 @test
@@ -810,18 +862,21 @@ def test_the_scratch_cleanup_drops_every_scratch_table():
 
 
 @test
-def test_the_exception_index_gate_matches_what_the_page_prints():
-    """A gate that releases below the printed number hands the reader a
-    different number from the one on the page, with nothing saying why."""
+def test_the_exception_index_count_matches_what_the_page_prints():
+    """The index count on the page has to be the traffic on the page.
+
+    Every failed checkout records the exception on two spans, so the index
+    holds twice the failures send-traffic.sh reports. A page that prints one
+    without the other hands the reader a number with nothing saying why.
+    """
     text = read("exercises/fingerprints.md")
-    m = re.search(r'await_rows "SELECT sum\(error_count\) FROM tracing\.exceptions" (\d+)',
-                  text)
-    assert m, "the exceptions index is no longer gated at all"
-    gate = int(m.group(1))
+    failed = re.search(r"^sent \d+ checkouts, (\d+) of them failed$", text, re.M)
+    assert failed, "the page no longer prints what send-traffic.sh sent"
     printed = re.search(r"^TimeoutError\s+.*?\s(\d+)\s+[0-9a-f]{32}$", text, re.M)
     assert printed, "the index output block no longer prints an error count"
-    assert gate == int(printed.group(1)), \
-        f"the poll releases at {gate} where the page prints {printed.group(1)}"
+    assert int(printed.group(1)) == 2 * int(failed.group(1)), \
+        f"{failed.group(1)} failed checkouts make {2 * int(failed.group(1))} error spans, " \
+        f"and the page prints {printed.group(1)}"
 
 
 @test
@@ -867,7 +922,8 @@ def test_every_clickhouse_helper_closes_stdin():
     offenders = []
     for path in (sorted(CHAPTER.glob("*.md")) + sorted(CHAPTER.glob("exercises/*.md"))
                  + sorted(CHAPTER.glob("benchmarks/*.md"))
-                 + sorted(CHAPTER.glob("tests/*.sh"))):
+                 + sorted(CHAPTER.glob("tests/*.sh"))
+                 + sorted(CHAPTER.glob("scripts/*.sh"))):
         for n, command in _shell_commands(path.read_text()):
             if "clickhouse-client" not in command or command.strip().startswith("#"):
                 continue
@@ -887,6 +943,7 @@ def test_no_heredoc_program_also_reads_stdin():
     """
     offenders = []
     for path in (sorted(CHAPTER.glob("tests/*.sh"))
+                 + sorted(CHAPTER.glob("scripts/*.sh"))
                  + sorted(CHAPTER.glob("*.md"))
                  + sorted(CHAPTER.glob("exercises/*.md"))):
         lines = path.read_text().splitlines()
