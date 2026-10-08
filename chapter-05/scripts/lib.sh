@@ -10,6 +10,9 @@ STATE_DIR="${TMPDIR:-/tmp}/tracing-in-action-ch05"
 HINT="Is the stack up? From chapter-05/ run: docker compose up -d --build"
 SEND="nothing sent yet: run ./scripts/send-traffic.sh first"
 ARRIVING="still arriving: run ./scripts/wait-until-ready.sh first"
+# GET /checkout plus ten spans under it: five in checkout-service, and five in
+# the four services it calls. app/checkout.py has the shape.
+SPANS_PER_CHECKOUT=11
 
 die() { echo "$*" >&2; exit 1; }
 
@@ -100,13 +103,20 @@ require_traffic() {
   [ "$id" = "$(stack_id)" ] || die "$SEND"
 }
 
+# recent RESULT PATTERN: the views read only the last hour, so a reader who
+# comes back later gets an empty result. Say so instead of printing nothing.
+recent() {
+  printf '%s\n' "$1" | grep -q "$2" \
+    || die "no checkouts in the last hour: run ./scripts/send-traffic.sh and ./scripts/wait-until-ready.sh"
+}
+
 require_ready() {
   require_traffic
   state traffic READY "$ARRIVING" > /dev/null
 }
 
 # await_both_paths STARTED COUNT: wait until COUNT checkouts sent after STARTED
-# (nanoseconds on ClickHouse's clock) have all seven spans in ClickHouse, then
+# (nanoseconds on ClickHouse's clock) have all their spans in ClickHouse, then
 # until Jaeger holds the stream-time copy of the newest of them. Flink emits in
 # event-time order, so the newest one is the last to come out. Sets LAST.
 await_both_paths() {
@@ -114,7 +124,7 @@ await_both_paths() {
     WHERE span_name = 'GET /checkout'
       AND timestamp >= fromUnixTimestamp64Nano(toInt64($1))"
   WANT=$2
-  poll "query-time path: waiting for ClickHouse to hold all 7 spans of all $WANT checkouts" 180 clickhouse_has_every_span
+  poll "query-time path: waiting for ClickHouse to hold all $SPANS_PER_CHECKOUT spans of all $WANT checkouts" 180 clickhouse_has_every_span
   LAST=$(ch --query "$CHECKOUTS_SINCE ORDER BY timestamp DESC LIMIT 1")
   poll "stream-time path: waiting for Flink to assemble the newest one and Jaeger to store it" 180 jaeger_has_assembled_last
 }
@@ -124,9 +134,9 @@ clickhouse_has_every_span() {
     SELECT count() FROM (
       SELECT trace_id FROM tracing.otel_traces
       WHERE trace_id IN ($CHECKOUTS_SINCE)
-      GROUP BY trace_id HAVING uniqExact(span_id) = 7)" 2>/dev/null) || return 1
+      GROUP BY trace_id HAVING uniqExact(span_id) = $SPANS_PER_CHECKOUT)" 2>/dev/null) || return 1
   [ "${whole:-0}" -ge "$WANT" ]
 }
 jaeger_has_assembled_last() {
-  q jaeger-sources "$LAST" 2>/dev/null | grep -qx 'stream-time 7'
+  q jaeger-sources "$LAST" 2>/dev/null | grep -qx "stream-time $SPANS_PER_CHECKOUT"
 }

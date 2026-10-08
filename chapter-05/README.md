@@ -2,14 +2,15 @@
 
 Code for Chapter 5 of *Tracing Infrastructure in Action*.
 
-One checkout service sends traces down both assembly paths the chapter compares,
-at the same time, from the same Kafka topic:
+A checkout service and the four services it calls (inventory, payment, fraud,
+notification) send traces down both assembly paths the chapter compares, at the
+same time, from the same Kafka topic:
 
 1. **Query-time assembly.** Spans land in ClickHouse one by one, as they arrive.
    A trace only exists as a whole when you read it.
 2. **Stream-time assembly.** A Flink job holds each trace's spans in keyed state
    for 10 seconds, then emits the whole trace at once.
-3. **Whole traces or nothing.** Both paths deliver every checkout with all seven
+3. **Whole traces or nothing.** Both paths deliver every checkout with all eleven
    spans, and a small audit shows which failures break that rule and which don't.
 
 ## Listings
@@ -35,6 +36,18 @@ readable excerpts, so the files differ from it in small ways;
 - Python 3 and `curl` on your machine. On Windows, use WSL2.
 - Stop any other chapter's stack first (`docker compose ls`). The ports this one
   uses are listed under [Reference](#ports).
+- If something else on your machine already has port 8081, give Flink another
+  one: save the snippet below as `docker-compose.override.yml` in this directory
+  (Docker Compose 2.24 or later reads it on its own), and run `export FLINK_PORT=18081` in the
+  terminal you run the scripts from.
+
+  ```yaml
+  services:
+    flink-jobmanager:
+      ports: !override
+        - "18081:8081"
+        - "9249:9249"
+  ```
 
 Run every command from this `chapter-05/` directory. Each step runs a small
 script from `scripts/` that prints what it found, and the query inside it is
@@ -68,12 +81,14 @@ waiting for Jaeger... ok
 waiting for the Flink assembly job to start... ok
 sending 120 checkouts...
 sent 120 checkouts
-query-time path: waiting for ClickHouse to hold all 7 spans of all 120 checkouts... ok
+query-time path: waiting for ClickHouse to hold all 11 spans of all 120 checkouts... ok
 stream-time path: waiting for Flink to assemble the newest one and Jaeger to store it... ok
 ready
 ```
 
-Each checkout is one trace of seven spans. The first wait is the query-time path
+Each checkout is one trace of eleven spans: six in `checkout-service`, and five
+more recorded by the services it calls, each under its own service name.
+`payment-service` calls `fraud-service` in turn. The first wait is the query-time path
 filling ClickHouse. The second is the stream-time path: Flink holds each trace
 until its 10-second timer fires, so the newest checkout comes out last.
 
@@ -92,17 +107,17 @@ Take the newest checkout and count its spans everywhere it was delivered:
 ```
 
 ```
-trace 087573418a99d9d4ee936bb9c820d9c7
+trace d7cbd91fb342829338b3ba2ab7a75c06
 
 where                                        spans
-ClickHouse tracing.otel_traces               7
-Jaeger, assembly.source=query-time           7
-Jaeger, assembly.source=stream-time          7
+ClickHouse tracing.otel_traces               11
+Jaeger, assembly.source=query-time           11
+Jaeger, assembly.source=stream-time          11
 
-open http://localhost:16686/trace/087573418a99d9d4ee936bb9c820d9c7 to see it in Jaeger
+open http://localhost:16686/trace/d7cbd91fb342829338b3ba2ab7a75c06 to see it in Jaeger
 ```
 
-Your trace ID will differ. Seven spans in each place. ClickHouse holds them as separate rows, written as
+Your trace ID will differ. Eleven spans in each place. ClickHouse holds them as separate rows, written as
 they arrived. Jaeger holds the trace twice: one copy labelled
 `assembly.source=query-time`, forwarded span by span, and one labelled
 `stream-time`, which Flink emitted as a whole. Open the link the script prints
@@ -126,23 +141,28 @@ Query-time assembly in two steps: fetch every span with the trace ID (listing
 ```
 
 ```
-scatter-gather across 1 shard(s) for trace_id=087573418a99d9d4ee936bb9c820d9c7
+scatter-gather across 1 shard(s) for trace_id=d7cbd91fb342829338b3ba2ab7a75c06
 shards: ['clickhouse']
-  shard=clickhouse returned=7 elapsed_ms=12.9
+  shard=clickhouse returned=11 elapsed_ms=20.9
 
-assembled 7 spans in 75.6ms (tail-shard bound)
+assembled 11 spans in 111.3ms (tail-shard bound)
 
 waterfall:
-  checkout-service         GET /checkout                +     0.0us 177.53ms [STATUS_CODE_UNSET]
-    checkout-service         validate_cart                +   530.7us  20.61ms [STATUS_CODE_UNSET]
-    checkout-service         inventory.reserve            + 21376.7us  30.87ms [STATUS_CODE_UNSET]
-    checkout-service         payment.charge               + 52399.2us  91.82ms [STATUS_CODE_UNSET]
-      checkout-service         fraud.score                  +103275.0us  40.88ms [STATUS_CODE_UNSET]
-    checkout-service         order.create                 +144366.0us  21.85ms [STATUS_CODE_UNSET]
-    checkout-service         notification.send            +166575.6us  10.44ms [STATUS_CODE_UNSET]
+  checkout-service         GET /checkout                +     0.0us 175.25ms [STATUS_CODE_UNSET]
+    checkout-service         validate_cart                +   341.8us  20.93ms [STATUS_CODE_UNSET]
+    checkout-service         inventory.reserve            + 21358.9us  31.05ms [STATUS_CODE_UNSET]
+      inventory-service        POST /inventory/reserve      + 21404.6us  30.97ms [STATUS_CODE_UNSET]
+    checkout-service         payment.charge               + 52511.8us  91.46ms [STATUS_CODE_UNSET]
+      payment-service          POST /payments/charge        + 52572.1us  91.39ms [STATUS_CODE_UNSET]
+        payment-service          fraud.score                  +103050.9us  40.90ms [STATUS_CODE_UNSET]
+          fraud-service            POST /fraud/score            +103162.7us  40.74ms [STATUS_CODE_UNSET]
+    checkout-service         order.create                 +144109.8us  20.77ms [STATUS_CODE_UNSET]
+    checkout-service         notification.send            +164959.3us  10.15ms [STATUS_CODE_UNSET]
+      notification-service     process notification         +164995.4us  10.09ms [STATUS_CODE_UNSET]
 ```
 
-Your timings will differ. This stack has one ClickHouse, so the "scatter" is one request. The script still
+Each call shows up twice: the caller's client span, then the called service's
+own span inside it. Your timings will differ. This stack has one ClickHouse, so the "scatter" is one request. The script still
 prints each shard's time separately, because a real query is only as fast as its
 slowest shard (Figure 5.5).
 
@@ -167,17 +187,22 @@ SETTINGS optimize_read_in_order = 1
 ```
 parts (every insert writes one; background merges combine them)
 partition            part_type  parts  rows  on_disk
-2026-10-08 04:00:00  Compact    3      847   31.86 KiB
+2026-10-08 05:00:00  Compact    5      1327  52.21 KiB
 
-where trace 087573418a99d9d4ee936bb9c820d9c7 sits
+where trace d7cbd91fb342829338b3ba2ab7a75c06 sits
 part              spans  first_row  last_row
-1791432000_1_6_1  7      15         21
+1791435600_8_8_0  11     121        131
 ```
+
+Your partition, part names, part count and row numbers will differ, since they
+depend on the hour you run in and how far the background merges have got. What
+stays the same: in each part that holds the trace, its spans sit on
+consecutive rows.
 
 Listing 5.1's table is partitioned by hour and sorted by `(trace_id,
 timestamp)`. Every consumer flush writes a new part, and ClickHouse merges small
 parts in the background, so the part count goes up and down as you watch. Inside
-a part, the newest checkout's seven spans are seven neighbouring rows, which is
+a part, the newest checkout's eleven spans are eleven neighbouring rows, which is
 why the query in step 4 is a seek, not a scan. Small parts are stored in the
 `Compact` format, all columns in one file; past a size threshold they switch to
 `Wide`, one file per column.
@@ -205,34 +230,45 @@ GROUP BY _part ORDER BY _part;
 ```
 
 ```
-span_name          spans  errors  p99_ms
-GET /checkout      120    0       179
-fraud.score        120    3       42
-inventory.reserve  120    0       32
-notification.send  120    0       12.3
-order.create       120    0       22.6
-payment.charge     120    0       93.5
-validate_cart      120    0       21.7
-GET /health        7      0       2
+service_name          span_name                spans  errors  p99_ms
+checkout-service      GET /checkout            120    0       179.4
+checkout-service      inventory.reserve        120    0       32
+checkout-service      notification.send        120    0       11.9
+checkout-service      order.create             120    0       22
+checkout-service      payment.charge           120    0       93.8
+checkout-service      validate_cart            120    0       21.7
+checkout-service      GET /health              7      0       19.5
+fraud-service         POST /fraud/score        120    7       41.8
+inventory-service     POST /inventory/reserve  120    0       31.9
+notification-service  process notification     120    0       11.8
+payment-service       POST /payments/charge    120    0       93.7
+payment-service       fraud.score              120    7       42
 ```
 
-Rate, errors and duration per operation, read off a materialized view that rolls
-each span into a one-minute bucket as it is inserted. No trace was assembled to
-get them. `fraud.score` fails about one time in twenty, so a few errors show up
-there. `GET /health` is the container healthcheck, traced like any request.
+Rate, errors and duration per service and operation, read off a materialized
+view that rolls each span into a one-minute bucket as it is inserted. No trace
+was assembled to get them. A fraud check fails about one time in twenty, and the
+error shows on both sides of that call: `fraud.score` in `payment-service` and
+`POST /fraud/score` in `fraud-service`. `GET /health` is the container
+healthcheck, traced like any request.
+
+Your errors, p99 values and `GET /health` count will differ: the fraud score is
+random, timings depend on your machine, and the healthcheck runs every 10
+seconds for as long as the stack is up. The 120 in every other row stays the
+same, until you send more traffic. The view covers the last hour, so if it is
+more than an hour since you sent traffic, the script tells you to send some.
 
 What it runs:
 
 ```sql
-SELECT span_name,
+SELECT service_name, span_name,
        countMerge(span_count) AS spans,
        countIfMerge(error_count) AS errors,
        round(quantileTDigestMerge(0.99)(duration_p99) / 1e6, 1) AS p99_ms
 FROM tracing.red_service_minute
-WHERE service_name = 'checkout-service'
-  AND ts_bucket_start >= now() - INTERVAL 1 HOUR
-GROUP BY span_name
-ORDER BY spans DESC, span_name
+WHERE ts_bucket_start >= now() - INTERVAL 1 HOUR
+GROUP BY service_name, span_name
+ORDER BY service_name, spans DESC, span_name
 ```
 
 ## 7. Derive the service graph
@@ -242,51 +278,26 @@ ORDER BY spans DESC, span_name
 ```
 
 ```
-listing 5.6, parent and child by service.name:
-  no edges: every span here comes from checkout-service, so each pair is internal work
-
-the same self-join, with each callee named by peer.service:
-parent_service    child_service         call_count  p99_ms  error_count
-checkout-service  inventory-service     120         32      0
-checkout-service  notification-service  120         12.3    0
-checkout-service  payment-service       120         93.5    0
-payment-service   fraud-service         120         42      3
+parent_service    child_service         call_count  p99_duration_ns  error_count
+checkout-service  payment-service       120         93688920         0
+checkout-service  inventory-service     120         31879540         0
+payment-service   fraud-service         120         41840830         7
+checkout-service  notification-service  120         11834666         0
 ```
 
 Listing 5.6 joins each span to its parent and keeps the pairs where the two sit
-in different services. Here it finds none, because one process,
-`checkout-service`, emits every span: the services it calls appear only as the
-`peer.service` attribute on its client spans. Name each callee by that attribute
-and the same self-join gives the graph, with `fraud-service` hanging off
-`payment-service`. NOTES.md has the longer version.
+in different services. Each such pair is one call: `checkout-service` calls
+three services, and `payment-service` calls `fraud-service`. A pair inside one
+service, such as `validate_cart` under `GET /checkout`, is internal work and is
+filtered out. `p99_duration_ns` is the callee's p99 in nanoseconds, so 93688920
+is about 94 ms.
 
-What it runs: `clickhouse/service_graph.sql` (listing 5.6), then the same query
-with the service names taken from `peer.service`:
+Your p99 values and fraud errors will differ, and so will the order of the four
+rows, since the listing sorts only by `call_count` and all four are tied at 120.
+The four edges themselves are always the same. Like step 6, the query reads the
+last hour only.
 
-```sql
-SELECT parent_service, child_service,
-       count() AS call_count,
-       round(quantileTDigest(0.99)(duration) / 1e6, 1) AS p99_ms,
-       countIf(status_code = 'STATUS_CODE_ERROR') AS error_count
-FROM (
-    SELECT
-        if(p.span_attributes['peer.service'] != '',
-           p.span_attributes['peer.service'], p.service_name) AS parent_service,
-        s.span_attributes['peer.service'] AS child_service,
-        s.duration,
-        s.status_code
-    FROM tracing.otel_traces AS s
-    INNER JOIN tracing.otel_traces AS p
-        ON s.trace_id = p.trace_id
-       AND s.parent_span_id = p.span_id
-    WHERE s.timestamp >= now() - INTERVAL 1 HOUR
-      AND p.timestamp >= now() - INTERVAL 2 HOUR
-      AND s.span_attributes['peer.service'] != ''
-)
-WHERE parent_service != child_service
-GROUP BY parent_service, child_service
-ORDER BY call_count DESC, parent_service, child_service
-```
+What it runs: `clickhouse/service_graph.sql`, which is listing 5.6 as printed.
 
 ## 8. Look inside the stream-time path
 
@@ -296,13 +307,18 @@ ORDER BY call_count DESC, parent_service, child_service
 
 ```
 job state                      RUNNING
-spans into trace-assembly      847
-watermark behind wall clock    14.1s
+spans into trace-assembly      1327
+watermark behind wall clock    19.5s
 checkpoints completed          1
-last checkpoint size           368.5 KiB
-traces in traces.assembled     125
+last checkpoint size           389.6 KiB
+traces in traces.assembled     126
 spans in spans.late            0
 ```
+
+Your numbers will differ, apart from the job state and an empty `spans.late`.
+The span and trace counts include the healthcheck's one-span traces, which keep
+arriving every 10 seconds, and the watermark lag and checkpoint size depend on
+when you run the script.
 
 The `trace-assembly` operator (listing 5.3) reads every span. Its watermark
 (listing 5.5) trails the clock by the 5-second out-of-order bound, plus the
@@ -328,7 +344,7 @@ still deliver every one whole:
 stopping kafka-2...
 sending 20 checkouts with kafka-2 down...
 all 20 checkouts answered
-query-time path: waiting for ClickHouse to hold all 7 spans of all 20 checkouts... ok
+query-time path: waiting for ClickHouse to hold all 11 spans of all 20 checkouts... ok
 stream-time path: waiting for Flink to assemble the newest one and Jaeger to store it... ok
 starting kafka-2 again...
 waiting for kafka-2 to rejoin... ok
@@ -350,8 +366,11 @@ docker compose start kafka-2
 ## 10. Break atomicity on purpose
 
 This step needs no stack. `benchmarks/atomicity_audit.py` builds 1,000 synthetic
-traces of 8 spans, loses 5 percent of them in one of four ways, and fails if any
-trace comes out partial:
+traces of 8 spans, applies one of four failure modes at a 5 percent rate
+(`FAILURE_RATE`), and fails if any trace comes out partial. `none` drops
+nothing, `drop-whole-trace` drops 5 percent of the traces whole,
+`producer-crash` drops 5 percent of the producer batches, and
+`buffer-overflow` drops 5 percent of the spans:
 
 ```bash
 ./scripts/run-atomicity-audit.sh
@@ -389,7 +408,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r tests/requirements.txt
 python3 tests/test_static.py
-python3 -m pytest -q app/test_consumer_clickhouse.py flink/test_assembly_helpers.py benchmarks/test_atomicity_audit.py
+python3 -m pytest -q app/test_checkout.py app/test_consumer_clickhouse.py flink/test_assembly_helpers.py benchmarks/test_atomicity_audit.py
 ```
 
 Against the running stack:

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Chapter 5 stack test. Asserts five things against the LIVE stack:
-#   1. the query-time path fills ClickHouse,
+#   1. the query-time path fills ClickHouse, and listing 5.6 run as printed
+#      finds the four service-to-service edges in it,
 #   2. the stream-time path assembles MORE traces than it had before, and a
 #      checkout's assembled copy reaches Jaeger whole,
 #   3. the atomicity invariant holds: no checkout trace in the store has
@@ -17,12 +18,14 @@
 # growth check rather than a total, and an explicit liveness check last.
 #
 # Assertion 3 is the chapter's central claim: whole traces or none, never a
-# partial trace. Live data shows the checkout endpoint emits a seven-span
-# trace per call, not the six the chapter prose describes: Flask's
-# auto-instrumentation adds one root "GET /checkout" server span on top of
-# the six manually created spans (validate_cart, inventory.reserve,
-# payment.charge, fraud.score, order.create, notification.send). The same
-# auto-instrumentation also traces the container healthcheck's GET /health
+# partial trace. The checkout endpoint emits an eleven-span trace per call:
+# Flask's auto-instrumentation opens the root "GET /checkout" server span,
+# checkout-service adds validate_cart, inventory.reserve, payment.charge,
+# order.create and notification.send, and each call lands in the called
+# service as a receiving span of its own (inventory-service, payment-service,
+# fraud-service, notification-service), with payment-service's fraud.score
+# client span between payment and fraud. The same auto-instrumentation also
+# traces the container healthcheck's GET /health
 # calls as their own one-span traces, which are not checkout traces and are
 # excluded below rather than miscounted as partial ones.
 #
@@ -43,6 +46,8 @@
 # Usage: bash tests/test_stack.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+SPANS=11
 
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
@@ -80,6 +85,10 @@ echo "== 1. query-time path filled ClickHouse =="
 ROWS=$(CH --query "SELECT count() FROM tracing.otel_traces")
 [ "${ROWS:-0}" -gt 0 ] || fail "tracing.otel_traces is empty (query-time path did not deliver)"
 pass "ClickHouse tracing.otel_traces holds $ROWS rows"
+EDGES=$(docker compose exec -T clickhouse clickhouse-client --format TSV --multiquery < clickhouse/service_graph.sql | cut -f1,2 | sort | tr '\t\n' '> ')
+WANT_EDGES="checkout-service>inventory-service checkout-service>notification-service checkout-service>payment-service payment-service>fraud-service "
+[ "$EDGES" = "$WANT_EDGES" ] || fail "listing 5.6 found edges [$EDGES], expected [$WANT_EDGES]"
+pass "listing 5.6 finds the four service edges: $EDGES"
 
 echo "== 2. stream-time path produced assembled traces =="
 KTOPICS --list | grep -q "^traces.assembled$" || fail "topic traces.assembled does not exist"
@@ -99,8 +108,8 @@ NEWEST=$(CH --query "
     SELECT trace_id FROM tracing.otel_traces WHERE span_name = 'GET /checkout'
     AND timestamp < now() - INTERVAL 30 SECOND ORDER BY timestamp DESC LIMIT 1")
 STREAM_SPANS=$(python3 scripts/query.py jaeger-sources "$NEWEST" | sed -n 's/^stream-time //p')
-[ "${STREAM_SPANS:-0}" = "7" ] || fail "checkout trace $NEWEST has ${STREAM_SPANS:-0} stream-time spans in Jaeger, expected 7; the stream-time path does not reach its reader"
-pass "checkout trace $NEWEST reached Jaeger through the stream-time path with all 7 spans"
+[ "${STREAM_SPANS:-0}" = "$SPANS" ] || fail "checkout trace $NEWEST has ${STREAM_SPANS:-0} stream-time spans in Jaeger, expected $SPANS; the stream-time path does not reach its reader"
+pass "checkout trace $NEWEST reached Jaeger through the stream-time path with all $SPANS spans"
 
 echo "== 3. atomicity: no partial checkout traces in the store =="
 # The grouped query below only examines trace_ids that carry a "GET
@@ -122,7 +131,7 @@ pass "checkout trace_ids grew by $CHECKOUT_TRACES_GROWTH (before=$CHECKOUT_TRACE
 
 # Scope to trace_ids that carry the "GET /checkout" root span so the
 # healthcheck's one-span "GET /health" traces (see header) are not
-# miscounted as partial. A real checkout trace has 7 spans; fewer than that
+# miscounted as partial. A real checkout trace has $SPANS spans; fewer than that
 # is a partial-trace violation.
 #
 # The max(timestamp) guard excludes traces that are still being written. Under
@@ -137,10 +146,10 @@ PARTIAL=$(CH --query "
             SELECT trace_id FROM tracing.otel_traces WHERE span_name = 'GET /checkout'
         )
         GROUP BY trace_id
-        HAVING n < 7 AND last_span < now() - INTERVAL 30 SECOND
+        HAVING n < $SPANS AND last_span < now() - INTERVAL 30 SECOND
     )")
-[ "${PARTIAL:-0}" = "0" ] || fail "$PARTIAL settled checkout trace_ids have fewer than 7 spans (partial traces in store)"
-pass "no partial traces: every settled checkout trace_id in tracing.otel_traces has 7 spans"
+[ "${PARTIAL:-0}" = "0" ] || fail "$PARTIAL settled checkout trace_ids have fewer than $SPANS spans (partial traces in store)"
+pass "no partial traces: every settled checkout trace_id in tracing.otel_traces has $SPANS spans"
 
 echo "== 4. the late-span side output is a dead end, not a feedback loop =="
 KTOPICS --list | grep -q "^spans.late$" || fail "topic spans.late does not exist"

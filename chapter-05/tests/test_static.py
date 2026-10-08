@@ -107,14 +107,22 @@ def test_every_scrape_target_is_a_compose_service():
 
 
 @test
-def test_the_checkout_trace_has_seven_spans():
-    """Every wait and every check counts seven spans per checkout: six the
-    endpoint opens plus the root Flask opens for the request."""
-    body = read("app/checkout.py").split('@app.route("/checkout")', 1)[1].split("@app.route", 1)[0]
-    opened = re.findall(r'start_as_current_span\("([\w.]+)"', body)
-    helpers = re.findall(r'_simulated_downstream\("([\w.]+)"', body)
-    assert len(opened) + len(helpers) == 6, f"the endpoint opens {opened + helpers}"
-    assert "uniqExact(span_id) = 7" in read("scripts/lib.sh")
+def test_every_span_count_agrees_with_the_checkout_trace():
+    """app/test_checkout.py runs a checkout and counts its spans. Every wait in
+    the scripts and every check in the stack test counts the same number."""
+    assert "self.assertEqual(len(spans), 11)" in read("app/test_checkout.py")
+    assert "SPANS_PER_CHECKOUT=11" in read("scripts/lib.sh")
+    assert "uniqExact(span_id) = $SPANS_PER_CHECKOUT" in read("scripts/lib.sh")
+    assert re.search(r"^SPANS=11$", read("tests/test_stack.sh"), re.M)
+
+
+@test
+def test_listing_5_6_runs_as_printed():
+    """Each downstream call lands in a service of its own, so the listing finds
+    edges without help. No second, rewritten query hides behind it."""
+    script = read("scripts/show-service-graph.sh")
+    assert "ch_file clickhouse/service_graph.sql" in script
+    assert "peer.service" not in script, "show-service-graph.sh runs a rewritten query again"
 
 
 # ------------------------------------------------------------- the listings

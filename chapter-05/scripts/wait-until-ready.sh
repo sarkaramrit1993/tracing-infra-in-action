@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Waits until every checkout send-traffic.sh sent has reached both paths: all
-# seven spans of each in ClickHouse, and the stream-time copy of the newest one
+# spans of each in ClickHouse, and the stream-time copy of the newest one
 # in Jaeger. Every wait is a check on the data itself, never a fixed sleep.
 #
 # Usage: ./scripts/wait-until-ready.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shows how listing 5.1's table lays spans out on disk: hourly partitions,
-# immutable parts, and the newest checkout's seven spans side by side inside
+# immutable parts, and the newest checkout's spans side by side inside
 # each part that holds them, because the table is sorted by trace ID.
 #
 # Usage: ./scripts/show-table-layout.sh

@@ -8,7 +8,7 @@ The short list:
 
 - The stack starts and the Flink job dies a few minutes later:
   [give it the memory it asks for](#give-the-stack-the-memory-it-asks-for).
-- Listing 5.6 prints no edges: [one process emits every span](#why-listing-56-finds-no-edges-here).
+- Five service names from one container: [the called services are simulated](#why-the-checkout-trace-has-eleven-spans).
 - A trace that never comes out of Flink: [what moves the watermark](#what-moves-the-watermark).
 - Counting a topic with `kafka-get-offsets.sh`: [offsets overcount](#why-the-scripts-count-records-not-offsets).
 - No stream-time traces in Jaeger: [why the sink streams are typed as raw bytes](#why-the-sink-streams-are-typed-as-raw-bytes).
@@ -73,9 +73,41 @@ and ClickHouse. Open `http://localhost:9090/targets` and every target should
 read UP. Each collector reports its own pipeline counters there, which is the
 first place to look when one path delivers and the other does not.
 
+### Flink's own metrics
+
+README step 8 reads a summary through Flink's REST API. The same numbers are
+in the Flink UI at `http://localhost:8081`: open the `chapter5-trace-assembly`
+job, click the box whose name starts with `trace-assembly`, and add these on
+its Metrics tab (the UI puts the subtask number in front, `0.`):
+
+- `trace-assembly.numRecordsIn`: spans that reached the assembler from Kafka.
+- `trace-assembly.numRecordsOut`: assembled traces it emitted, including the
+  healthcheck's one-span traces.
+- `trace-assembly.currentInputWatermark`: the watermark Figure 5.6 walks, in
+  epoch milliseconds. Subtract it from the clock and you get the lag step 8
+  prints.
+
+`lastCheckpointSize` is a job metric, not an operator one: the size of the
+latest checkpoint in bytes, which with this job's heap state backend is the
+keyed state it held. It grows with the traces waiting for their timer and
+drops once they are emitted. The UI shows the same figure per checkpoint on
+the job's Checkpoints tab.
+
+Prometheus has all four, scraped from ports 9249 and 9250. Query them at
+`http://localhost:9090`:
+
+```text
+flink_taskmanager_job_task_operator_numRecordsIn{operator_name="trace_assembly"}
+flink_taskmanager_job_task_operator_numRecordsOut{operator_name="trace_assembly"}
+flink_taskmanager_job_task_operator_currentInputWatermark{operator_name="trace_assembly"}
+flink_jobmanager_job_lastCheckpointSize
+```
+
+Late spans have no Flink counter; see [Late spans](#late-spans).
+
 ## Give the stack the memory it asks for
 
-Both paths deliver every checkout with all seven spans when Flink has room. On a
+Both paths deliver every checkout with all eleven spans when Flink has room. On a
 Docker allocation under roughly 6 GB the Flink taskmanager is OOM-killed partway
 through a run and the job fails with it. The traces it assembled before dying
 stay in `traces.assembled`, so a dead stack looks healthy if you only count what
@@ -87,39 +119,49 @@ job is still `RUNNING` and the taskmanager was not OOM-killed. If either fails,
 raise Docker's memory limit rather than trust the earlier passes. The repo-wide
 [troubleshooting.md](../troubleshooting.md) has more.
 
-## Why the checkout trace has seven spans
+## Why the checkout trace has eleven spans
 
-The checkout endpoint creates six spans itself: `validate_cart`,
-`inventory.reserve`, `payment.charge`, `fraud.score` (a child of
-`payment.charge`), `order.create` and `notification.send`. Flask's
-auto-instrumentation adds a seventh, the root `GET /checkout` server span.
+`checkout-service` creates six spans: Flask's auto-instrumentation opens the
+root `GET /checkout` server span, and the endpoint adds `validate_cart`,
+`inventory.reserve`, `payment.charge`, `order.create` and `notification.send`.
+The calls are client spans (a producer span for the notification), and each
+lands in the called service as a receiving span of its own, under that
+service's own `service.name`:
+
+| Caller span | Called service | Its span |
+|---|---|---|
+| `inventory.reserve` | `inventory-service` | `POST /inventory/reserve` (server) |
+| `payment.charge` | `payment-service` | `POST /payments/charge` (server) |
+| `fraud.score`, in `payment-service` | `fraud-service` | `POST /fraud/score` (server) |
+| `notification.send` | `notification-service` | `process notification` (consumer) |
+
+That is eleven: six in `checkout-service`, two in `payment-service`, one in
+each of the other three.
+
+The four called services do not run as containers of their own. `app/checkout.py`
+simulates them in the same process, with one `TracerProvider` and `Resource` per
+service, so each span carries the right `service.name`. Context passes between
+them in-process, the way it would pass in a `traceparent` header between real
+services. All five providers share one `BatchSpanProcessor`: the OTLP exporter
+groups each batch by resource on the wire, and one queue keeps a trace's spans
+in the same export batches, so they reach Flink close together. Five separate
+queues would flush up to five seconds apart, which is the whole of the job's
+out-of-order bound.
+
+This is what lets listing 5.6 run exactly as printed. It joins each span to its
+parent and keeps the pairs whose `service.name` differs, and every call here is
+such a pair: `checkout-service` to inventory, payment and notification, and
+`payment-service` to `fraud-service`. The client spans still carry
+`peer.service`, but nothing in this directory reads it.
 
 The same instrumentation traces the container healthcheck's `GET /health` every
 10 seconds as a one-span trace. Those are not checkouts, so every check that
 counts spans per trace scopes itself to trace IDs that carry a `GET /checkout`
 span.
 
-`fraud.score` is marked as an error when its random score is above 0.95, so
-about one checkout in twenty carries an error span. That is what the error
-columns in steps 6 and 7 count.
-
-## Why listing 5.6 finds no edges here
-
-Listing 5.6 joins each span to its parent and names both ends by
-`service_name`. In this stack one process, `checkout-service`, emits every span.
-`inventory-service`, `payment-service`, `fraud-service` and
-`notification-service` exist only as the `peer.service` attribute on the client
-and producer spans that call them. So every parent-child pair is inside
-`checkout-service`, and the listing's last filter, `parent_service !=
-child_service`, removes all of them, which is what it is meant to do with
-internal work.
-
-That is why `scripts/show-service-graph.sh` runs the listing as printed, then
-runs the same self-join with the callee named by `peer.service`. Section 5.4.1
-names both routes: the service identity of the callee is either on the child
-span or derivable from the client span that called it. In a deployment where
-each service runs its own SDK, the listing as printed is the one that finds the
-edges.
+A fraud score above 0.95 marks both `fraud.score` and `POST /fraud/score` as
+errors, so about one checkout in twenty carries error spans. That is what the
+error columns in steps 6 and 7 count.
 
 ## What moves the watermark
 
@@ -255,7 +297,7 @@ without assembling a single trace. This is the aggregate-first pattern section
 Replication factor 2 with `min.insync.replicas=1` keeps every partition
 writable with one broker down. The checkout service never notices either way,
 because the SDK exports spans asynchronously. The real check is that every
-checkout sent while the broker was down still reaches ClickHouse with all seven
+checkout sent while the broker was down still reaches ClickHouse with all eleven
 spans and comes out of Flink assembled. `scripts/stop-a-broker.sh` starts the
 broker again on exit even if a check fails.
 
