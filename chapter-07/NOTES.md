@@ -24,10 +24,15 @@ The test is that any one exercise can be finished start to finish without
 opening this file. If a section here is load-bearing for a step, it is in the
 wrong document.
 
-## Why there are two helpers, `ch` and `ch_file`
+## Why every step is a script, and why the scripts have two helpers
 
-Both are defined at the top of README's "Look at your trace data", and again at
-the top of each exercise so that each one stands alone.
+Every command in the README and the exercises is a script in `scripts/`, so a
+reader pastes it and sees the result without defining anything in their shell.
+An earlier version had the reader paste two shell functions first and carry a
+`$TID` or `$PART` from one block to the next. Open a new terminal, or start an
+exercise in the middle, and every later block ran against an empty string. The
+scripts share `scripts/lib.sh`, which runs ClickHouse queries through two
+helpers, `ch` and `ch_file`.
 
 `clickhouse-client` reads stdin for INSERT data even when the row is already
 inline in `VALUES`, and `docker compose exec -T` hands it whatever stdin you
@@ -45,15 +50,33 @@ and hung anywhere stdin was an open pipe. So the file case gets its own name,
 The same split is in `tests/test_stack.sh` and `tests/test_tenancy.sh` as `CH`
 and `CH_FILE`, for the same reason.
 
-## Why the point lookup filters on `GET /checkout`
+## Why the walkthrough waits instead of sleeping
 
-README's "Look at your trace data" picks a `trace_id` before it looks one up, and
-it filters that pick on `GET /checkout`.
+A span takes the app's five-second export timer, the Collector, Kafka and the
+consumer's batch on its way to ClickHouse, and a second path to Tempo. A fixed
+`sleep` is tuned to one machine and a guess on any other, and a read that runs
+early does not fail. It prints a short, plausible answer.
 
-The container healthcheck writes a one-span `GET /health` trace every 10 seconds,
-and those outnumber the checkout traces once the traffic loop finishes. Without
-the filter you would usually pick up a one-span healthcheck trace instead of the
-seven-span checkout trace.
+So `scripts/send-traffic.sh` notes the time it started and how many checkouts
+answered, and `scripts/wait-until-ready.sh` counts spans in ClickHouse from that
+time until all seven per checkout are there, then asks Tempo for the last
+checkout's trace by id. Only then does it mark the data ready.
+
+Every step that reads the traffic checks that mark first. Run one before
+`send-traffic.sh` and it says "nothing sent yet: run ./scripts/send-traffic.sh
+first". Run one after sending but before waiting and it says "still arriving:
+run ./scripts/wait-until-ready.sh first". Sending again clears the mark. The
+mark lives in a state file under your temp directory, tied to the ClickHouse and
+Tempo containers that were running when it was written, so it does not survive
+`docker compose down -v`.
+
+## Why the point lookup uses the last trace sent
+
+README step 6 looks up the last checkout `wait-until-ready.sh` saw land in both
+stores, rather than whatever trace is newest. The container healthcheck writes a
+one-span `GET /health` trace every 10 seconds, and those outnumber the checkout
+traces once the traffic stops. Picking the newest trace would usually pick a
+healthcheck.
 
 The lookup itself is answered by the bloom-filter skip index, which resolves the
 membership question without scanning the random `trace_id` column.
@@ -106,10 +129,19 @@ The rule fires on parts older than two days. The exercise stages rows dated
 yesterday, which is inside that boundary on purpose, so they land hot and there
 is a move to watch. It then moves the partition by hand.
 
-It selects a real partition id into `$PART` first and then moves it explicitly,
-because `MOVE PARTITION` takes a literal id and not a subquery. Deriving that id
-from the exercise's own rows, rather than from `ORDER BY partition LIMIT 1`, is
-what keeps the move and the later drop off the live traffic in today's partition.
+The exercise works on `tracing.tiering_demo`, a copy of `otel_traces` made with
+`CREATE TABLE ... AS`, which carries the columns, the storage policy and the TTL
+but no rows. An earlier version staged its rows inside `otel_traces` under their
+own service name. That broke two ways. `MOVE PARTITION` and `DROP PARTITION` act
+on a whole day, so whatever else landed on that date went with them: the
+tiering benchmark's rows, or your own traffic, since the server's clock is UTC
+and yesterday in UTC is still today for much of the world. And lowering the
+boundary to one hour for the rule variation moved every live part older than an
+hour to S3, where the cleanup never brought it back. On its own table none of
+that can happen, and the cleanup is one `DROP TABLE`.
+
+`MOVE PARTITION` takes a literal id and not a subquery, so the scripts read a
+real partition id off the demo table first and then move it explicitly.
 
 An earlier version lowered the move boundary to five seconds first, to
 make the part eligible. That made every part eligible at once, which wakes
@@ -117,14 +149,14 @@ ClickHouse's background mover, and the manual `MOVE PARTITION` then raced it and
 failed intermittently with `PART_IS_TEMPORARILY_LOCKED`. `MOVE PARTITION` is an
 explicit move that does not need the part to be TTL-eligible, so the boundary
 change was never doing any work. Dropping it removes the race and leaves listing
-7.2's real rule on the table, which is one less thing to put back.
+7.2's real rule on the table.
 
 When the rule does the moving, rather than a hand-written `MOVE PARTITION`, the
 wait before `disk_name` changes is the scheduler and not the storage. The
 move-selecting task sleeps five seconds while it has work and backs off toward
 sixty once the server has been quiet, so the same ALTER can land in eleven
-seconds or take the better part of a minute. `tiering_automation.py` waits up to
-three minutes for that reason, and publishes no number measured from it.
+seconds or take the better part of a minute. `tiering_automation.py` and
+`scripts/let-the-rule-move-it.sh` wait up to three minutes for that reason, and publishes no number measured from it.
 
 An insert picks its destination from the move TTL at write time. Rows already
 past the boundary are written straight to the cold disk and no part is ever
