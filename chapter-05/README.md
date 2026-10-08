@@ -60,10 +60,17 @@ docker compose up -d --build
 docker compose ps
 ```
 
-The first build takes a few minutes: the Flink image installs PyFlink. Two
-one-shot jobs run and exit: `kafka-init` creates the three topics, and
-`flink-job-submit` submits the assembly job. Flink is the last thing to come up;
-the next script waits for it, so you can go straight on.
+The first build takes a few minutes: the Flink image installs PyFlink.
+`kafka-init` creates the three topics and exits, so `docker compose ps` does
+not list it. `flink-job-submit` submits the assembly job and stays `Up` as long
+as the job runs. Flink is the last thing to come up; the next script waits for
+it, so you can go straight on.
+
+`docker compose down -v` throws everything away, and the next start is fresh.
+A plain restart (`docker compose stop`, then `docker compose up -d`) keeps
+Kafka and ClickHouse, and the Flink job picks up where it left off in the
+topic. Jaeger keeps traces in memory and comes back empty, so after a restart
+start again from step 2.
 
 ## 2. Send some traffic
 
@@ -231,12 +238,12 @@ GROUP BY _part ORDER BY _part;
 
 ```
 service_name          span_name                spans  errors  p99_ms
-checkout-service      GET /checkout            120    0       180.5
-checkout-service      GET /health              7      0       5.2
-fraud-service         POST /fraud/score        120    4       42
-inventory-service     POST /inventory/reserve  120    0       31.9
-notification-service  process notification     120    0       12.1
-payment-service       POST /payments/charge    120    0       93.9
+checkout-service      GET /checkout            120    0       182
+checkout-service      GET /health              7      0       4.4
+fraud-service         POST /fraud/score        120    8       42.3
+inventory-service     POST /inventory/reserve  120    0       33.3
+notification-service  process notification     120    0       13.5
+payment-service       POST /payments/charge    120    0       94.9
 ```
 
 Rate, errors and duration per service and operation, read off a materialized
@@ -278,18 +285,18 @@ The server-or-consumer filter lives in the view itself, in
 
 ```
 parent_service    child_service         call_count  p99_duration_ns  error_count
-checkout-service  payment-service       120         93688920         0
-checkout-service  inventory-service     120         31879540         0
-payment-service   fraud-service         120         41840830         7
-checkout-service  notification-service  120         11834666         0
+checkout-service  payment-service       120         94863300         0
+checkout-service  inventory-service     120         33255750         0
+payment-service   fraud-service         120         42314830         8
+checkout-service  notification-service  120         13460041         0
 ```
 
 Listing 5.6 joins each span to its parent and keeps the pairs where the two sit
 in different services. Each such pair is one call: `checkout-service` calls
 three services, and `payment-service` calls `fraud-service`. A pair inside one
 service, such as `validate_cart` under `GET /checkout`, is internal work and is
-filtered out. `p99_duration_ns` is the callee's p99 in nanoseconds, so 93688920
-is about 94 ms.
+filtered out. `p99_duration_ns` is the callee's p99 in nanoseconds, so 94863300
+is about 95 ms.
 
 Your p99 values and fraud errors will differ, and so will the order of the four
 rows, since the listing sorts only by `call_count` and all four are tied at 120.

@@ -310,6 +310,8 @@ def test_readers_refuse_to_run_before_their_data_exists():
         "sending traffic again must start a fresh state file, clearing the ready mark"
     assert "STACK_ID=$(stack_id)" in send, \
         "the state file must be tied to the running stack so it does not outlive down -v"
+    assert "ps -q jaeger" in lib and "State.StartedAt" in lib, \
+        "Jaeger keeps traces in memory, so the state file must not outlive a restart either"
     assert ">> \"$STATE_DIR" not in read("scripts/wait-until-ready.sh"), \
         "appending the ready mark gives a second run two LAST_TRACE lines, and every reader breaks"
 

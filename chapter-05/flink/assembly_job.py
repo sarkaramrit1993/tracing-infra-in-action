@@ -50,6 +50,7 @@ from pyflink.datastream.state import (
     StateTtlConfig,
 )
 from pyflink.common.typeinfo import Types as PyTypes
+from pyflink.java_gateway import get_gateway
 
 from opentelemetry.proto.trace.v1.trace_pb2 import TracesData, ResourceSpans, ScopeSpans, Span
 from opentelemetry.proto.common.v1.common_pb2 import KeyValue, AnyValue
@@ -260,6 +261,23 @@ class TraceAssembler(KeyedProcessFunction):
         return out.SerializeToString()
 
 
+def _committed_or_earliest():
+    """Start from the offsets the consumer group committed at its last
+    checkpoint, or from the start of the topic when the group has none.
+
+    A restarted stack resubmits this job with empty state. Starting from the
+    start of the topic again would replay every span and ship every trace a
+    second time. PyFlink's own committed_offsets() helper names the shaded
+    Kafka class from the fat SQL connector jar, which this image does not
+    carry, so the reset strategy comes from the plain kafka-clients jar.
+    """
+    jvm = get_gateway().jvm
+    earliest = jvm.org.apache.kafka.clients.consumer.OffsetResetStrategy.EARLIEST
+    initializer = jvm.org.apache.flink.connector.kafka.source.enumerator.initializer
+    return KafkaOffsetsInitializer(
+        initializer.OffsetsInitializer.committedOffsets(earliest))
+
+
 def build_job():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_parallelism(PARALLELISM)
@@ -269,11 +287,8 @@ def build_job():
               .set_bootstrap_servers(KAFKA_BOOTSTRAP)
               .set_topics(SOURCE_TOPIC)
               .set_group_id("flink-trace-assembly")
-              # earliest() so a fresh run assembles the spans already in the
-              # topic (a reader who just brought the stack up wants to see the
-              # backlog processed, not only spans produced after job start).
-              # On restart, checkpointed offsets take over.
-              .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+              .set_property("commit.offsets.on.checkpoint", "true")
+              .set_starting_offsets(_committed_or_earliest())
               .set_value_only_deserializer(_bytes_schema())
               .build())
 

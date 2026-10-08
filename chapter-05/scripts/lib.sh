@@ -63,6 +63,7 @@ require() {
 }
 
 # poll LABEL SECONDS COMMAND...: rerun COMMAND once a second until it succeeds.
+# COMMAND can set POLL_HINT to say what to do if it never does.
 poll() {
   local label=$1 budget=$2 deadline
   shift 2
@@ -71,16 +72,24 @@ poll() {
   until "$@"; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
       echo
-      die "timed out after ${budget}s ${label}. Check docker compose ps and docker compose logs"
+      die "timed out after ${budget}s ${label}. ${POLL_HINT:-Check docker compose ps and docker compose logs}"
     fi
     sleep 1
   done
+  POLL_HINT=
   echo ok
 }
 
-# The ClickHouse container is recreated by `docker compose down`, so its ID is
-# what ties a state file to the stack it describes.
-stack_id() { docker compose ps -q clickhouse 2>/dev/null; }
+# Jaeger keeps traces in memory, so a restart empties it as surely as
+# `docker compose down` does. Its container ID and start time tie a state file
+# to the stack, and the stored traces, it describes.
+stack_id() {
+  local id
+  id=$(docker compose ps -q jaeger 2>/dev/null)
+  if [ -n "$id" ]; then
+    docker inspect -f '{{.Id}}@{{.State.StartedAt}}' "$id" 2>/dev/null || true
+  fi
+}
 
 save_state() {
   mkdir -p "$STATE_DIR"
@@ -119,6 +128,7 @@ require_ready() {
 # (nanoseconds on ClickHouse's clock) have all their spans in ClickHouse, then
 # until Jaeger holds the stream-time copy of the newest of them. Flink emits in
 # event-time order, so the newest one is the last to come out. Sets LAST.
+# MISSING_HINT, if set, is what to tell the reader when checkouts never arrive.
 await_both_paths() {
   CHECKOUTS_SINCE="SELECT trace_id FROM tracing.otel_traces
     WHERE span_name = 'GET /checkout'
@@ -135,6 +145,7 @@ clickhouse_has_every_span() {
       SELECT trace_id FROM tracing.otel_traces
       WHERE trace_id IN ($CHECKOUTS_SINCE)
       GROUP BY trace_id HAVING uniqExact(span_id) = $SPANS_PER_CHECKOUT)" 2>/dev/null) || return 1
+  POLL_HINT="${whole:-0} of $WANT checkouts arrived whole. ${MISSING_HINT:-Check docker compose ps and docker compose logs}"
   [ "${whole:-0}" -ge "$WANT" ]
 }
 jaeger_has_assembled_last() {

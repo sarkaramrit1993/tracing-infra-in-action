@@ -179,7 +179,7 @@ echo "== 5. the assembly job is still alive at the end of the run =="
 # Check liveness last, or a dead stack looks like a healthy one.
 TM_OOM=$(docker inspect -f '{{.State.OOMKilled}}' \
     "$(docker compose ps -aq flink-taskmanager)" 2>/dev/null || echo unknown)
-[ "$TM_OOM" != "true" ] || fail "the Flink taskmanager was OOM-killed during this run; raise Docker's memory limit (see troubleshooting.md) and re-run, the results above are not trustworthy"
+[ "$TM_OOM" != "true" ] || fail "the Flink taskmanager was OOM-killed during this run; raise Docker's memory limit (see ../troubleshooting.md) and re-run, the results above are not trustworthy"
 JOB_STATE=$(curl -s "http://localhost:${FLINK_PORT:-8081}/jobs/overview" \
     | python3 -c "import sys,json;print(next((j['state'] for j in json.load(sys.stdin).get('jobs',[])),'NONE'))" 2>/dev/null || echo UNREACHABLE)
 [ "$JOB_STATE" = "RUNNING" ] || fail "the Flink assembly job is in state $JOB_STATE, expected RUNNING; the stream-time results above are not trustworthy"
