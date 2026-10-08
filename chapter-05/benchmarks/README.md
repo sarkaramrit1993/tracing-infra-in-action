@@ -42,7 +42,7 @@ BACKEND=clickhouse CLICKHOUSE_HOST=localhost python3 store_then_stitch.py
 
 The `clickhouse` backend inserts rows over the network and lets the server own
 compression, so it reports `compressed_size=0` (no client-side ratio); read the
-on-disk size from `system.parts` as shown in the top-level README step 4.
+on-disk size from `system.parts`, as `scripts/show-table-layout.sh` does in the top-level README step 5.
 
 Tunable knobs: `NUM_SPANS`, `NUM_ITERATIONS`.
 

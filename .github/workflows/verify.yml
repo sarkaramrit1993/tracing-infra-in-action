@@ -89,6 +89,8 @@ jobs:
             chapter-05/flink/test_assembly_helpers.py \
             chapter-05/benchmarks/test_atomicity_audit.py \
             -q
+          /tmp/venv-ch05/bin/pip install --quiet -r chapter-05/tests/requirements.txt
+          /tmp/venv-ch05/bin/python chapter-05/tests/test_static.py
 
       - name: Chapter 7 offline tests
         run: |

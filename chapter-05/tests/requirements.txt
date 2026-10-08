@@ -1,0 +1,4 @@
+PyYAML>=6.0
+pytest
+opentelemetry-proto==1.42.1
+protobuf>=4.25,<6
