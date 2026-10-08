@@ -24,6 +24,9 @@ to follow along.
 | 9.3 | `collector/gateway-config.yaml` | The three bridges between signals, declared in one config |
 
 Listings 9.1 and 9.3 are two parts of the same Collector config file.
+The book prints a readable excerpt of each, so the files here differ from it in
+small ways. If you plan to paste a listing into your own stack, read
+[NOTES.md](NOTES.md) under "Running the book's listings verbatim" first.
 
 ## Before you start
 
@@ -139,10 +142,14 @@ after sampler        14       9       64.3%
 ```
 
 Before the sampler: 306 calls, 9 errors. After it: 14 calls, still 9 errors. The
-sampler kept every error but dropped most of the successes. Your post-sampler
-total will vary a little from run to run; the other three numbers won't.
+sampler kept every error but dropped most of the successes. Your first three
+numbers will match these. The after-sampler total won't: the sampler keeps a
+random one in a hundred of the successes, so that total usually lands between 9
+and 16, and the after-sampler error rate anywhere from about 56 percent to 100.
+It changes from run to run.
 
-The real error rate is 2.9 percent. The sampled data says 64 percent. Any
+The real error rate is 2.9 percent. In the block above, which is the run
+recorded in [RESULTS.md](RESULTS.md), the sampled data says 64 percent. Any
 dashboard or alert built on the post-sampler series would show the same wrong
 number. `exercises/divergence.md` walks through it.
 
