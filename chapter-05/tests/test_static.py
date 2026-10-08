@@ -125,6 +125,16 @@ def test_listing_5_6_runs_as_printed():
     assert "peer.service" not in script, "show-service-graph.sh runs a rewritten query again"
 
 
+@test
+def test_red_counts_receiving_spans_only():
+    """Section 5.4.2: Rate is the count of receiving spans, kind SERVER or
+    CONSUMER. The consumer stores span_kind as the OTLP enum name."""
+    assert "WHERE span_kind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER')" in \
+        read("clickhouse/materialized_views.sql")
+    assert '2: "SPAN_KIND_SERVER"' in read("app/consumer_clickhouse.py")
+    assert '5: "SPAN_KIND_CONSUMER"' in read("app/consumer_clickhouse.py")
+
+
 # ------------------------------------------------------------- the listings
 
 @test

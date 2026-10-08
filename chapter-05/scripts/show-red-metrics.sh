@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reads RED metrics (rate, errors, duration) per service and operation off the
-# materialized view that rolls every span into a per-minute bucket as it is
-# inserted. No trace is assembled to produce them.
+# materialized view that rolls every receiving span (server or consumer) into a
+# per-minute bucket as it is inserted. No trace is assembled to produce them.
 #
 # Usage: ./scripts/show-red-metrics.sh
 # shellcheck source=scripts/lib.sh

@@ -5,7 +5,9 @@
 
 -- Per-service-per-operation span counts and error counts in 1-minute buckets.
 -- The cardinality basis is (service_name, span_name): span_name is the
--- operation, matching the rollup key section 5.4.2 describes.
+-- operation, matching the rollup key section 5.4.2 describes. Only receiving
+-- spans (server and consumer) count, so each request is counted once, by the
+-- service that handled it, not again by its caller's client span.
 CREATE TABLE IF NOT EXISTS tracing.red_service_minute
 (
     ts_bucket_start DateTime           CODEC(Delta, ZSTD(1)),
@@ -34,4 +36,5 @@ AS SELECT
     quantileTDigestState(0.95)(duration) AS duration_p95,
     quantileTDigestState(0.99)(duration) AS duration_p99
 FROM tracing.otel_traces
+WHERE span_kind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER')
 GROUP BY ts_bucket_start, service_name, span_name;

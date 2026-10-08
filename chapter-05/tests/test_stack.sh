@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Chapter 5 stack test. Asserts five things against the LIVE stack:
-#   1. the query-time path fills ClickHouse, and listing 5.6 run as printed
-#      finds the four service-to-service edges in it,
+#   1. the query-time path fills ClickHouse, listing 5.6 run as printed
+#      finds the four service-to-service edges in it, and the RED view holds
+#      exactly the receiving operations, never a caller's client span,
 #   2. the stream-time path assembles MORE traces than it had before, and a
 #      checkout's assembled copy reaches Jaeger whole,
 #   3. the atomicity invariant holds: no checkout trace in the store has
@@ -89,6 +90,12 @@ EDGES=$(docker compose exec -T clickhouse clickhouse-client --format TSV --multi
 WANT_EDGES="checkout-service>inventory-service checkout-service>notification-service checkout-service>payment-service payment-service>fraud-service "
 [ "$EDGES" = "$WANT_EDGES" ] || fail "listing 5.6 found edges [$EDGES], expected [$WANT_EDGES]"
 pass "listing 5.6 finds the four service edges: $EDGES"
+RED_OPS=$(CH --format TSV --query "
+    SELECT DISTINCT concat(service_name, '>', span_name) FROM tracing.red_service_minute
+    ORDER BY 1" | tr '\n' ' ')
+WANT_OPS="checkout-service>GET /checkout checkout-service>GET /health fraud-service>POST /fraud/score inventory-service>POST /inventory/reserve notification-service>process notification payment-service>POST /payments/charge "
+[ "$RED_OPS" = "$WANT_OPS" ] || fail "the RED view holds [$RED_OPS], expected only the receiving spans [$WANT_OPS]"
+pass "the RED view counts receiving spans only: $RED_OPS"
 
 echo "== 2. stream-time path produced assembled traces =="
 KTOPICS --list | grep -q "^traces.assembled$" || fail "topic traces.assembled does not exist"

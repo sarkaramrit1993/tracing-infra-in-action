@@ -231,26 +231,21 @@ GROUP BY _part ORDER BY _part;
 
 ```
 service_name          span_name                spans  errors  p99_ms
-checkout-service      GET /checkout            120    0       179.4
-checkout-service      inventory.reserve        120    0       32
-checkout-service      notification.send        120    0       11.9
-checkout-service      order.create             120    0       22
-checkout-service      payment.charge           120    0       93.8
-checkout-service      validate_cart            120    0       21.7
-checkout-service      GET /health              7      0       19.5
-fraud-service         POST /fraud/score        120    7       41.8
+checkout-service      GET /checkout            120    0       180.5
+checkout-service      GET /health              7      0       5.2
+fraud-service         POST /fraud/score        120    4       42
 inventory-service     POST /inventory/reserve  120    0       31.9
-notification-service  process notification     120    0       11.8
-payment-service       POST /payments/charge    120    0       93.7
-payment-service       fraud.score              120    7       42
+notification-service  process notification     120    0       12.1
+payment-service       POST /payments/charge    120    0       93.9
 ```
 
 Rate, errors and duration per service and operation, read off a materialized
-view that rolls each span into a one-minute bucket as it is inserted. No trace
-was assembled to get them. A fraud check fails about one time in twenty, and the
-error shows on both sides of that call: `fraud.score` in `payment-service` and
-`POST /fraud/score` in `fraud-service`. `GET /health` is the container
-healthcheck, traced like any request.
+view that rolls each receiving span (kind server or consumer) into a one-minute
+bucket as it is inserted. No trace was assembled to get them. Counting only
+receiving spans counts each request once, in the service that handled it; the
+caller's client span for the same call is left out. A fraud check fails about
+one time in twenty, so a few errors show up on `POST /fraud/score`.
+`GET /health` is the container healthcheck, traced like any request.
 
 Your errors, p99 values and `GET /health` count will differ: the fraud score is
 random, timings depend on your machine, and the healthcheck runs every 10
@@ -270,6 +265,10 @@ WHERE ts_bucket_start >= now() - INTERVAL 1 HOUR
 GROUP BY service_name, span_name
 ORDER BY service_name, spans DESC, span_name
 ```
+
+The server-or-consumer filter lives in the view itself, in
+`clickhouse/materialized_views.sql`:
+`WHERE span_kind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER')`.
 
 ## 7. Derive the service graph
 

@@ -286,8 +286,9 @@ at-least-once contract lands as two rows. The scripts count spans with
 
 ## RED metrics without assembly
 
-`clickhouse/materialized_views.sql` rolls every inserted span into a
-per-service, per-operation, per-minute bucket of `AggregateFunction` states.
+`clickhouse/materialized_views.sql` rolls every inserted receiving span (kind
+`SPAN_KIND_SERVER` or `SPAN_KIND_CONSUMER`) into a per-service, per-operation,
+per-minute bucket of `AggregateFunction` states.
 Reading it merges the states, so dashboards get rate, errors and duration
 without assembling a single trace. This is the aggregate-first pattern section
 5.4.2 describes.
