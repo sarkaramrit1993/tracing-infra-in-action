@@ -8,6 +8,8 @@ source "$(dirname "$0")/lib.sh"
 
 require_ready
 TID=$(last_trace)
+[ "$(ch --query "SELECT count() FROM tracing.otel_traces WHERE trace_id = '$TID'")" != 0 ] \
+  || die "trace $TID is no longer in ClickHouse: run ./scripts/send-traffic.sh and ./scripts/wait-until-ready.sh again"
 echo "trace_id = $TID"
 echo
 echo "ClickHouse (rows):"

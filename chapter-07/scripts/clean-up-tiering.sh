@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Deletes every tiering-demo row, re-applies listing 7.2 so its own two-day
-# boundary is back, and shows what is left.
+# Drops the demo table, and with it every part the exercise moved, then shows
+# that otel_traces still carries listing 7.2's rule.
 #
 # Usage: ./scripts/clean-up-tiering.sh
 # shellcheck source=scripts/lib.sh
 source "$(dirname "$0")/lib.sh"
 
 require_clickhouse
-ch --query "
-ALTER TABLE tracing.otel_traces DELETE WHERE service_name = 'tiering-demo'
-SETTINGS mutations_sync = 2"
-ch_file clickhouse/tiering.sql
-echo "tiering-demo rows left: $(ch --query "SELECT count() FROM tracing.otel_traces WHERE service_name = 'tiering-demo'")"
-show_parts
+ch --query "DROP TABLE IF EXISTS tracing.tiering_demo"
+ch --query "SHOW TABLES FROM tracing"
+ch --format TSVRaw --query "
+SELECT engine_full FROM system.tables
+WHERE database = 'tracing' AND name = 'otel_traces'" | grep -o 'TTL .*' | sed 's/ SETTINGS.*//'

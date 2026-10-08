@@ -7,6 +7,7 @@
 source "$(dirname "$0")/lib.sh"
 
 require_tenancy
+delete_trace deadbeefdeadbeefdeadbeefdeadbeef
 ch --query "
 INSERT INTO tracing.otel_traces
   (timestamp, trace_id, tenant_id, span_id, service_name, span_name,

@@ -129,10 +129,19 @@ The rule fires on parts older than two days. The exercise stages rows dated
 yesterday, which is inside that boundary on purpose, so they land hot and there
 is a move to watch. It then moves the partition by hand.
 
-The scripts look up a real partition id first and then move it explicitly,
-because `MOVE PARTITION` takes a literal id and not a subquery. Deriving that id
-from the exercise's own rows, rather than from `ORDER BY partition LIMIT 1`, is
-what keeps the move and the later drop off the live traffic in today's partition.
+The exercise works on `tracing.tiering_demo`, a copy of `otel_traces` made with
+`CREATE TABLE ... AS`, which carries the columns, the storage policy and the TTL
+but no rows. An earlier version staged its rows inside `otel_traces` under their
+own service name. That broke two ways. `MOVE PARTITION` and `DROP PARTITION` act
+on a whole day, so whatever else landed on that date went with them: the
+tiering benchmark's rows, or your own traffic, since the server's clock is UTC
+and yesterday in UTC is still today for much of the world. And lowering the
+boundary to one hour for the rule variation moved every live part older than an
+hour to S3, where the cleanup never brought it back. On its own table none of
+that can happen, and the cleanup is one `DROP TABLE`.
+
+`MOVE PARTITION` takes a literal id and not a subquery, so the scripts read a
+real partition id off the demo table first and then move it explicitly.
 
 An earlier version lowered the move boundary to five seconds first, to
 make the part eligible. That made every part eligible at once, which wakes
@@ -140,7 +149,7 @@ ClickHouse's background mover, and the manual `MOVE PARTITION` then raced it and
 failed intermittently with `PART_IS_TEMPORARILY_LOCKED`. `MOVE PARTITION` is an
 explicit move that does not need the part to be TTL-eligible, so the boundary
 change was never doing any work. Dropping it removes the race and leaves listing
-7.2's real rule on the table, which is one less thing to put back.
+7.2's real rule on the table.
 
 When the rule does the moving, rather than a hand-written `MOVE PARTITION`, the
 wait before `disk_name` changes is the scheduler and not the storage. The

@@ -125,27 +125,43 @@ require_compression_loaded() {
   [ "$rows" = 1 ] || die "compression tables are empty: run ./scripts/load-compression-tables.sh first"
 }
 
-# The newest partition holding the tiering exercise's own rows, or exit.
+# The tiering exercise works on tracing.tiering_demo, a copy of otel_traces
+# that holds only its own rows, so a move, a drop or a lowered boundary can
+# never reach the live traffic or a benchmark's rows.
+require_tiering_demo() {
+  require_clickhouse
+  [ "$(ch --query "EXISTS TABLE tracing.tiering_demo")" = 1 ] \
+    || die "no tiering demo table yet: run ./scripts/stage-tiering-partition.sh first"
+}
+
+# The newest partition in the demo table, or exit.
 tiering_partition() {
   local part
+  require_tiering_demo
   part=$(ch --query "
-    SELECT DISTINCT toYYYYMMDD(timestamp) FROM tracing.otel_traces
-    WHERE service_name = 'tiering-demo' ORDER BY 1 DESC LIMIT 1")
-  [ -n "$part" ] || die "no tiering-demo rows: run ./scripts/stage-tiering-partition.sh first"
+    SELECT DISTINCT toYYYYMMDD(timestamp) FROM tracing.tiering_demo ORDER BY 1 DESC LIMIT 1")
+  [ -n "$part" ] || die "the tiering demo table is empty: run ./scripts/stage-tiering-partition.sh first"
   echo "$part"
 }
 
-# The disk a partition of otel_traces sits on: default or s3_cold.
+# The disk a demo partition sits on: default, s3_cold, or both.
 partition_disk() {
   ch --query "
-    SELECT any(disk_name) FROM system.parts
-    WHERE database = 'tracing' AND table = 'otel_traces' AND active AND partition = '$1'"
+    SELECT arrayStringConcat(arraySort(groupUniqArray(disk_name)), ',') FROM system.parts
+    WHERE database = 'tracing' AND table = 'tiering_demo' AND active AND rows > 0
+      AND partition = '$1'"
 }
 
-# stage_tiering_rows DAYS_AGO: 50,000 tiering-demo spans dated midday DAYS_AGO days back.
+# True while let-the-rule-move-it.sh's one-hour boundary is on the demo table.
+one_hour_rule_on() {
+  ch --query "SELECT engine_full FROM system.tables
+              WHERE database = 'tracing' AND name = 'tiering_demo'" | grep -q 'toIntervalHour(1)'
+}
+
+# stage_tiering_rows DAYS_AGO: 50,000 spans dated midday DAYS_AGO days back.
 stage_tiering_rows() {
   ch --query "
-    INSERT INTO tracing.otel_traces
+    INSERT INTO tracing.tiering_demo
       (timestamp, trace_id, span_id, service_name, span_name,
        status_code, duration_ns, attributes)
     SELECT
@@ -166,7 +182,7 @@ show_parts() {
     SELECT partition, disk_name, sum(rows) AS rows, count() AS parts,
            formatReadableSize(sum(bytes_on_disk)) AS size
     FROM system.parts
-    WHERE database = 'tracing' AND table = 'otel_traces' AND active
+    WHERE database = 'tracing' AND table = 'tiering_demo' AND active
     GROUP BY partition, disk_name ORDER BY partition"
 }
 
@@ -179,7 +195,7 @@ time_demo_query() {
   if ! ch --time --format TSVWithNames --query "
     SELECT count() AS spans, uniqExact(trace_id) AS traces,
            round(avg(duration_ns) / 1000000.0, 2) AS avg_ms
-    FROM tracing.otel_traces WHERE service_name = 'tiering-demo'" 2> "$timing" | align; then
+    FROM tracing.tiering_demo" 2> "$timing" | align; then
     cat "$timing" >&2
     rm -f "$timing"
     die "the query failed. $HINT"
@@ -193,18 +209,19 @@ time_demo_query() {
 reset_tenancy() {
   ch --query "DROP ROW POLICY IF EXISTS tenant_filter ON tracing.otel_traces"
   ch --query "DROP ROW POLICY IF EXISTS audit_read ON tracing.otel_traces"
-  if [ "$(ch --query "
-    SELECT count() FROM system.columns
-    WHERE database = 'tracing' AND table = 'otel_traces' AND name = 'tenant_id'")" = 1 ]; then
-    ch --query "
-      ALTER TABLE tracing.otel_traces
-      DELETE WHERE trace_id IN ('aaaa0000aaaa0000aaaa0000aaaa0000',
-                                'bbbb0000bbbb0000bbbb0000bbbb0000',
-                                'deadbeefdeadbeefdeadbeefdeadbeef',
-                                'cafe0000cafe0000cafe0000cafe0000')
-      SETTINGS mutations_sync = 2"
-  fi
+  ch --query "
+    ALTER TABLE tracing.otel_traces
+    DELETE WHERE trace_id IN ('aaaa0000aaaa0000aaaa0000aaaa0000',
+                              'bbbb0000bbbb0000bbbb0000bbbb0000',
+                              'deadbeefdeadbeefdeadbeefdeadbeef',
+                              'cafe0000cafe0000cafe0000cafe0000')
+    SETTINGS mutations_sync = 2"
   ch --query "DROP USER IF EXISTS acme_reader, globex_reader, newhire"
+}
+
+# delete_trace ID: removes one demo row, so a re-run starts from the same count.
+delete_trace() {
+  ch --query "ALTER TABLE tracing.otel_traces DELETE WHERE trace_id = '$1' SETTINGS mutations_sync = 2"
 }
 
 require_tenancy() {

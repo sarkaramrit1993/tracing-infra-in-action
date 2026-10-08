@@ -17,7 +17,7 @@ curl -sf -m 5 -o /dev/null "$APP/health" || die "checkout-service is not answeri
 rm -f "$STATE_DIR/traffic"
 STARTED=$(ch --query "SELECT toString(now64(3))")
 
-echo "sending $COUNT checkouts, one at a time (about a minute)..."
+echo "sending $COUNT checkouts, one at a time (about $((COUNT / 5 + 1)) seconds)..."
 sent=0
 failed=0
 while [ "$sent" -lt "$COUNT" ]; do

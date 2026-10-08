@@ -68,7 +68,7 @@ and exits, so it is not in the list.
 ```
 
 ```
-sending 300 checkouts, one at a time (about a minute)...
+sending 300 checkouts, one at a time (about 61 seconds)...
 sent 300 checkouts, 0 did not answer
 waiting for all 2100 spans to reach ClickHouse... ok
 waiting for the last checkout trace to reach Tempo... ok
@@ -181,15 +181,15 @@ partition  on_disk    rows  parts  disk
 ```
 
 One partition per day, which is what `PARTITION BY toYYYYMMDD(timestamp)` asks
-for, all on the local `default` disk. The tiering exercise moves one to S3.
-What runs:
+for. On a fresh stack every one is on the local `default` disk. A partition
+split across both disks prints one line per disk. What runs:
 
 ```sql
 SELECT partition, formatReadableSize(sum(bytes_on_disk)) AS on_disk,
-       sum(rows) AS rows, count() AS parts, any(disk_name) AS disk
+       sum(rows) AS rows, count() AS parts, disk_name AS disk
 FROM system.parts
 WHERE database = 'tracing' AND table = 'otel_traces' AND active
-GROUP BY partition ORDER BY partition
+GROUP BY partition, disk_name ORDER BY partition, disk_name
 ```
 
 ## 6. Look up one trace by id
@@ -390,8 +390,12 @@ python3 tenant_cardinality_blowup.py
 cd ..
 ```
 
-Each one builds its own scratch data and removes it, so they give the same
-answer whatever ran before them.
+The compression, bloom and cardinality scripts each build and drop their own
+scratch table. `tiering_automation.py` writes two batches into `otel_traces`
+under `service_name = 'tiering-bench'` and leaves them there for you to look
+at, one partition of them on `s3_cold`, so `./scripts/show-partitions.sh` shows
+an extra partition afterwards. It deletes its own rows at the start of each
+run, so all four give the same answer whatever ran before them.
 
 ## Tear down
 

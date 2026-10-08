@@ -211,7 +211,9 @@ newhire_reads
 ```
 
 `newhire` has SELECT rights and no row in `tenant_users`, so listing 7.4 filters
-it and the filter matches nothing. What it runs:
+it and the filter matches nothing. If you run it again later, it first puts
+listing 7.4's policy back and takes `newhire` out of the map, so it always
+measures this same starting point. What it runs:
 
 ```sql
 CREATE USER IF NOT EXISTS newhire IDENTIFIED WITH no_password
@@ -381,7 +383,8 @@ DROP TABLE IF EXISTS tracing.tenant_users
 ALTER TABLE tracing.otel_traces DROP COLUMN IF EXISTS tenant_id
 ```
 
-It also deletes the four demo rows by trace id before dropping the column.
+It also deletes the four demo rows by trace id. The two insert scripts delete
+their own row before writing it, so running either twice still shows `1`.
 
 ## Going deeper
 

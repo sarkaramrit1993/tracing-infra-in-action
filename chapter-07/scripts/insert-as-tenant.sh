@@ -7,6 +7,7 @@
 source "$(dirname "$0")/lib.sh"
 
 require_tenancy
+delete_trace cafe0000cafe0000cafe0000cafe0000
 ch --query "GRANT INSERT ON tracing.* TO acme_reader"
 ch --user acme_reader --query "
 INSERT INTO tracing.otel_traces
