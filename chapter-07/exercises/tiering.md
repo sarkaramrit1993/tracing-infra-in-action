@@ -16,55 +16,76 @@ that holds billions of spans should not mean touching billions of rows. Listing
 
 ## The starting state
 
-Two things to set up.
+Every step below runs a script from `scripts/`, and the SQL it runs is shown
+under it. The stack has to be up:
 
 ```bash
-ch()      { docker compose exec -T clickhouse clickhouse-client "$@" < /dev/null; }
-ch_file() { docker compose exec -T clickhouse clickhouse-client --multiquery < "$1"; }
+docker compose up -d --build --wait
 ```
 
-First, listing 7.2's rule has to be on the table. `init.sql` only ships the
-fifteen-day delete, so applying `tiering.sql` is what adds the two-day move.
+Listing 7.2's rule has to be on the table. `init.sql` only ships the fifteen-day
+delete, so applying `tiering.sql` is what adds the two-day move:
 
 ```bash
-ch_file clickhouse/tiering.sql
-ch --query "
-SELECT name, engine_full
-FROM system.tables WHERE database = 'tracing' AND name = 'otel_traces'
-FORMAT Vertical" | grep -i ttl
+./scripts/apply-tiering-rule.sh
 ```
 
-You should see `toIntervalDay(2) TO VOLUME 'cold'` and `toIntervalDay(15)`.
-
-Second, this exercise needs rows of its own. It owns everything under
-`service_name = 'tiering-demo'`, which is how it finds and removes its own data
-without going near the spans the collector wrote. Clear anything a previous run
-left:
-
-```bash
-ch --query "
-ALTER TABLE tracing.otel_traces DELETE WHERE service_name = 'tiering-demo'
-SETTINGS mutations_sync = 2"
 ```
+TTL toDateTime(timestamp) + toIntervalDay(2) TO VOLUME 'cold', toDateTime(timestamp) + toIntervalDay(15)
+```
+
+Two rules: move to `cold` after two days, delete after fifteen. ClickHouse
+leaves the word `DELETE` off the second because it is the default. What it
+runs is `clickhouse/tiering.sql`:
+
+```sql
+ALTER TABLE tracing.otel_traces MODIFY TTL
+  toDateTime(timestamp) + INTERVAL 2 DAY TO VOLUME 'cold',
+  toDateTime(timestamp) + INTERVAL 15 DAY DELETE;
+ALTER TABLE tracing.otel_traces DROP PARTITION '20260601';
+```
+
+The `DROP PARTITION` targets a date that does not exist on a fresh stack, so it
+does nothing. [NOTES.md](../NOTES.md) has why the listing still carries it.
 
 ## Stage a partition
 
-50,000 spans dated yesterday at midday.
-
-Yesterday is a deliberate choice. `toYYYYMMDD(timestamp)` gives them a partition
-of their own, separate from whatever the collector is writing today, so the move
-and the drop below touch nothing but this exercise's rows. And one day old is
-inside listing 7.2's two-day boundary, so ClickHouse writes them to the hot
-volume, which is the whole point: a part has to start hot before you can watch it
-go cold.
+This exercise needs rows of its own. It owns everything under
+`service_name = 'tiering-demo'`, which is how it finds and removes its own data
+without going near the spans the Collector wrote. The script deletes whatever an
+earlier run left, then writes 50,000 spans dated yesterday at midday:
 
 ```bash
-ch --query "
+./scripts/stage-tiering-partition.sh
+```
+
+```
+partition  disk_name   rows  parts  size
+ 20261007  default    50000      1  820.62 KiB
+ 20261008  default     2114      4  54.64 KiB
+```
+
+Yesterday's partition, on `default`, holding only this exercise's rows. Today's
+partition is the live traffic and stays where it is throughout. Your dates will
+be your yesterday and today.
+
+Yesterday is a deliberate choice. `toYYYYMMDD(timestamp)` gives these rows a
+partition of their own, so the move and the drop below touch nothing but this
+exercise's rows. And one day old is inside listing 7.2's two-day boundary, so
+ClickHouse writes them to the hot volume. A part has to start hot before you can
+watch it go cold. What it runs:
+
+```sql
+ALTER TABLE tracing.otel_traces DELETE WHERE service_name = 'tiering-demo'
+SETTINGS mutations_sync = 2
+```
+
+```sql
 INSERT INTO tracing.otel_traces
   (timestamp, trace_id, span_id, service_name, span_name,
    status_code, duration_ns, attributes)
 SELECT
-  toDateTime64(toStartOfDay(now()), 9) - toIntervalDay(1) + toIntervalHour(12)
+  toDateTime64(toStartOfDay(now()), 9) - toIntervalDay($1) + toIntervalHour(12)
     + toIntervalMillisecond(number),
   lower(hex(MD5(toString(intDiv(number, 6))))),
   lower(hex(reinterpretAsFixedString(toUInt64(number)))),
@@ -73,257 +94,252 @@ SELECT
   'STATUS_CODE_OK',
   toUInt64(1000000 + (number * 2654435761) % 200000000),
   map('tier', 'demo')
-FROM numbers(50000)"
+FROM numbers(50000)
 ```
 
-```bash
-ch --query "
-SELECT partition, disk_name, sum(rows) AS rows, count() AS parts,
-       formatReadableSize(sum(bytes_on_disk)) AS size
-FROM system.parts
-WHERE database = 'tracing' AND table = 'otel_traces' AND active
-GROUP BY partition, disk_name ORDER BY partition"
-```
-
-```
-20260802   default   50000   1   820.61 KiB
-20260803   default   488     4   18.77 KiB
-```
-
-Yesterday's partition, on `default`, holding only this exercise's rows. Today's
-partition is the live traffic and stays where it is throughout.
-
-Hold on to the partition id. Every command below derives it from the rows
-themselves, so it is always your partition and never a guess:
-
-```bash
-PART=$(ch --query "
-SELECT DISTINCT toYYYYMMDD(timestamp) FROM tracing.otel_traces
-WHERE service_name = 'tiering-demo' ORDER BY 1 DESC LIMIT 1")
-echo "partition $PART"
-ch --query "
-SELECT service_name, count() FROM tracing.otel_traces
-WHERE toYYYYMMDD(timestamp) = $PART GROUP BY service_name"
-```
+`$1` is the number of days back, 1 here.
 
 ## Move it to the cold volume
 
-The rule fires on parts older than two days and yesterday is not two days ago, so
-nothing is going to move on its own. Move it by hand.
-
-`MOVE PARTITION` is an explicit instruction. It does not need the part to be
-TTL-eligible and it does not touch listing 7.2's rule, so the two-day boundary
-stays exactly where the listing put it and there is nothing to restore
-afterwards.
+The rule fires on parts older than two days, and yesterday is not two days ago,
+so nothing is going to move on its own. Move it by hand:
 
 ```bash
-ch --query "ALTER TABLE tracing.otel_traces MOVE PARTITION '$PART' TO VOLUME 'cold'"
-ch --query "
-SELECT partition, disk_name, sum(rows) AS rows,
-       formatReadableSize(sum(bytes_on_disk)) AS size
-FROM system.parts
-WHERE database = 'tracing' AND table = 'otel_traces' AND active
-GROUP BY partition, disk_name ORDER BY partition"
+./scripts/move-partition-to-cold.sh
 ```
 
 ```
-20260802   s3_cold   50000   820.61 KiB
-20260803   default   489     20.38 KiB
+moving partition 20261007
+partition  disk_name   rows  parts  size
+ 20261007  s3_cold    50000      1  820.62 KiB
+ 20261008  default     2114      4  54.64 KiB
 ```
 
 `disk_name` flipped to `s3_cold`. That disk is defined in
-`clickhouse/config.d/storage.xml` and points at the SeaweedFS service, which speaks
-the same S3 API as AWS S3, GCS and Azure Blob. Swapping SeaweedFS for one of those is
-an endpoint and a credential, not a schema change.
+`clickhouse/config.d/storage.xml` and points at the SeaweedFS service, which
+speaks the same S3 API as AWS S3, GCS and Azure Blob. Swapping SeaweedFS for one
+of those is an endpoint and a credential, not a schema change.
+
+`MOVE PARTITION` is an explicit instruction. It does not need the part to be
+past the TTL boundary, and it does not touch listing 7.2's rule, so there is
+nothing to put back afterwards. The script finds the partition id from the
+exercise's own rows, never by guessing. What it runs:
+
+```sql
+ALTER TABLE tracing.otel_traces MOVE PARTITION '$PART' TO VOLUME 'cold'
+```
 
 ## Check that the objects are really there
 
-ClickHouse's own view first. This counts the blobs behind the parts that are
-live right now, rather than the whole bucket, because ClickHouse removes the
-blobs of a replaced part lazily and a bucket-wide count would include garbage
-from earlier work:
-
 ```bash
-ch --query "
+./scripts/count-cold-objects.sh
+```
+
+```
+ClickHouse:
+s3_objects  bytes
+        15  822.09 KiB
+
+SeaweedFS:
+block:  15	logical size:    841822	/buckets/traces-cold
+18 directories, 15 files
+```
+
+The first count is ClickHouse's own record of the blobs behind the part. The
+second asks the object store, which has no idea ClickHouse exists. Same object
+count, same bytes, from two sides that do not share a source. The column files
+became opaque blobs with generated names, which is why you cannot read a part
+out of a bucket without the server that wrote it.
+
+If you have run this before, SeaweedFS may report more than ClickHouse does. It
+counts the whole bucket, blobs from earlier work included, so the ClickHouse
+count is the one that is a fact about this move. [NOTES.md](../NOTES.md) has how
+long a replaced part's blobs stick around. What it runs:
+
+```sql
 SELECT count() AS s3_objects, formatReadableSize(sum(size)) AS bytes
 FROM system.remote_data_paths
 WHERE disk_name = 's3_cold'
   AND splitByChar('/', local_path)[-2] IN (
         SELECT name FROM system.parts
         WHERE database = 'tracing' AND table = 'otel_traces' AND active
-          AND partition = '$PART' AND disk_name = 's3_cold')"
+          AND partition = '$PART' AND disk_name = 's3_cold')
 ```
-
-```
-15   822.08 KiB
-```
-
-Now ask the object store, which has no idea ClickHouse exists. `weed shell` is
-SeaweedFS's admin console, and the bucket is a directory under `/buckets`:
 
 ```bash
 echo "fs.du /buckets/traces-cold" | docker compose exec -T seaweedfs weed shell
-echo "fs.tree /buckets/traces-cold" | docker compose exec -T seaweedfs weed shell | tail -1
+echo "fs.tree /buckets/traces-cold" | docker compose exec -T seaweedfs weed shell
 ```
-
-```
-block:  15	logical size:    841820	/buckets/traces-cold
-18 directories, 15 files
-```
-
-Same object count, same bytes, from two sides that do not share a source. The
-column files became opaque blobs with generated names, which is why you cannot
-read a part out of a bucket without the server that wrote it. `fs.du` counts
-storage chunks, which match objects one for one here because every blob is
-under SeaweedFS's 4 MiB chunk size. The file count on the last line of
-`fs.tree` is the object count whatever the size.
-
-If you have run this before, the store may report more than ClickHouse does.
-It is listing the whole bucket, blobs from earlier work included, so the scoped
-count above is the one that is a fact about this move.
-[NOTES.md](../NOTES.md) has how long a replaced part's blobs stick around.
 
 ## The data is still data
 
 ```bash
-ch --time --query "
-SELECT count(), uniqExact(trace_id), round(avg(duration_ns) / 1000000.0, 2) AS avg_ms
-FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
+./scripts/time-demo-query.sh
 ```
 
 ```
-50000   8334   101
-0.012
+partition 20261007 is on s3_cold
+spans  traces  avg_ms
+50000    8334     101
+took 0.009s
 ```
 
-Same query, same three answers, and the rows are now sitting in a bucket. The
-`--time` line underneath is what it cost, in seconds. Write yours down for the
-first variation below; it moves around a little between runs, so take a few.
+Same query, same three answers, and the rows are sitting in a bucket. `took` is
+the query's own time, without the second or so `docker compose exec` spends
+starting the client. Write yours down for the first variation below. It moves a
+little between runs, so take a few.
 
-Nothing in the query mentions a disk. Tiering is invisible to the reader of the
-data and visible only in the bill and the latency, which is the property the
-whole pattern is built on.
+Nothing in the query mentions a disk. Tiering is invisible to whoever reads the
+data, and shows up only in the bill and the latency. What it runs:
+
+```sql
+SELECT count() AS spans, uniqExact(trace_id) AS traces,
+       round(avg(duration_ns) / 1000000.0, 2) AS avg_ms
+FROM tracing.otel_traces WHERE service_name = 'tiering-demo'
+```
 
 ## DROP PARTITION does not read the rows
 
 ```bash
-time ch --query "ALTER TABLE tracing.otel_traces DROP PARTITION '$PART'"
-ch --query "SELECT count() FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
+./scripts/drop-tiering-partition.sh
 ```
 
 ```
-real  0m0.132s
-0
+dropped 50000 rows in 0.170s
+tiering-demo rows left: 0
 ```
 
-50,000 rows gone, and most of that tenth of a second was `docker exec` starting
-a process. Dropping a partition unlinks a directory and updates metadata. It
-never visits a row, so the cost does not depend on how many rows the day held,
-and it does not care that the rows were on S3 rather than local disk.
+50,000 rows gone, and most of that time was `docker compose exec` starting a
+process. Dropping a partition unlinks a directory and updates metadata. It never
+visits a row, so the cost does not depend on how many rows the day held, and it
+does not care that the rows were on S3 rather than local disk.
 
 That is the contrast the chapter opens with. A tombstone-based store has to write
 a marker per row, keep serving reads around those markers, and pay again at
-compaction. Here retention is a rename.
+compaction. Here retention is a rename. What it runs:
+
+```sql
+ALTER TABLE tracing.otel_traces DROP PARTITION '$PART'
+```
 
 ## Try this
 
-The drop above took your partition with it, so re-run "Stage a partition" and "Move it to the cold volume" first.
-These all work from that point.
-
-**Move it back and time the same query again.** With the partition on `s3_cold`,
-put it back on the hot volume and re-run the aggregate:
+The drop took your partition with it, so stage it and move it again first:
 
 ```bash
-ch --query "ALTER TABLE tracing.otel_traces MOVE PARTITION '$PART' TO DISK 'default'"
-ch --time --query "
-SELECT count(), uniqExact(trace_id), round(avg(duration_ns) / 1000000.0, 2) AS avg_ms
-FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
+./scripts/stage-tiering-partition.sh
+./scripts/move-partition-to-cold.sh
+./scripts/time-demo-query.sh
+```
+
+**Move it back and time the same query again.**
+
+```bash
+./scripts/move-partition-to-hot.sh
+```
+
+```
+moving partition 20261007
+partition  disk_name   rows  parts  size
+ 20261007  default    50000      1  820.62 KiB
+ 20261008  default     2114      4  54.64 KiB
+
+spans  traces  avg_ms
+50000    8334     101
+took 0.005s
 ```
 
 Same answers, and faster. Over eight interleaved rounds here the hot side ran
 0.006s to 0.022s and the cold side 0.010s to 0.020s, with medians of 0.0085s
 and 0.0135s, so about 1.6x. The two ranges overlap, so a single pair either way
-can look like 2x or like nothing.
-One pair of readings is not a measurement, so take several of each before you
-believe the size of the gap. Read it as a floor and not a forecast either. This
-cold tier is SeaweedFS on the same Docker network, the friendliest object store
-one will ever have. A real S3 endpoint across a real network is slower, and the gap
-grows with the size of the read. `benchmarks/tiering_automation.py` does this
-properly, with two matched batches and interleaved repeats.
+can look like 2x or like nothing. Run `./scripts/time-demo-query.sh` a few
+times on each side before you believe the size of the gap.
+
+Read it as a floor and not a forecast. This cold tier is SeaweedFS on the same
+Docker network, the friendliest object store you will ever have. A real S3
+endpoint across a real network is slower, and the gap grows with the size of
+the read. `benchmarks/tiering_automation.py` does this properly, with two
+matched batches and interleaved repeats. What it runs:
+
+```sql
+ALTER TABLE tracing.otel_traces MOVE PARTITION '$PART' TO DISK 'default'
+```
 
 **Insert rows that are already too old.** With listing 7.2's rule on the table,
-stage a batch dated a week back by changing `toIntervalDay(1)` to
-`toIntervalDay(7)` in the INSERT, then look at `disk_name` straight away:
+stage a second batch dated a week back:
 
-```
-20260727   s3_cold   50000
-20260802   default   50000
-20260803   default   629
+```bash
+./scripts/stage-week-old-partition.sh
 ```
 
-The week-old batch is the `s3_cold` line. `20260802` is the partition you staged
-earlier, still hot, and today's is your live traffic. This is also why the `PART`
-query above takes the newest `tiering-demo` partition rather than all of them.
+```
+partition  disk_name   rows  parts  size
+ 20261001  s3_cold    50000      1  820.62 KiB
+ 20261007  default    50000      1  820.62 KiB
+ 20261008  default     2114      4  54.64 KiB
+```
 
-The part never touched the hot volume, and nobody asked for a move. ClickHouse
+The week-old batch is the `s3_cold` line. The middle line is the partition you
+staged earlier, still hot, and the last is your live traffic. It is the same
+INSERT as before, with `$1` set to 7.
+
+That part never touched the hot volume, and nobody asked for a move. ClickHouse
 picks an insert's destination from the move TTL at write time rather than
 relocating it later. [NOTES.md](../NOTES.md) has what that costs you the day you
 backfill history into a tiered table.
 
 **Let the rule do the moving.** Instead of `MOVE PARTITION`, lower the boundary
-so the staged rows cross it, then make the existing part re-evaluate it:
+to one hour so yesterday's rows cross it, tell the table to re-evaluate its TTL,
+and watch `disk_name` change with nobody asking it to:
 
 ```bash
-ch --query "
+./scripts/let-the-rule-move-it.sh
+```
+
+```
+waiting for the background mover to take partition 20261007 to s3_cold... ok
+moved after 3s, with nobody asking
+partition  disk_name   rows  parts  size
+ 20261001  s3_cold    50000      1  820.62 KiB
+ 20261007  s3_cold    50000      1  820.62 KiB
+ 20261008  default     2115      5  56.25 KiB
+```
+
+Runs here have taken from 3 seconds to about a minute, and the script waits up
+to three. That delay is the scheduler and not the storage;
+[NOTES.md](../NOTES.md) has why it swings so far. The script needs the
+partition on `default` to start with, and refuses otherwise.
+
+It leaves a one-hour boundary on the table. The cleanup below puts listing 7.2's
+back. Do not mix this with a manual `MOVE PARTITION` while it is waiting: the
+background mover will race you and the ALTER fails with
+`PART_IS_TEMPORARILY_LOCKED`. What it runs:
+
+```sql
 ALTER TABLE tracing.otel_traces MODIFY TTL
   toDateTime(timestamp) + INTERVAL 1 HOUR TO VOLUME 'cold',
-  toDateTime(timestamp) + INTERVAL 15 DAY DELETE"
-ch --query "ALTER TABLE tracing.otel_traces MATERIALIZE TTL"
+  toDateTime(timestamp) + INTERVAL 15 DAY DELETE
 ```
 
-Then watch `disk_name` change with nobody asking it to:
-
-```bash
-for i in $(seq 1 60); do
-  ch --query "
-  SELECT now(), partition, disk_name FROM system.parts
-  WHERE database = 'tracing' AND table = 'otel_traces' AND active
-    AND partition = '$PART'"
-  sleep 5
-done
+```sql
+ALTER TABLE tracing.otel_traces MATERIALIZE TTL
 ```
-
-Give it a minute. Two runs here took 11 seconds and about 55, and a single check
-five seconds after the ALTER will make you think nothing happened. That delay is
-the scheduler and not the storage; [NOTES.md](../NOTES.md) has why it swings so
-far.
-
-Two warnings. Do not mix this with a manual `MOVE PARTITION`, because the
-background mover will race you and the ALTER fails with
-`PART_IS_TEMPORARILY_LOCKED`. And this leaves a one-hour boundary on the table,
-which the cleanup below puts back.
 
 ## Clean up
 
 ```bash
-ch --query "
-ALTER TABLE tracing.otel_traces DELETE WHERE service_name = 'tiering-demo'
-SETTINGS mutations_sync = 2"
-ch_file clickhouse/tiering.sql
+./scripts/clean-up-tiering.sh
 ```
 
-Re-applying the file is the restore: it sets listing 7.2's own boundary back,
-whatever the variations above left behind. Confirm:
-
-```bash
-ch --query "SELECT count() FROM tracing.otel_traces WHERE service_name = 'tiering-demo'"
-ch --query "
-SELECT partition, disk_name, sum(rows) AS rows
-FROM system.parts WHERE database = 'tracing' AND table = 'otel_traces' AND active
-GROUP BY partition, disk_name ORDER BY partition"
+```
+tiering-demo rows left: 0
+partition  disk_name  rows  parts  size
+ 20261008  default    2115      5  56.25 KiB
 ```
 
-Zero demo rows, and only today's live partition on `default`. The table keeps
+Zero demo rows, and only today's live partition on `default`. The script deletes
+the exercise's rows and re-applies `clickhouse/tiering.sql`, which sets listing
+7.2's own boundary back whatever the variations above left. The table keeps
 listing 7.2's two-day rule, which is the state the chapter describes.
 
 ## Going deeper

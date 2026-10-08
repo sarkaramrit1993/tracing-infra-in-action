@@ -7,7 +7,10 @@ Asserts:
   - the four SQL files contain the listing 7.1/7.2/7.3/7.4 statements with the
     exact column names, codecs, ORDER BY, TTL, and row policy from the chapter,
   - the config.d XML files are well-formed and define the 'cold' volume that
-    listing 7.2's `TO VOLUME 'cold'` resolves against.
+    listing 7.2's `TO VOLUME 'cold'` resolves against,
+  - the README and exercises are copy-paste: every bash block runs shipped
+    scripts, defines nothing, carries no shell variable, and every script the
+    pages run exists, reads traffic only after waiting for it, and has an undo.
 
 Run:  python3 -m pytest tests/test_static.py   (or: python3 tests/test_static.py)
 """
@@ -307,6 +310,204 @@ def test_host_ports_bind_loopback_only():
     assert published, "no published ports found"
     for name, port in published:
         assert str(port).startswith("127.0.0.1:"), f"{name} publishes {port} on every interface"
+
+
+# ---- the reader path ------------------------------------------------------
+# Every page is pasted a block at a time, often into a fresh terminal, often
+# starting in the middle. These checks keep each block self-contained.
+
+READER_DOCS = ("README.md", "exercises/compression.md", "exercises/tiering.md",
+               "exercises/tenancy.md")
+
+
+def _fences(rel, langs):
+    """Yield (first line number, body lines) for each fence in one of langs."""
+    fence, start = None, 0
+    for n, line in enumerate(_read(rel).splitlines(), 1):
+        s = line.strip()
+        if s.startswith("```"):
+            if fence is None:
+                fence, start = (s[3:].strip() in langs and []), n
+            else:
+                if fence is not False:
+                    yield start, fence
+                fence = None
+            continue
+        if fence:
+            fence.append(line)
+        elif fence == []:
+            fence = [line]
+
+
+def _steps(rel):
+    """Yield (fence start, script name) in the order a page runs them."""
+    for start, body in _fences(rel, ("bash", "sh")):
+        for ln in body:
+            for name in re.findall(r"\./scripts/([\w-]+\.sh)", ln):
+                yield start, name
+
+
+def _scripts_that(marker):
+    return {os.path.basename(p) for p in glob.glob(os.path.join(ROOT, "scripts", "*.sh"))
+            if os.path.basename(p) != "lib.sh" and marker in _read(os.path.join("scripts", os.path.basename(p)))}
+
+
+def test_no_hash_comments_inside_bash_blocks():
+    """A reader pastes the whole block. zsh turns a bare # into an argument."""
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _fences(rel, ("bash", "sh")):
+            offenders += [f"{rel}:{start}" for ln in body if re.search(r"(^|\s)#", ln)]
+    assert not offenders, "bare # inside a bash block: " + ", ".join(offenders)
+
+
+def test_no_bash_block_defines_a_function():
+    """A helper pasted in one block and used in the next breaks anyone who
+    opens a new terminal or starts an exercise in the middle."""
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _fences(rel, ("bash", "sh")):
+            offenders += [f"{rel}:{start}: {ln.strip()}" for ln in body
+                          if re.match(r"\s*(function\s+)?[A-Za-z_][\w-]*\s*\(\)\s*\{?", ln)]
+    assert not offenders, "shell function defined in a bash block: " + "; ".join(offenders)
+
+
+def test_no_bash_block_leans_on_a_shell_variable():
+    """`TID=$(...)` in one block and `$TID` in the next was the old pattern. In a
+    new terminal, or with a block skipped, the query runs on an empty string."""
+    offenders = []
+    for rel in READER_DOCS:
+        for start, body in _fences(rel, ("bash", "sh")):
+            offenders += [f"{rel}:{start}: {ln.strip()}" for ln in body
+                          if re.search(r"\$(?!\?)[{(A-Za-z_]", ln)]
+    assert not offenders, "shell variable in a bash block: " + "; ".join(offenders)
+
+
+def test_every_script_a_page_runs_exists_and_is_executable():
+    referenced = {name for rel in READER_DOCS for _, name in _steps(rel)}
+    assert referenced, "no page runs a script; the regex stopped matching"
+    for name in sorted(referenced):
+        path = os.path.join(ROOT, "scripts", name)
+        assert os.path.exists(path), f"a page runs scripts/{name}, which is not here"
+        assert os.stat(path).st_mode & 0o111, f"scripts/{name} is not executable"
+
+
+def test_every_script_is_strict_bash_and_used():
+    """Every script fails loudly, which lib.sh's `set -euo pipefail` gives it, and
+    runs on the bash 3.2 macOS ships."""
+    used = {name for rel in READER_DOCS for _, name in _steps(rel)}
+    assert "set -euo pipefail" in _read("scripts/lib.sh")
+    for path in sorted(glob.glob(os.path.join(ROOT, "scripts", "*.sh"))):
+        name = os.path.basename(path)
+        text = _read(os.path.join("scripts", name))
+        assert not re.search(r"declare -A|mapfile|readarray|\$\{\w+,,\}|\$\{\w+\^\^\}", text), \
+            f"{name} needs bash 4, macOS ships 3.2"
+        if name == "lib.sh":
+            continue
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name} has no bash shebang"
+        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{name} does not source lib.sh"
+        assert name in used, f"scripts/{name} is never run by any page"
+
+
+def test_every_sql_block_on_a_page_is_sql_that_really_runs():
+    """A SQL block is what the reader copies to run by hand, so it has to be
+    what a script or .sql file runs. Whitespace is ignored; nothing else is."""
+    def squash(text):
+        return " ".join(text.split()).rstrip(";").strip()
+    corpus = squash("\n".join(
+        _read(os.path.relpath(p, ROOT))
+        for p in sorted(glob.glob(os.path.join(ROOT, "scripts", "*.sh")))
+        + sorted(glob.glob(os.path.join(ROOT, "clickhouse", "*.sql")))))
+    offenders = [f"{rel}:{start}" for rel in READER_DOCS
+                 for start, body in _fences(rel, ("sql",))
+                 if squash("\n".join(body)) not in corpus]
+    assert not offenders, "SQL block no script or .sql file runs: " + ", ".join(offenders)
+
+
+def test_every_read_of_new_traffic_waits_for_it():
+    """A read that runs before the spans land prints a short, plausible
+    answer. Every page that sends traffic waits before it reads."""
+    readers = _scripts_that("require_ready")
+    assert readers, "no script calls require_ready any more; the check reads nothing"
+    offenders = []
+    for rel in READER_DOCS:
+        pending = False
+        for start, name in _steps(rel):
+            if name == "send-traffic.sh":
+                pending = True
+            elif name == "wait-until-ready.sh":
+                pending = False
+            elif name in readers and pending:
+                offenders.append(f"{rel}:{start} runs {name} before wait-until-ready.sh")
+    assert not offenders, "; ".join(offenders)
+
+
+def test_the_guards_name_the_step_to_run():
+    """A skipped step must stop with the command that fixes it, not a blank."""
+    lib = _read("scripts/lib.sh")
+    assert 'NO_TRAFFIC="nothing sent yet: run ./scripts/send-traffic.sh first"' in lib
+    assert 'NOT_READY="still arriving: run ./scripts/wait-until-ready.sh first"' in lib
+    named = set(re.findall(r"run (\./scripts/[\w-]+\.sh)", lib))
+    for path in glob.glob(os.path.join(ROOT, "scripts", "*.sh")):
+        named |= set(re.findall(r"run (\./scripts/[\w-]+\.sh)", open(path).read()))
+    for cmd in sorted(named):
+        assert os.path.exists(os.path.join(ROOT, cmd[2:])), f"a guard names {cmd}, which is not here"
+
+
+def test_resending_traffic_clears_the_ready_mark():
+    """send-traffic.sh rewrites the state without READY, and the state is tied
+    to the running containers so it does not survive `down -v`."""
+    send = _read("scripts/send-traffic.sh")
+    assert 'rm -f "$STATE_DIR/traffic"' in send
+    assert "READY" not in send
+    assert "STACK_ID=$(stack_id)" in send
+    assert "READY=1" in _read("scripts/wait-until-ready.sh")
+    assert '"$(stack_id)"' in _read("scripts/lib.sh")
+
+
+def test_every_exercise_puts_back_what_it_changed():
+    """Each exercise starts from the state the stack boots in and leaves it
+    there, so the next one, in any order, starts clean."""
+    undo = {
+        "build-compression-tables.sh": "drop-compression-tables.sh",
+        "stage-tiering-partition.sh": "clean-up-tiering.sh",
+        "let-the-rule-move-it.sh": "clean-up-tiering.sh",
+        "apply-tenancy.sh": "clean-up-tenancy.sh",
+        "add-unmapped-login.sh": "clean-up-tenancy.sh",
+        "insert-as-tenant.sh": "clean-up-tenancy.sh",
+    }
+    offenders = []
+    for rel in READER_DOCS[1:]:
+        steps = [name for _, name in _steps(rel)]
+        for made, cleaned in undo.items():
+            if made in steps and (cleaned not in steps
+                                  or steps.index(cleaned) < len(steps) - 1 - steps[::-1].index(made)):
+                offenders.append(f"{rel} runs {made} and never {cleaned} after it")
+    assert not offenders, "; ".join(offenders)
+
+
+def test_every_clickhouse_helper_closes_stdin():
+    """The `< /dev/null` trap that hung both test scripts for a reviewer."""
+    offenders = []
+    files = list(READER_DOCS) + [os.path.relpath(p, ROOT) for p in
+                                 sorted(glob.glob(os.path.join(ROOT, "scripts", "*.sh")))
+                                 + sorted(glob.glob(os.path.join(ROOT, "tests", "*.sh")))]
+    for rel in files:
+        lines = _read(rel).splitlines()
+        i = 0
+        while i < len(lines):
+            start, parts = i + 1, [lines[i]]
+            while parts[-1].rstrip().endswith("\\") and i + 1 < len(lines):
+                i += 1
+                parts.append(lines[i])
+            command = " ".join(p.rstrip().rstrip("\\") for p in parts)
+            i += 1
+            if "clickhouse-client" not in command or command.strip().startswith("#"):
+                continue
+            if "< /dev/null" in command or "--multiquery <" in command or "--query" not in command:
+                continue
+            offenders.append(f"{rel}:{start}")
+    assert not offenders, "clickhouse-client without stdin closed: " + ", ".join(offenders)
 
 
 if __name__ == "__main__":
