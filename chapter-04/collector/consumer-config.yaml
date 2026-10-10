@@ -16,6 +16,8 @@ receivers:
     initial_offset: earliest
     message_marking:
       after: true
+    error_backoff:
+      enabled: true
     traces:
       topics: ["otlp_spans"]
       encoding: otlp_proto
