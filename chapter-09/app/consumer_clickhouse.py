@@ -11,8 +11,7 @@ table gives no hint why.
 Reads raw OTLP-encoded spans from the otlp_spans Kafka topic, decodes the
 protobuf, flattens each span into one listing-7.1 row, and batch-inserts into
 tracing.otel_traces. Offsets commit only after the insert returns success, so a
-crash mid-batch replays the same span range on restart (the atomicity imperative
-from chapter 5).
+crash mid-batch replays the same span range on restart instead of losing it.
 """
 
 import os
