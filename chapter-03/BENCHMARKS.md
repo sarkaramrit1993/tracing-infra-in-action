@@ -133,7 +133,7 @@ Reproduced on an Apple M-series machine at two allocations:
 | Throughput peak | 49,678/sec | 52,909/sec | 50K-100K/sec |
 | PQ overhead | -0.1% | 1.1% | 0-8% |
 | Cascade T1-T4 | 68.9 s | 45.6 s | ~28 s |
-| Agent RSS idle-peak | 199-210 MB | 204-212 MB | 185-206 MB |
+| Agent RSS idle-peak | 199-210 MB | 204-212 MB | 185-212 MB |
 | Gateway RSS idle-peak | 225-229 MB | 245 MB | 230-238 MB |
 | Routing Gini, trace-aware | 0.009 | 0.009 | < 0.01 |
 | Routing Gini, single-gateway | 0.500 | 0.500 | ~0.5 |
@@ -157,7 +157,7 @@ every allocation.
 
 | Metric                         | Range           | Notes                          |
 |--------------------------------|-----------------|--------------------------------|
-| Agent RSS (idle--50K/sec)      | 185--206 MB     | Grows ~20 MB under load        |
+| Agent RSS (idle--50K/sec)      | 185--212 MB     | Spread is run to run, not load |
 | Gateway RSS (idle--50K/sec)    | 230--238 MB     | Relatively stable              |
 | Throughput peak                | 50K--100K/sec   | Per gateway container          |
 | PQ overhead                    | 0--8%           | Median ~3%                     |
