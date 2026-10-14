@@ -12,7 +12,7 @@
       "targets": [
         {
           "expr": "otelcol_exporter_queue_size",
-          "legendFormat": "{{pod}}"
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -60,7 +60,7 @@
       "targets": [
         {
           "expr": "rate(otelcol_receiver_refused_spans[5m])",
-          "legendFormat": "{{pod}}"
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -82,11 +82,11 @@
       "targets": [
         {
           "expr": "rate(otelcol_exporter_send_failed_spans[5m])",
-          "legendFormat": "{{pod}} - failed"
+          "legendFormat": "{{instance}} - failed"
         },
         {
           "expr": "rate(otelcol_exporter_sent_spans[5m])",
-          "legendFormat": "{{pod}} - success"
+          "legendFormat": "{{instance}} - success"
         }
       ],
       "fieldConfig": {
@@ -102,7 +102,7 @@
       "targets": [
         {
           "expr": "otelcol_process_runtime_heap_alloc_bytes",
-          "legendFormat": "{{pod}}"
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
