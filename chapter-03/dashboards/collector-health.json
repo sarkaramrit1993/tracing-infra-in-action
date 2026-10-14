@@ -77,21 +77,18 @@
     },
     {
       "title": "Retry Rate",
+      "description": "Share of spans that failed to export after retries ran out, out of all spans the exporter tried to send (sent plus failed). The failed counter only appears after the first failure, so the query falls back to 0 until then.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
         {
-          "expr": "rate(otelcol_exporter_send_failed_spans[5m])",
-          "legendFormat": "{{instance}} - failed"
-        },
-        {
-          "expr": "rate(otelcol_exporter_sent_spans[5m])",
-          "legendFormat": "{{instance}} - success"
+          "expr": "(sum by (instance) (rate(otelcol_exporter_send_failed_spans[5m])) or sum by (instance) (rate(otelcol_exporter_sent_spans[5m])) * 0) / sum by (instance) (rate({__name__=~\"otelcol_exporter_sent_spans|otelcol_exporter_send_failed_spans\"}[5m]))",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops"
+          "unit": "percentunit"
         }
       }
     },
