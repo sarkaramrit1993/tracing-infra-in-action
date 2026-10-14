@@ -30,25 +30,26 @@
     },
     {
       "title": "Export Latency",
+      "description": "Duration of the gateway's OTLP gRPC Export calls to Jaeger. The 0.154.0 exporterhelper has no send-latency histogram, so this reads the gRPC client histogram rpc.client.call.duration (seconds). The collector only emits it at telemetry level detailed, and Prometheus 3 stores it under its dotted UTF-8 name.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(otelcol_exporter_send_latency_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate({\"rpc.client.call.duration_bucket\", \"rpc.method\"=\"opentelemetry.proto.collector.trace.v1.TraceService/Export\"}[5m])))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(otelcol_exporter_send_latency_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({\"rpc.client.call.duration_bucket\", \"rpc.method\"=\"opentelemetry.proto.collector.trace.v1.TraceService/Export\"}[5m])))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(otelcol_exporter_send_latency_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate({\"rpc.client.call.duration_bucket\", \"rpc.method\"=\"opentelemetry.proto.collector.trace.v1.TraceService/Export\"}[5m])))",
           "legendFormat": "p99"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "s"
         }
       }
     },
@@ -100,7 +101,7 @@
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
       "targets": [
         {
-          "expr": "process_runtime_total_alloc_bytes",
+          "expr": "otelcol_process_runtime_heap_alloc_bytes",
           "legendFormat": "{{pod}}"
         }
       ],
