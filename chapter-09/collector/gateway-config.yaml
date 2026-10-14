@@ -66,7 +66,7 @@ processors:
 
   # Keep every trace that carries an error span, plus a 1% probabilistic
   # sample of the rest. One in a hundred is the rate the book uses throughout,
-  # and the 50-to-1 inflation in Figure 9.6 (section 9.2.4) is arithmetic on it. Plain
+  # and the 50-to-1 inflation in Figure 9.8 (section 9.2.4) is arithmetic on it. Plain
   # probabilistic sampling: it does NOT stamp a W3C tracestate ot.th
   # probability threshold on kept spans, so the post connector cannot
   # reconstruct the pre population from a sampled span. That is deliberate. It
