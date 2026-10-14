@@ -21,6 +21,8 @@ exporters:
     protocol:
       otlp:
         timeout: 10s
+        tls:
+          insecure: true
         retry_on_failure:
           enabled: true
           initial_interval: 1s
