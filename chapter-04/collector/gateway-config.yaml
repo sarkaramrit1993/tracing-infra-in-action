@@ -4,6 +4,7 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        include_metadata: true
 
 processors:
   memory_limiter:
@@ -14,6 +15,7 @@ processors:
   batch:
     send_batch_size: 8192
     timeout: 1s
+    metadata_keys: [x-tenant-id]
 
 exporters:
   # Listing 4.2: OTel Collector Kafka exporter with trace-ID partitioning
@@ -27,6 +29,7 @@ exporters:
       topic: otlp_spans
       encoding: otlp_proto
     partition_traces_by_id: true
+    include_metadata_keys: [x-tenant-id]
     producer:
       compression: lz4
       required_acks: 1

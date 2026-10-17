@@ -14,8 +14,10 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        include_metadata: true
       http:
         endpoint: 0.0.0.0:4318
+        include_metadata: true
 
 processors:
   memory_limiter:
@@ -34,6 +36,7 @@ processors:
   batch:
     send_batch_size: 8192
     timeout: 1s
+    metadata_keys: [x-tenant-id]
 
 # Gateway collector routing connector
 connectors:
@@ -54,6 +57,7 @@ exporters:
       topic: otlp_spans.tenant-a
       encoding: otlp_proto
     partition_traces_by_id: true
+    include_metadata_keys: [x-tenant-id]
     producer:
       compression: lz4
       required_acks: 1
@@ -66,6 +70,7 @@ exporters:
       topic: otlp_spans
       encoding: otlp_proto
     partition_traces_by_id: true
+    include_metadata_keys: [x-tenant-id]
     producer:
       compression: lz4
       required_acks: 1

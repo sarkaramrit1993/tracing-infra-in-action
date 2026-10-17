@@ -3,8 +3,10 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        include_metadata: true
       http:
         endpoint: 0.0.0.0:4318
+        include_metadata: true
 
 processors:
   memory_limiter:
@@ -15,18 +17,26 @@ processors:
   batch:
     send_batch_size: 512
     timeout: 1s
+    metadata_keys: [x-tenant-id]
 
 exporters:
   otlp:
     endpoint: otel-gateway:4317
     tls:
       insecure: true
+    auth:
+      authenticator: headers_setter
 
 extensions:
   health_check: {}
+  headers_setter:
+    headers:
+      - action: upsert
+        key: x-tenant-id
+        from_context: x-tenant-id
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, headers_setter]
   pipelines:
     traces:
       receivers: [otlp]
