@@ -28,6 +28,8 @@
 -- drill-down back to the full trace. error_count sums adjusted_count so the issue
 -- volume stays sample-weighted (the chapter 8 / section 7.4.3 rule); on live
 -- ingest adjusted_count defaults to 1.0, so it is a plain span count there.
+-- error_count is Float64 because an adjusted count need not be whole: a span
+-- kept at probability 0.3 stands for 3.33, and an integer cast truncates it.
 CREATE TABLE IF NOT EXISTS tracing.exceptions
 (
     fingerprint     UInt64,
@@ -35,7 +37,7 @@ CREATE TABLE IF NOT EXISTS tracing.exceptions
     msg_template    SimpleAggregateFunction(any, String),
     top_frame       SimpleAggregateFunction(any, LowCardinality(String)),
     service_name    SimpleAggregateFunction(any, LowCardinality(String)),
-    error_count     SimpleAggregateFunction(sum, UInt64),
+    error_count     SimpleAggregateFunction(sum, Float64),
     first_seen      SimpleAggregateFunction(min, DateTime64(9)),
     last_seen       SimpleAggregateFunction(max, DateTime64(9)),
     sample_trace_id SimpleAggregateFunction(anyLast, String)
@@ -59,7 +61,7 @@ SELECT
     msg_template,
     top_frame,
     service_name,
-    toUInt64(adjusted_count) AS error_count,
+    adjusted_count AS error_count,
     timestamp AS first_seen,
     timestamp AS last_seen,
     trace_id  AS sample_trace_id

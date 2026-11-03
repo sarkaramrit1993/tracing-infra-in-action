@@ -317,8 +317,10 @@ def test_listing_9_2_weights_the_issue_count():
     """error_count sums adjusted_count, so an issue folded out of sampled spans
     reports the population it stands for rather than the rows that survived."""
     body = normalize(listing_body("clickhouse/error_index.sql", "9.2"))
-    assert "toUInt64(adjusted_count) AS error_count" in body, \
+    assert "adjusted_count AS error_count" in body, \
         "an issue counted by rows is a sampled count wearing a total's name"
+    assert "toUInt64(adjusted_count)" not in body, \
+        "an integer cast truncates a fractional adjusted count, so the sum reads low"
 
 
 @test
@@ -327,7 +329,8 @@ def test_listing_9_2_target_table_folds_by_fingerprint():
     assert "ENGINE = AggregatingMergeTree" in body
     assert "ORDER BY fingerprint" in body, \
         "the issue table has to key on the fingerprint, or nothing folds"
-    assert "SimpleAggregateFunction(sum, UInt64)" in body
+    assert "SimpleAggregateFunction(sum, Float64)" in body, \
+        "an integer sum column truncates fractional adjusted counts"
 
 
 @test
