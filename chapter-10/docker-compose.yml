@@ -1,0 +1,282 @@
+# Chapter 10: Where RED Metrics Come From.
+#
+# Path:  loadgen -> checkout-service -> payment-service
+#          -> edge-collector   (Listing 10.1: span-metrics and service-graph
+#                               connectors over 100% of spans, then Kafka)
+#          -> kafka(otlp_spans)
+#               +-> sampler-collector   three sampling decisions, three sets of
+#               |                       span metrics, survivors to otlp_sampled
+#               +-> span-consumer       flat rows to spans.flat for Flink
+#          -> kafka(otlp_sampled) -> span-consumer -> ClickHouse tracing.otel_traces
+#          -> kafka(spans.flat)   -> Flink (Listing 10.2) -> kafka(red_metrics)
+#
+#        ClickHouse: Listing 10.3 (materialized view) and Listing 10.4 (query)
+#        Prometheus: scrapes the edge on :8889 and the sampler on :8890
+#
+# Every published port is bound to 127.0.0.1. The two services and the OTLP
+# receivers stay inside the network; Flink's REST port is published as 18081.
+#
+# Pinned versions:
+#   otel/opentelemetry-collector-contrib          0.154.0
+#   apache/kafka                                  4.3.1
+#   clickhouse/clickhouse-server                  26.1
+#   prom/prometheus                               v3.14.0
+#   flink                                         2.2.1-scala_2.12-java17
+#   flink-sql-connector-kafka                     5.0.0-2.2
+
+x-flink-env: &flink-env
+  FLINK_PROPERTIES: |
+    jobmanager.rpc.address: flink-jobmanager
+    jobmanager.bind-host: 0.0.0.0
+    rest.address: flink-jobmanager
+    rest.bind-address: 0.0.0.0
+    taskmanager.bind-host: 0.0.0.0
+    taskmanager.numberOfTaskSlots: 1
+    parallelism.default: 1
+    jobmanager.memory.process.size: 1024m
+    taskmanager.memory.process.size: 1280m
+
+networks:
+  ch10:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  clickhouse-data:
+
+services:
+  # --- Application ---
+  checkout-service:
+    build: ./app
+    networks: [ch10]
+    environment:
+      OTEL_SERVICE_NAME: checkout-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://edge-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_BSP_SCHEDULE_DELAY: "1000"
+    command: ["python", "checkout.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      edge-collector:
+        condition: service_started
+      payment-service:
+        condition: service_healthy
+
+  payment-service:
+    build: ./app
+    networks: [ch10]
+    environment:
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://edge-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_BSP_SCHEDULE_DELAY: "1000"
+    command: ["python", "payment.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      edge-collector:
+        condition: service_started
+
+  # Steady background: two /cart requests a second. The measured run is
+  # scripts/run-workload.sh, which sends /checkout requests only.
+  loadgen:
+    build: ./app
+    networks: [ch10]
+    command: ["python", "loadgen.py"]
+    depends_on:
+      checkout-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Collectors ---
+  edge-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch10]
+    command:
+      - "--config=/etc/otelcol-contrib/edge-base.yaml"
+      - "--config=/etc/otelcol-contrib/edge-config.yaml"
+    volumes:
+      - ./collector/edge-base.yaml:/etc/otelcol-contrib/edge-base.yaml:ro
+      - ./collector/edge-config.yaml:/etc/otelcol-contrib/edge-config.yaml:ro
+    ports:
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:8889:8889"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  sampler-collector:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch10]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./collector/sampler-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:8890:8890"
+      - "127.0.0.1:8892:8888"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  # --- Kafka (single-broker KRaft) ---
+  kafka:
+    image: apache/kafka:4.3.1
+    networks: [ch10]
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9093"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    networks: [ch10]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        create() {
+          /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic "$$1" \
+            --partitions "$$2" --replication-factor 1 \
+            --config retention.ms=86400000 --bootstrap-server kafka:9093
+        }
+        create otlp_spans 8
+        create otlp_sampled 4
+        create spans.flat 1
+        create red_metrics 1
+        echo "Topics created."
+
+  # --- Span consumer: otlp_spans -> spans.flat, otlp_sampled -> ClickHouse ---
+  span-consumer:
+    build: ./app
+    networks: [ch10]
+    command: ["python", "span_consumer.py"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9093
+      CLICKHOUSE_HOST: clickhouse
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Flink: Listing 10.2 as a long-running streaming job ---
+  flink-jobmanager:
+    build: ./flink
+    networks: [ch10]
+    command: jobmanager
+    environment: *flink-env
+    ports:
+      - "127.0.0.1:18081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/overview"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  flink-taskmanager:
+    build: ./flink
+    networks: [ch10]
+    command: taskmanager
+    environment: *flink-env
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+
+  # One-shot: submits flink/red.sql once a TaskManager has registered, then exits.
+  flink-sql-submit:
+    build: ./flink
+    networks: [ch10]
+    environment: *flink-env
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 60); do
+          n=$$(curl -sf http://flink-jobmanager:8081/overview | grep -o '"taskmanagers":[0-9]*' | grep -o '[0-9]*$$' || true)
+          [ "$${n:-0}" -ge 1 ] && break
+          sleep 2
+        done
+        exec /opt/flink/bin/sql-client.sh embedded -Drest.address=flink-jobmanager -Dexecution.target=remote -f /opt/flink/sql/red.sql
+    depends_on:
+      flink-taskmanager:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # --- ClickHouse ---
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.1
+    networks: [ch10]
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9363:9363"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./clickhouse/users.d/z-allow-network.xml:/etc/clickhouse-server/users.d/z-allow-network.xml
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./clickhouse/red_views.sql:/docker-entrypoint-initdb.d/02-red_views.sql
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # --- Prometheus ---
+  # exemplar-storage keeps the trace-ID exemplars the span-metrics connector
+  # attaches to its histograms.
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    networks: [ch10]
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--enable-feature=exemplar-storage"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      edge-collector:
+        condition: service_started

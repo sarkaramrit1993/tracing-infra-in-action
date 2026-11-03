@@ -1,0 +1,15 @@
+
+INSERT INTO red_metrics
+SELECT
+  service_name,
+  span_name,
+  window_start,
+  COUNT(*) AS calls,
+  SUM(CASE WHEN status_code = 'STATUS_CODE_ERROR'
+      THEN 1 ELSE 0 END) AS errors,
+  PERCENTILE(duration_ms, 0.99) AS p99_ms
+FROM TABLE(
+  TUMBLE(TABLE spans, DESCRIPTOR(event_time),
+         INTERVAL '60' SECONDS))
+WHERE span_kind IN ('SERVER', 'CONSUMER')
+GROUP BY window_start, window_end, service_name, span_name;

@@ -1,0 +1,28 @@
+# The cardinality step. Use it on top of the main file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cardinality.yml up -d edge-collector-userid
+#
+# and remove it with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cardinality.yml rm -sf edge-collector-userid
+#
+# It adds one collector: the edge config plus a user.id dimension on the
+# span-metrics connector, on its own port and its own Prometheus job.
+
+services:
+  edge-collector-userid:
+    image: otel/opentelemetry-collector-contrib:0.154.0
+    networks: [ch10]
+    command:
+      - "--config=/etc/otelcol-contrib/edge-base.yaml"
+      - "--config=/etc/otelcol-contrib/edge-config.yaml"
+      - "--config=/etc/otelcol-contrib/edge-userid.yaml"
+    volumes:
+      - ./collector/edge-base.yaml:/etc/otelcol-contrib/edge-base.yaml:ro
+      - ./collector/edge-config.yaml:/etc/otelcol-contrib/edge-config.yaml:ro
+      - ./collector/edge-userid.yaml:/etc/otelcol-contrib/edge-userid.yaml:ro
+    ports:
+      - "127.0.0.1:8891:8891"
+    depends_on:
+      kafka:
+        condition: service_healthy

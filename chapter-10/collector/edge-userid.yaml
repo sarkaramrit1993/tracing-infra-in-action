@@ -1,0 +1,31 @@
+# The cardinality step. Merged over edge-base.yaml and edge-config.yaml, so it
+# is the same edge config with one change: the span-metrics connector also
+# keys on user.id. It reads the spans back off Kafka at the tail (the edge
+# already sends them there), exports no spans of its own, and serves its
+# metrics on its own port for its own Prometheus job.
+
+receivers:
+  kafka:
+    brokers:
+      - kafka:9093
+    protocol_version: "4.0.0"
+    group_id: edge-userid
+    initial_offset: latest
+    traces:
+      topics: [otlp_spans]
+      encoding: otlp_proto
+
+connectors:
+  spanmetrics:
+    dimensions:
+      - name: user.id
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8891
+
+service:
+  pipelines:
+    traces/in:
+      receivers: [kafka]
+      exporters: [spanmetrics, servicegraph]

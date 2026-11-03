@@ -1,0 +1,35 @@
+# Edge Collector: the half of the pipeline that Listing 10.1 prints.
+#
+# This file is merged over edge-base.yaml (see docker-compose.yml: two --config
+# flags). The base file holds receivers, the memory_limiter and batch
+# processors, exporters and the Collector's own telemetry. This file holds the
+# connectors and the pipelines that route spans through them. Where both name
+# the same pipeline, the keys combine: the base adds
+# `processors: [memory_limiter, batch]` to traces/in, this file adds the
+# receivers and exporters.
+#
+# ---- Listing 10.1: Span-metrics and service-graph connectors before the sampler ----
+
+connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms,
+                  200ms, 500ms, 1s, 2s, 5s, 10s]
+    exemplars:
+      enabled: true
+    aggregation_cardinality_limit: 5000
+  servicegraph:
+    store:
+      ttl: 2s
+      max_items: 1000
+
+service:
+  pipelines:
+    traces/in:
+      receivers: [otlp]
+      exporters: [spanmetrics, servicegraph, kafka]
+    metrics/out:
+      receivers: [spanmetrics, servicegraph]
+      exporters: [prometheus]
+# ---- end listing 10.1 ----
