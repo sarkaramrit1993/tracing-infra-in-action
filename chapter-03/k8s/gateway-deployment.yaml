@@ -82,6 +82,8 @@ kind: Service
 metadata:
   name: otel-gateway
   namespace: observability
+  labels:
+    app: otel-gateway
 spec:
   selector:
     app: otel-gateway

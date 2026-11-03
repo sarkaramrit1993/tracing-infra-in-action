@@ -23,7 +23,7 @@ checkout-service ──→ otel-agent ──→ otel-gateway ──→ Kafka (ot
    (default)          (DaemonSet)    (Deployment)        (kafka ns)            (drain)        (UI)
 ```
 
-The teaching point from the chapter is preserved: the gateway exports to Kafka, exactly as it would in production, so spans for one trace land on the same partition. The in-cluster broker (`apache/kafka:4.3.0`) answers at `kafka-0.kafka-headless.kafka.svc:9092`, the DNS name the gateway config targets. The `otel-consumer` collector is the local drain: it reads the `otlp_spans` topic and forwards to Jaeger over OTLP, which is what makes the traces visible during the demo.
+The teaching point from the chapter is preserved: the gateway exports to Kafka, exactly as it would in production. The in-cluster broker (`apache/kafka:4.3.0`) answers at `kafka-0.kafka-headless.kafka.svc:9092`, the DNS name the gateway config targets. The `otel-consumer` collector is the local drain: it reads the `otlp_spans` topic and forwards to Jaeger over OTLP, which is what makes the traces visible during the demo.
 
 ## Manifests
 

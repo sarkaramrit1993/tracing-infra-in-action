@@ -62,6 +62,11 @@ spec:
     ports:
     - protocol: TCP
       port: 4317
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8888
   egress:
   - to:
     - namespaceSelector:
