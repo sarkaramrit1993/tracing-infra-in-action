@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+
+# sample_limit makes a scrape that returns more series than expected fail whole
+# (up drops to 0) instead of filling the store. Each span-metrics job has its own.
+scrape_configs:
+  - job_name: edge-spanmetrics
+    sample_limit: 5000
+    static_configs:
+      - targets: ["edge-collector:8889"]
+
+  - job_name: sampler-spanmetrics
+    sample_limit: 5000
+    static_configs:
+      - targets: ["sampler-collector:8890"]
+
+  - job_name: collectors
+    static_configs:
+      - targets: ["edge-collector:8888", "sampler-collector:8888"]
+
+  - job_name: clickhouse
+    static_configs:
+      - targets: ["clickhouse:9363"]
+
+  # Only exists while docker-compose.cardinality.yml is up. DNS service
+  # discovery finds nothing while that container is absent, so no dead target
+  # shows. Its own sample_limit is deliberately lower than the connector's
+  # worst case.
+  - job_name: edge-userid-spanmetrics
+    sample_limit: 50000
+    dns_sd_configs:
+      - names: ["edge-collector-userid"]
+        type: A
+        port: 8891
+        refresh_interval: 15s

@@ -1,0 +1,23 @@
+
+connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms,
+                  200ms, 500ms, 1s, 2s, 5s, 10s]
+    exemplars:
+      enabled: true
+    aggregation_cardinality_limit: 5000
+  servicegraph:
+    store:
+      ttl: 2s
+      max_items: 1000
+
+service:
+  pipelines:
+    traces/in:
+      receivers: [otlp]
+      exporters: [spanmetrics, servicegraph, kafka]
+    metrics/out:
+      receivers: [spanmetrics, servicegraph]
+      exporters: [prometheus]

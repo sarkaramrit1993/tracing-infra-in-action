@@ -1,0 +1,14 @@
+
+CREATE MATERIALIZED VIEW red_by_service_mv
+TO red_by_service AS
+SELECT
+  service_name AS service,
+  span_name AS operation,
+  status_code AS status,
+  toStartOfMinute(timestamp) AS minute,
+  countState() AS calls,
+  sumState(adjusted_count) AS weighted_calls,
+  quantileTDigestWeightedState(0.99)(duration_ns / 1e6,
+      toUInt64(round(adjusted_count))) AS p99_state
+FROM tracing.otel_traces
+GROUP BY service, operation, status, minute;

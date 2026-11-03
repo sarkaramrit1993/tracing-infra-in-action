@@ -31,9 +31,12 @@ jobs:
                    chapter-05/docker-compose.yml \
                    chapter-07/docker-compose.yml \
                    chapter-08/docker-compose.yml \
-                   chapter-09/docker-compose.yml; do
+                   chapter-09/docker-compose.yml \
+                   chapter-10/docker-compose.yml; do
               docker compose -f "$f" config -q
           done
+          docker compose -f chapter-10/docker-compose.yml \
+                         -f chapter-10/docker-compose.cardinality.yml config -q
           docker compose -f chapter-03/docker-compose.yml \
                          -f chapter-03/docker-compose.benchmark.yml config -q
           docker compose -f chapter-03/docker-compose.yml \
@@ -114,6 +117,13 @@ jobs:
           /tmp/venv-ch09/bin/pip install --quiet -r chapter-09/tests/requirements.txt
           /tmp/venv-ch09/bin/python chapter-09/tests/test_static.py
 
+      - name: Chapter 10 offline tests
+        run: |
+          python -m venv /tmp/venv-ch10
+          /tmp/venv-ch10/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch10/bin/pip install --quiet -r chapter-10/tests/requirements.txt
+          /tmp/venv-ch10/bin/python chapter-10/tests/test_static.py
+
       # These three gate the published record rather than the stack, and every
       # one of them has caught something: a listing table pointing at a file
       # that no longer carried its anchor, a RESULTS.md rendered from a local
@@ -128,7 +138,7 @@ jobs:
 
       - name: Verification scripts are syntactically valid
         run: |
-          for f in chapter-0*/tests/*.sh; do
+          for f in chapter-*/tests/*.sh; do
               bash -n "$f" && echo "ok $f"
           done
 
@@ -139,6 +149,10 @@ jobs:
     # verified.
     name: live stack (${{ matrix.chapter }})
     runs-on: ubuntu-latest
+    # Chapter 10 is the longest leg: a cold build, a 180 s settle, then a
+    # workload that waits on three 60 s flushes. A hung wait ends here and not
+    # at the six-hour default.
+    timeout-minutes: 40
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -169,6 +183,13 @@ jobs:
           # series something to be a rate of.
           - chapter: chapter-09
             settle: 150
+          # Chapter 10 runs eleven long-running containers and two one-shot jobs,
+          # about 4.8 GB at peak (5.6 GB with the cardinality step, which the live test runs). Flink takes the longest to come up, and the first span metrics only
+          # exist one connector flush (60s) after the first span arrives, so
+          # the settle is the longest here. The live test sends its own finite
+          # workload and grades the counts against it.
+          - chapter: chapter-10
+            settle: 180
     steps:
       - uses: actions/checkout@v4
 

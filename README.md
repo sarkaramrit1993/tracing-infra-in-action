@@ -13,6 +13,7 @@ self-contained stack for one chapter, with its own `README.md` and a
 | `chapter-07/` | Trace storage | ClickHouse wide-table store + Kafka + Grafana Tempo, both archetypes fed by one Collector and both backed by SeaweedFS object storage; compression, tiering and tenant-isolation exercises and benchmarks |
 | `chapter-08/` | Query patterns | ClickHouse alone, with a generated sampled population and the ground truth behind it, so an unbiased query can be graded and not just compared; unbiased-aggregate and pre-aggregation exercises |
 | `chapter-09/` | Trace-driven insights | Collector running span metrics twice, once before the tail sampler and once after, feeding Prometheus, ClickHouse and Loki off one pipeline; divergence, error-fingerprint and three-signal-correlation exercises |
+| `chapter-10/` | Extracting metrics from traces | Edge Collector deriving span metrics before a sampler tier, three sampling policies read side by side, a Flink window job, a ClickHouse view and query, and a cardinality override; counted against a workload whose size and error count are known |
 
 ## Running a chapter
 

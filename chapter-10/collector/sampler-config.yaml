@@ -1,0 +1,131 @@
+# Sampler Collector: reads the unsampled otlp_spans topic three times, in three
+# consumer groups, and derives span metrics from three different sampling
+# decisions so one workload can be read through each.
+#
+#   uniform   tail sampler, 1% of traces. Survivors also go to otlp_sampled,
+#             which is what lands in ClickHouse.
+#   policy    tail sampler that keeps every error trace plus 1% of the rest.
+#   weighted  probabilistic sampler in proportional mode, 1%. It stamps the
+#             sampling threshold on each kept span, and the connector counts
+#             each survivor at its weight.
+
+receivers:
+  kafka/uniform:
+    brokers: [kafka:9093]
+    protocol_version: "4.0.0"
+    group_id: sampler-uniform
+    initial_offset: earliest
+    traces:
+      topics: [otlp_spans]
+      encoding: otlp_proto
+  kafka/policy:
+    brokers: [kafka:9093]
+    protocol_version: "4.0.0"
+    group_id: sampler-policy
+    initial_offset: earliest
+    traces:
+      topics: [otlp_spans]
+      encoding: otlp_proto
+  kafka/weighted:
+    brokers: [kafka:9093]
+    protocol_version: "4.0.0"
+    group_id: sampler-weighted
+    initial_offset: earliest
+    traces:
+      topics: [otlp_spans]
+      encoding: otlp_proto
+
+processors:
+  tail_sampling/uniform:
+    decision_wait: 5s
+    num_traces: 100000
+    expected_new_traces_per_sec: 500
+    policies:
+      - name: one-percent
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 1
+
+  tail_sampling/policy:
+    decision_wait: 5s
+    num_traces: 100000
+    expected_new_traces_per_sec: 500
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: one-percent
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 1
+
+  probabilistic_sampler:
+    mode: proportional
+    sampling_percentage: 1
+
+connectors:
+  spanmetrics/uniform:
+    namespace: uniform
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s]
+    exemplars:
+      enabled: true
+  spanmetrics/policy:
+    namespace: policy
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s]
+  spanmetrics/weighted:
+    namespace: weighted
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s]
+
+exporters:
+  kafka/sampled:
+    brokers: [kafka:9093]
+    protocol_version: "4.0.0"
+    traces:
+      topic: otlp_sampled
+      encoding: otlp_proto
+    producer:
+      compression: lz4
+      required_acks: 1
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+  prometheus:
+    endpoint: 0.0.0.0:8890
+    enable_open_metrics: true
+
+service:
+  pipelines:
+    traces/uniform:
+      receivers: [kafka/uniform]
+      processors: [tail_sampling/uniform]
+      exporters: [spanmetrics/uniform, kafka/sampled]
+    traces/policy:
+      receivers: [kafka/policy]
+      processors: [tail_sampling/policy]
+      exporters: [spanmetrics/policy]
+    traces/weighted:
+      receivers: [kafka/weighted]
+      processors: [probabilistic_sampler]
+      exporters: [spanmetrics/weighted]
+    metrics:
+      receivers: [spanmetrics/uniform, spanmetrics/policy, spanmetrics/weighted]
+      exporters: [prometheus]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_type_suffix: false
+                without_units: false

@@ -1,0 +1,69 @@
+# Edge Collector, everything Listing 10.1 leaves out: the OTLP receiver, the
+# memory limiter and batch processors, the Kafka and Prometheus exporters and
+# the Collector's own telemetry. Merged under edge-config.yaml.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # First on traces/in. Processors always run before the connectors, so the
+  # order that matters is the limiter before anything else: a batch it refuses
+  # is retried by the SDK, and because the limiter ran first the refused
+  # attempt was never counted, so the retry is counted once.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Groups spans into larger batches before the connectors and the Kafka
+  # exporter see them. Counts are unchanged; the work per span is smaller.
+  batch:
+    timeout: 1s
+    send_batch_size: 8192
+
+exporters:
+  # Every span, unsampled, for the sampler tier. Partitioned by trace ID so a
+  # trace's spans land on one partition.
+  kafka:
+    brokers:
+      - kafka:9093
+    protocol_version: "4.0.0"
+    traces:
+      topic: otlp_spans
+      encoding: otlp_proto
+    partition_traces_by_id: true
+    producer:
+      compression: lz4
+      required_acks: 1
+      max_message_bytes: 1000000
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+
+  # OpenMetrics, so the exemplars the span-metrics connector attaches reach
+  # the scrape.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    enable_open_metrics: true
+
+service:
+  pipelines:
+    traces/in:
+      processors: [memory_limiter, batch]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_type_suffix: false
+                without_units: false

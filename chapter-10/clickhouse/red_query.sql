@@ -1,0 +1,15 @@
+-- ---- Listing 10.4: The same RED query at query time with no materialized view ----
+
+SELECT
+  service_name AS service,
+  span_name AS operation,
+  toStartOfMinute(timestamp) AS minute,
+  sum(adjusted_count) AS weighted_calls,
+  sumIf(adjusted_count,
+      status_code = 'STATUS_CODE_ERROR') AS weighted_errors,
+  quantileTDigestWeighted(0.99)(duration_ns / 1e6,
+      toUInt64(round(adjusted_count))) AS p99_ms
+FROM tracing.otel_traces
+WHERE timestamp >= now() - INTERVAL 1 HOUR
+GROUP BY service, operation, minute;
+-- ---- end listing 10.4 ----
