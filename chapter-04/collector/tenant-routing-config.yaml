@@ -5,32 +5,40 @@
 # role as gateway-config.yaml, with routing added ahead of the Kafka exporters.
 #
 # The tenant.id resource attribute normally arrives from the SDK. The resource
-# processor below sets it explicitly so the file runs standalone, and it shows
-# the form the processor actually expects: a list of key/value/action entries,
-# not a map.
+# processor below only fills it in when it is missing: insert never overwrites
+# a value the SDK already set, and the `unknown` fallback falls through to the
+# shared pipeline. Spans tagged tenant.id=acme-corp go to the dedicated topic.
 
 receivers:
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        include_metadata: true
       http:
         endpoint: 0.0.0.0:4318
+        include_metadata: true
 
 processors:
   memory_limiter:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
+  # Gateway resource processor: fallback when the SDK did not set these
   resource:
     attributes:
       - key: tenant.id
-        value: acme-corp
-        action: upsert
+        value: unknown
+        action: insert
+      - key: deployment.environment
+        value: prod
+        action: insert
   batch:
     send_batch_size: 8192
     timeout: 1s
+    metadata_keys: [x-tenant-id]
 
+# Gateway collector routing connector
 connectors:
   routing:
     default_pipelines: [traces/shared]
@@ -49,6 +57,7 @@ exporters:
       topic: otlp_spans.tenant-a
       encoding: otlp_proto
     partition_traces_by_id: true
+    include_metadata_keys: [x-tenant-id]
     producer:
       compression: lz4
       required_acks: 1
@@ -61,6 +70,7 @@ exporters:
       topic: otlp_spans
       encoding: otlp_proto
     partition_traces_by_id: true
+    include_metadata_keys: [x-tenant-id]
     producer:
       compression: lz4
       required_acks: 1

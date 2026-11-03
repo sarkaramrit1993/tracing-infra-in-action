@@ -1,7 +1,10 @@
 # Listing 4.7: Consumer collector with Kafka receiver
 # The OTel Collector Kafka receiver handles offset commit, poll sizing, and
-# cooperative rebalancing internally, so this file intentionally looks thinner
-# than Listing 4.4's raw Kafka consumer config.
+# cooperative rebalancing itself, so this file looks thinner than Listing 4.4's
+# raw Kafka consumer config. To keep at-least-once delivery, a record is marked
+# for commit only after the pipeline returns, and the pipeline returns only once
+# the export to Jaeger finishes. No batch processor sits in the pipeline, because
+# it returns as soon as it has buffered the data.
 receivers:
   kafka:
     brokers:
@@ -11,20 +14,21 @@ receivers:
     protocol_version: "3.9.0"
     group_id: trace-storage
     initial_offset: earliest
+    message_marking:
+      after: true
+    error_backoff:
+      enabled: true
     traces:
       topics: ["otlp_spans"]
       encoding: otlp_proto
-
-processors:
-  batch:
-    send_batch_size: 4096
-    timeout: 2s
 
 exporters:
   otlp:
     endpoint: jaeger:4317
     tls:
       insecure: true
+    sending_queue:
+      wait_for_result: true
 
 extensions:
   health_check: {}
@@ -34,7 +38,6 @@ service:
   pipelines:
     traces:
       receivers: [kafka]
-      processors: [batch]
       exporters: [otlp]
   telemetry:
     metrics:
