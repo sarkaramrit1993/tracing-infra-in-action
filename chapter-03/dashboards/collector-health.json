@@ -12,7 +12,7 @@
       "targets": [
         {
           "expr": "otelcol_exporter_queue_size",
-          "legendFormat": "{{pod}}"
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -30,25 +30,26 @@
     },
     {
       "title": "Export Latency",
+      "description": "Duration of the gateway's OTLP gRPC Export calls to Jaeger. The 0.154.0 exporterhelper has no send-latency histogram, so this reads the gRPC client histogram rpc.client.call.duration (seconds). The collector only emits it at telemetry level detailed, and Prometheus 3 stores it under its dotted UTF-8 name.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(otelcol_exporter_send_latency_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate({\"rpc.client.call.duration_bucket\", \"rpc.method\"=\"opentelemetry.proto.collector.trace.v1.TraceService/Export\"}[5m])))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(otelcol_exporter_send_latency_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate({\"rpc.client.call.duration_bucket\", \"rpc.method\"=\"opentelemetry.proto.collector.trace.v1.TraceService/Export\"}[5m])))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(otelcol_exporter_send_latency_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate({\"rpc.client.call.duration_bucket\", \"rpc.method\"=\"opentelemetry.proto.collector.trace.v1.TraceService/Export\"}[5m])))",
           "legendFormat": "p99"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "s"
         }
       }
     },
@@ -59,7 +60,7 @@
       "targets": [
         {
           "expr": "rate(otelcol_receiver_refused_spans[5m])",
-          "legendFormat": "{{pod}}"
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
@@ -76,21 +77,18 @@
     },
     {
       "title": "Retry Rate",
+      "description": "Share of spans that failed to export after retries ran out, out of all spans the exporter tried to send (sent plus failed). The failed counter only appears after the first failure, so the query falls back to 0 until then.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "targets": [
         {
-          "expr": "rate(otelcol_exporter_send_failed_spans[5m])",
-          "legendFormat": "{{pod}} - failed"
-        },
-        {
-          "expr": "rate(otelcol_exporter_sent_spans[5m])",
-          "legendFormat": "{{pod}} - success"
+          "expr": "(sum by (instance) (rate(otelcol_exporter_send_failed_spans[5m])) or sum by (instance) (rate(otelcol_exporter_sent_spans[5m])) * 0) / sum by (instance) (rate({__name__=~\"otelcol_exporter_sent_spans|otelcol_exporter_send_failed_spans\"}[5m]))",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops"
+          "unit": "percentunit"
         }
       }
     },
@@ -100,8 +98,8 @@
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
       "targets": [
         {
-          "expr": "process_runtime_total_alloc_bytes",
-          "legendFormat": "{{pod}}"
+          "expr": "otelcol_process_runtime_heap_alloc_bytes",
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {
