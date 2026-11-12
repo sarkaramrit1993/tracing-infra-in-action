@@ -29,7 +29,7 @@ scrape_configs:
   - job_name: edge-userid-spanmetrics
     sample_limit: 50000
     dns_sd_configs:
-      - names: ["edge-collector-userid."]
+      - names: ["edge-collector-userid"]
         type: A
         port: 8891
         refresh_interval: 15s
