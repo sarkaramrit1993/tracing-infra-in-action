@@ -39,26 +39,30 @@ docker compose down -v
 
 ## Verifying
 
-Each chapter has a `tests/test_stack.sh` that checks that chapter's stack
-against a live run, but what it checks differs by chapter. Chapters 2 and 4
-confirm services are up, a trace is produced, and the trace reaches Jaeger
-(chapter 4 also checks that the trace still lands with one Kafka broker
-down, and that two brokers down leaves some partitions without a leader
-while checkout keeps returning 200). Chapter 3 confirms the collection tier
-through Prometheus metrics and does not query Jaeger. Chapter 5 confirms
-trace assembly through ClickHouse and Kafka and has no services-up step.
-Chapter 7 confirms the store rather than the ingest path: that the listing 7.1
-schema exists, that a trace round-trips by ID, and that the row policy keeps
-one tenant from reading another's spans. Chapter 8 has no ingest path at all
-and confirms the answers instead: it generates a sampled population, records
-what it generated, and then checks that the weighted query reproduces that
-number while the unweighted one does not. Chapter 9 confirms what can be
-derived rather than what is stored: that the span-metric series taken before
-the sampler and the one taken after disagree in the direction the chapter
-predicts, that the error-issue index folds many raw error spans into one
-fingerprint, and that one trace id reaches all three of a trace, a log line
-and a metric exemplar. It has a second live script, `tests/test_correlation.sh`,
-which walks those three crossings for a single request.
-See [`setup/README.md`](setup/README.md) for memory, ports, and per-chapter
-requirements, and [`troubleshooting.md`](troubleshooting.md) for what to do
-when a stack doesn't come up cleanly.
+Want to check that a stack works? Start it, then run its test:
+
+```bash
+cd chapter-04
+docker compose up -d
+bash tests/test_stack.sh
+```
+
+Each check prints `PASS` when it holds, and the script stops at the first
+one that doesn't. Each chapter checks the thing that chapter teaches:
+
+| Chapter | What the test checks |
+|---------|----------------------|
+| 2 | The services are up, and a trace reaches Jaeger |
+| 3 | The collection tier works, read from its Prometheus metrics |
+| 4 | A trace reaches Jaeger, even with one Kafka broker down |
+| 5 | Spans come back together as whole traces in ClickHouse |
+| 7 | A trace round-trips by ID, and one tenant can't read another's spans |
+| 8 | The weighted query gets the right answer and the unweighted one doesn't |
+| 9 | Span metrics before and after the sampler disagree, and one trace ID links a trace, a log line and a metric |
+| 10 | Each place that counts calls is checked against a workload of known size |
+
+Chapter 9 has a second script, `tests/test_correlation.sh`, that follows one
+request across the trace, the log and the metric.
+
+If a stack won't start, see [`setup/README.md`](setup/README.md) for memory
+and ports, and [`troubleshooting.md`](troubleshooting.md) for common fixes.
