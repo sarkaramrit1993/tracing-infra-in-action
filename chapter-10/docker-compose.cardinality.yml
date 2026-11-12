@@ -1,10 +1,6 @@
-# The cardinality step. Use it on top of the main file:
-#
-#   docker compose -f docker-compose.yml -f docker-compose.cardinality.yml up -d edge-collector-userid
-#
-# and remove it with:
-#
-#   docker compose -f docker-compose.yml -f docker-compose.cardinality.yml rm -sf edge-collector-userid
+# The cardinality step. Start it with ./scripts/cardinality-blast.sh and
+# remove it with ./scripts/cardinality-down.sh; both also update the Prometheus
+# target file in targets/.
 #
 # It adds one collector: the edge config plus a user.id dimension on the
 # span-metrics connector, on its own port and its own Prometheus job.

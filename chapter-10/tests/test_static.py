@@ -15,6 +15,7 @@ accepts exemplars and stores none, a port bound to every interface.
 Usage: python3 tests/test_static.py
 """
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -263,8 +264,10 @@ def test_every_scrape_target_is_a_service_in_the_compose_file():
     services |= set(yaml.safe_load(read("docker-compose.cardinality.yml"))["services"])
     for job in yaml.safe_load(read("prometheus.yml"))["scrape_configs"]:
         targets = list(job.get("static_configs", [{}])[0].get("targets", []))
-        for dns in job.get("dns_sd_configs", []):
-            targets += [n + ":0" for n in dns["names"]]
+        for sd in job.get("file_sd_configs", []):
+            for f in sd["files"]:
+                for group in json.loads(read("targets/" + f.rsplit("/", 1)[1])):
+                    targets += group["targets"]
         for target in targets:
             assert target.split(":")[0] in services, \
                 f"job {job['job_name']} scrapes {target}, which no service provides"

@@ -14,6 +14,7 @@ target_gone() {
   ! q targets | grep -q edge-userid-spanmetrics
 }
 
+echo '[]' > targets/edge-userid.json
 $COMPOSE rm -sf edge-collector-userid > /dev/null 2>&1
 poll "waiting for Prometheus to drop the target" 120 target_gone
 q targets | q table

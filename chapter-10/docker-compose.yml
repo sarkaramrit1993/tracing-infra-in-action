@@ -277,6 +277,7 @@ services:
       - "--enable-feature=exemplar-storage"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./targets:/etc/prometheus/targets:ro
     depends_on:
       edge-collector:
         condition: service_started

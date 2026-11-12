@@ -22,14 +22,11 @@ scrape_configs:
     static_configs:
       - targets: ["clickhouse:9363"]
 
-  # Only exists while docker-compose.cardinality.yml is up. DNS service
-  # discovery finds nothing while that container is absent, so no dead target
-  # shows. Its own sample_limit is deliberately lower than the connector's
-  # worst case.
+  # The target file is empty until cardinality-blast.sh writes the user.id
+  # Collector into it, and cardinality-down.sh empties it again. Its own
+  # sample_limit is deliberately lower than the connector's worst case.
   - job_name: edge-userid-spanmetrics
     sample_limit: 50000
-    dns_sd_configs:
-      - names: ["edge-collector-userid"]
-        type: A
-        port: 8891
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/edge-userid.json"]
         refresh_interval: 15s
