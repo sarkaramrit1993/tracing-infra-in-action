@@ -39,6 +39,7 @@ scrape_settled() {
 }
 
 CONFIG_FIX=./scripts/cardinality-down.sh config_is_running edge-collector-userid collector/edge-config.yaml collector/edge-base.yaml collector/edge-userid.yaml
+echo '[{"targets": ["edge-collector-userid:8891"]}]' > targets/edge-userid.json
 $COMPOSE up -d edge-collector-userid 2> /dev/null
 poll "waiting for the new Collector to join Kafka (it reads only spans sent after it starts)" 120 group_is_stable
 echo "This takes about 3 minutes: it starts a Collector, sends a fresh $USERID_REQUESTS-request workload, and waits for the 60 s metric flush."
