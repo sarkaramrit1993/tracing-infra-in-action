@@ -176,3 +176,158 @@ def test_readme_listings_parses_every_chapters_listings_table():
     for chapter_dir in chapters_with_listings:
         listings = readme_listings(chapter_dir / "README.md")
         assert listings, f"{chapter_dir.name}/README.md has a Listings heading but no rows parsed"
+
+
+def test_agent_workload_has_one_copy():
+    """The agent and its stand-in model live only in chapter-02/agent/."""
+    canonical = ROOT / "chapter-02" / "agent"
+    unrelated = {ROOT / "chapter-05" / "app" / "agent.py"}
+    strays = [
+        path for name in ("agent.py", "stand_in_model.py")
+        for path in ROOT.rglob(name)
+        if canonical not in path.parents and path not in unrelated and ".git" not in path.parts
+    ]
+    assert not strays, f"agent workload copied outside chapter-02/agent/: {strays}"
+    assert (canonical / "agent.py").exists() and (canonical / "stand_in_model.py").exists()
+
+
+def test_agent_scripts_are_runnable_and_strict():
+    """Each shipped agent script has a shebang, is executable, and fails loudly."""
+    scripts = ROOT / "chapter-02" / "scripts"
+    for name in ("run-agent.sh", "measure-agent-trace.sh", "capture-on.sh", "capture-off.sh"):
+        path = scripts / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{name}: does not source lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert "set -euo pipefail" in (scripts / "lib.sh").read_text()
+
+
+def test_capture_scripts_round_trip_through_env_file(tmp_path):
+    """capture-on then capture-off change only the capture line and survive between calls."""
+    import shutil
+
+    chapter = tmp_path / "chapter-02"
+    shutil.copytree(ROOT / "chapter-02" / "scripts", chapter / "scripts", ignore=shutil.ignore_patterns("*.py"))
+    (chapter / ".env").write_text("KEEP=1\n")
+    var = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+
+    def run(name):
+        subprocess.run([str(chapter / "scripts" / name)], check=True, capture_output=True)
+        return (chapter / ".env").read_text().splitlines()
+
+    assert run("capture-on.sh") == ["KEEP=1", f"{var}=span_only"]
+    assert run("capture-on.sh") == ["KEEP=1", f"{var}=span_only"]
+    assert run("capture-off.sh") == ["KEEP=1", f"{var}=no_content"]
+
+
+def test_agent_report_prints_both_settings():
+    """report.py joins the off and on measurements into one table from the committed results."""
+    import contextlib
+    import io
+    import shutil
+    import tempfile
+
+    sys.path.insert(0, str(ROOT / "chapter-02" / "agent"))
+    import report
+
+    results = ROOT / "chapter-02" / "agent" / "results" / "agent-trace-2026-11-18.json"
+    data = json.loads(results.read_text())
+    with tempfile.TemporaryDirectory() as root:
+        for condition in ("no_content", "span_only"):
+            cells = [c for c in data["cells"] if c["condition"] == condition and c["prompt_size"] == "8k"]
+            target = Path(root) / condition
+            target.mkdir()
+            (target / "agent-trace-2026-11-18.json").write_text(json.dumps({"cells": cells}))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            report.main(root)
+        shutil.rmtree(root, ignore_errors=True)
+    text = out.getvalue()
+    assert "whole trace              11" in text and "3777" in text and "42810" in text
+    assert "not measured yet" not in text
+
+
+def _run_agent_with_stubs(tmp_path, responses):
+    """Run run-agent.sh with stubbed docker and curl. `responses` is the list of
+    span counts curl reports per poll; the last one repeats."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-02"
+    shutil.copytree(ROOT / "chapter-02" / "scripts", chapter / "scripts", ignore=shutil.ignore_patterns("*.py"))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        '[ "$2" = run ] && echo "run 1/1: trace_id=abc123 size=8k capture=no_content seconds=1.0"\n'
+        'exit 0\n'
+    )
+    state = tmp_path / "polls"
+    state.write_text("0")
+    (bin_dir / "curl").write_text(
+        '#!/usr/bin/env bash\n'
+        f'n=$(cat {state}); echo $((n + 1)) > {state}\n'
+        f'counts=({" ".join(map(str, responses))})\n'
+        'i=$n; [ "$i" -ge "${#counts[@]}" ] && i=$((${#counts[@]} - 1))\n'
+        '[ "${counts[$i]}" = F ] && exit 7\n'
+        'k=0; while [ "$k" -lt "${counts[$i]}" ]; do echo \'{"spanId":"x"}\'; k=$((k + 1)); done\n'
+        'exit 0\n'
+    )
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "POLL_SECONDS": "0", "POLL_TRIES": "20"}
+    result = subprocess.run([str(chapter / "scripts" / "run-agent.sh")], capture_output=True, text=True, env=env)
+    return result, int(state.read_text())
+
+
+def test_run_agent_keeps_waiting_through_empty_polls(tmp_path):
+    """No spans yet must mean wait and retry, not a silent exit under pipefail."""
+    result, polls = _run_agent_with_stubs(tmp_path, [0, 0, 0, 5, 11, 13])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "has 13 spans" in result.stdout
+    assert polls > 6
+
+
+def test_run_agent_does_not_stop_at_a_partial_trace(tmp_path):
+    """A count that holds for a few polls and then grows is not complete."""
+    result, _ = _run_agent_with_stubs(tmp_path, [11, 11, 11, 13])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "has 13 spans" in result.stdout
+
+
+def test_run_agent_gives_up_with_a_message_when_trace_never_arrives(tmp_path):
+    result, polls = _run_agent_with_stubs(tmp_path, [0])
+    assert result.returncode != 0
+    assert "did not reach Jaeger" in result.stderr
+    assert polls == 20
+
+
+def test_run_agent_survives_curl_failing_while_jaeger_is_down(tmp_path):
+    """curl exit 7 (connection refused) counts as no spans for that poll."""
+    result, polls = _run_agent_with_stubs(tmp_path, ["F", "F", "F", 13])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "has 13 spans" in result.stdout
+    assert polls >= 8
+
+
+def test_run_agent_reports_timeout_when_curl_always_fails(tmp_path):
+    result, polls = _run_agent_with_stubs(tmp_path, ["F"])
+    assert result.returncode != 0
+    assert "Is the stack up?" in result.stderr
+    assert polls == 20
+
+
+def test_stand_in_delay_scale_defaults_to_one():
+    """Chapter 3 shortens the stand-in's sleeps; every other chapter must keep them."""
+    import os
+
+    code = "import stand_in_model as m; print(m.DELAY_SCALE)"
+    base = {k: v for k, v in os.environ.items() if k != "STAND_IN_DELAY_SCALE"}
+    cwd = ROOT / "chapter-02" / "agent"
+    default = subprocess.run([sys.executable, "-c", code], cwd=cwd, env=base, capture_output=True, text=True)
+    scaled = subprocess.run([sys.executable, "-c", code], cwd=cwd, env={**base, "STAND_IN_DELAY_SCALE": "0.01"},
+                            capture_output=True, text=True)
+    assert default.stdout.strip() == "1.0", default.stderr
+    assert scaled.stdout.strip() == "0.01", scaled.stderr

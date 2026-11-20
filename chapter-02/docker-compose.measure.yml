@@ -1,0 +1,8 @@
+services:
+  otel-collector:
+    volumes:
+      - ./collector/config-measure.yaml:/etc/otel/config.yaml:ro
+      - ${COLLECTOR_OUT:-./agent/results/collector-out}:/collector-out
+  agent:
+    volumes:
+      - ${COLLECTOR_OUT:-./agent/results/collector-out}:/collector-out:ro

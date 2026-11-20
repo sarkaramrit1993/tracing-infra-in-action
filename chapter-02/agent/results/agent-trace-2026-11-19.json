@@ -1,0 +1,6531 @@
+{
+  "date": "2026-11-19",
+  "mode": "short",
+  "runs_per_cell": 5,
+  "host": {
+    "platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.12.8",
+    "cpus": 12
+  },
+  "versions": {
+    "openai": "1.109.1",
+    "opentelemetry-api": "1.43.0",
+    "opentelemetry-sdk": "1.43.0",
+    "opentelemetry-exporter-otlp-proto-grpc": "1.43.0",
+    "opentelemetry-exporter-otlp-proto-common": "1.43.0",
+    "opentelemetry-instrumentation": "0.64b0",
+    "opentelemetry-semantic-conventions": "0.64b0",
+    "opentelemetry-instrumentation-openai-v2": "2.4b0",
+    "opentelemetry-util-genai": "1.1b0",
+    "opentelemetry-instrumentation-requests": "0.64b0",
+    "requests": "2.32.3",
+    "zstandard": "0.23.0",
+    "protobuf": "7.36.2"
+  },
+  "semconv_stability_opt_in": "gen_ai_latest_experimental",
+  "cells": [
+    {
+      "condition": "no_content",
+      "prompt_size": "1k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            447,
+            447,
+            447,
+            441
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 447,
+      "chat_growth_last_over_first": 0.987,
+      "sum_span_bytes": 3323,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ]
+      ],
+      "trace_gzip": [
+        1267,
+        1258,
+        1260,
+        1253,
+        1268
+      ],
+      "trace_zstd": [
+        1276,
+        1268,
+        1263,
+        1260,
+        1285
+      ],
+      "largest_request": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "http.url",
+          "bytes": 44
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 3797,
+        "largest_span_after": 447
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1832,
+          "share_min": 0.1821,
+          "share_max": 0.1839
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0085,
+          "share_min": 0.0081,
+          "share_max": 0.0093
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1532,
+          "share_max": 0.1551
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1538,
+          "share_max": 0.1547
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2294,
+          "share_min": 0.2274,
+          "share_max": 0.2296
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2705,
+          "share_min": 0.2704,
+          "share_max": 0.2715
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2237.2,
+        2231.0,
+        2237.4,
+        2231.5,
+        2225.6
+      ],
+      "root_duration_ms": {
+        "median": 2231.5,
+        "min": 2225.6,
+        "max": 2237.4
+      }
+    },
+    {
+      "condition": "no_content",
+      "prompt_size": "8k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            447,
+            447,
+            447,
+            441
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 447,
+      "chat_growth_last_over_first": 0.987,
+      "sum_span_bytes": 3323,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ]
+      ],
+      "trace_gzip": [
+        1262,
+        1256,
+        1256,
+        1253,
+        1263
+      ],
+      "trace_zstd": [
+        1272,
+        1266,
+        1259,
+        1260,
+        1274
+      ],
+      "largest_request": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "http.url",
+          "bytes": 44
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 3797,
+        "largest_span_after": 447
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1826,
+          "share_min": 0.1821,
+          "share_max": 0.1828
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0094,
+          "share_min": 0.0082,
+          "share_max": 0.0103
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1548,
+          "share_min": 0.1539,
+          "share_max": 0.1555
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1538,
+          "share_max": 0.155
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2277,
+          "share_min": 0.227,
+          "share_max": 0.2293
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2706,
+          "share_min": 0.2699,
+          "share_max": 0.2719
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2236.4,
+        2234.9,
+        2230.3,
+        2226.7,
+        2239.6
+      ],
+      "root_duration_ms": {
+        "median": 2234.9,
+        "min": 2226.7,
+        "max": 2239.6
+      }
+    },
+    {
+      "condition": "no_content",
+      "prompt_size": "32k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            447,
+            447,
+            447,
+            441
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 447,
+      "chat_growth_last_over_first": 0.987,
+      "sum_span_bytes": 3323,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ]
+      ],
+      "trace_gzip": [
+        1262,
+        1258,
+        1261,
+        1259,
+        1265
+      ],
+      "trace_zstd": [
+        1269,
+        1258,
+        1267,
+        1279,
+        1276
+      ],
+      "largest_request": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "http.url",
+          "bytes": 44
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 3797,
+        "largest_span_after": 447
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1827,
+          "share_min": 0.1821,
+          "share_max": 0.184
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0093,
+          "share_min": 0.0089,
+          "share_max": 0.0099
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1539,
+          "share_max": 0.1546
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1533,
+          "share_max": 0.1549
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2281,
+          "share_min": 0.2271,
+          "share_max": 0.2301
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2708,
+          "share_min": 0.2697,
+          "share_max": 0.2715
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2237.5,
+        2242.2,
+        2241.3,
+        2231.3,
+        2227.8
+      ],
+      "root_duration_ms": {
+        "median": 2237.5,
+        "min": 2227.8,
+        "max": 2242.2
+      }
+    },
+    {
+      "condition": "span_only",
+      "prompt_size": "1k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        14060,
+        14060,
+        14060,
+        14060,
+        14060
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            1872,
+            2324,
+            3142,
+            3588
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            503,
+            445
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            828
+          ]
+        }
+      },
+      "largest_span": 3588,
+      "chat_growth_last_over_first": 1.917,
+      "sum_span_bytes": 13586,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ]
+      ],
+      "trace_gzip": [
+        2841,
+        2838,
+        2852,
+        2843,
+        2842
+      ],
+      "trace_zstd": [
+        2906,
+        2904,
+        2919,
+        2910,
+        2907
+      ],
+      "largest_request": [
+        14060,
+        14060,
+        14060,
+        14060,
+        14060
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 2809
+        },
+        "attributes_over_limit": 2,
+        "span_bytes_before": [
+          201,
+          1872,
+          503,
+          2324,
+          3142,
+          445,
+          3588,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_after": [
+          201,
+          1872,
+          503,
+          2324,
+          2739,
+          445,
+          2827,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          403,
+          0,
+          761,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 12896,
+        "largest_span_after": 2827
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1824,
+          "share_min": 0.1817,
+          "share_max": 0.1832
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0094,
+          "share_min": 0.0085,
+          "share_max": 0.0112
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1535,
+          "share_min": 0.1531,
+          "share_max": 0.1542
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1535,
+          "share_min": 0.1531,
+          "share_max": 0.154
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2295,
+          "share_min": 0.2272,
+          "share_max": 0.2315
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2705,
+          "share_min": 0.2702,
+          "share_max": 0.2723
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.retrieval.documents",
+        "gen_ai.retrieval.query.text",
+        "gen_ai.tool.call.arguments",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.call.result",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2236.0,
+        2229.9,
+        2240.3,
+        2251.3,
+        2237.9
+      ],
+      "root_duration_ms": {
+        "median": 2237.9,
+        "min": 2229.9,
+        "max": 2251.3
+      }
+    },
+    {
+      "condition": "span_only",
+      "prompt_size": "8k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        42830,
+        42830,
+        42830,
+        42830,
+        42830
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            9064,
+            9516,
+            10334,
+            10780
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            503,
+            445
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            828
+          ]
+        }
+      },
+      "largest_span": 10780,
+      "chat_growth_last_over_first": 1.189,
+      "sum_span_bytes": 42354,
+      "envelope_bytes": 476,
+      "span_bytes_per_run": [
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ]
+      ],
+      "trace_gzip": [
+        4359,
+        4354,
+        4353,
+        4359,
+        4364
+      ],
+      "trace_zstd": [
+        4325,
+        4318,
+        4314,
+        4315,
+        4337
+      ],
+      "largest_request": [
+        42830,
+        42830,
+        42830,
+        42830,
+        42830
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 10001
+        },
+        "attributes_over_limit": 4,
+        "span_bytes_before": [
+          201,
+          9064,
+          503,
+          9516,
+          10334,
+          445,
+          10780,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_after": [
+          201,
+          2722,
+          503,
+          2746,
+          2739,
+          445,
+          2827,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_lost": [
+          0,
+          6342,
+          0,
+          6770,
+          7595,
+          0,
+          7953,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 14168,
+        "largest_span_after": 2827
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1826,
+          "share_min": 0.1818,
+          "share_max": 0.1835
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0095,
+          "share_min": 0.0082,
+          "share_max": 0.0104
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1542,
+          "share_min": 0.1537,
+          "share_max": 0.1548
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1544,
+          "share_min": 0.1539,
+          "share_max": 0.156
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2277,
+          "share_min": 0.2274,
+          "share_max": 0.2285
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2708,
+          "share_min": 0.2699,
+          "share_max": 0.2714
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 3
+          }
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.retrieval.documents",
+        "gen_ai.retrieval.query.text",
+        "gen_ai.tool.call.arguments",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.call.result",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2227.5,
+        2241.4,
+        2238.5,
+        2237.8,
+        2240.0
+      ],
+      "root_duration_ms": {
+        "median": 2238.5,
+        "min": 2227.5,
+        "max": 2241.4
+      }
+    },
+    {
+      "condition": "span_only",
+      "prompt_size": "32k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        141482,
+        141482,
+        141482,
+        141482,
+        141482
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            33726,
+            34178,
+            34996,
+            35442
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            503,
+            445
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            828
+          ]
+        }
+      },
+      "largest_span": 35442,
+      "chat_growth_last_over_first": 1.051,
+      "sum_span_bytes": 141002,
+      "envelope_bytes": 480,
+      "span_bytes_per_run": [
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ]
+      ],
+      "trace_gzip": [
+        21752,
+        21747,
+        21758,
+        21758,
+        21748
+      ],
+      "trace_zstd": [
+        7717,
+        7706,
+        7721,
+        7730,
+        7713
+      ],
+      "largest_request": [
+        141482,
+        141482,
+        141482,
+        141482,
+        141482
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 34660
+        },
+        "attributes_over_limit": 4,
+        "span_bytes_before": [
+          201,
+          33726,
+          503,
+          34178,
+          34996,
+          445,
+          35442,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_after": [
+          201,
+          2722,
+          503,
+          2746,
+          2739,
+          445,
+          2827,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_lost": [
+          0,
+          31004,
+          0,
+          31432,
+          32257,
+          0,
+          32615,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 14168,
+        "largest_span_after": 2827
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1823,
+          "share_min": 0.1815,
+          "share_max": 0.183
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0089,
+          "share_min": 0.0078,
+          "share_max": 0.0102
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1548,
+          "share_min": 0.1538,
+          "share_max": 0.1564
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0001,
+          "share_max": 0.0002
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1546,
+          "share_min": 0.1541,
+          "share_max": 0.1563
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2287,
+          "share_min": 0.2264,
+          "share_max": 0.2293
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2704,
+          "share_min": 0.2694,
+          "share_max": 0.2727
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 3
+          }
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.retrieval.documents",
+        "gen_ai.retrieval.query.text",
+        "gen_ai.tool.call.arguments",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.call.result",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2240.8,
+        2246.7,
+        2240.6,
+        2244.7,
+        2247.4
+      ],
+      "root_duration_ms": {
+        "median": 2244.7,
+        "min": 2240.6,
+        "max": 2247.4
+      }
+    },
+    {
+      "condition": "event_only",
+      "prompt_size": "1k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            447,
+            447,
+            447,
+            441
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 447,
+      "chat_growth_last_over_first": 0.987,
+      "sum_span_bytes": 3323,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ]
+      ],
+      "trace_gzip": [
+        1259,
+        1261,
+        1270,
+        1261,
+        1263
+      ],
+      "trace_zstd": [
+        1267,
+        1265,
+        1281,
+        1263,
+        1275
+      ],
+      "largest_request": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "event_bytes": [
+        12283,
+        12283,
+        12283,
+        12283,
+        12283
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "http.url",
+          "bytes": 44
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 3797,
+        "largest_span_after": 447
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1822,
+          "share_min": 0.1816,
+          "share_max": 0.1832
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0102,
+          "share_min": 0.0085,
+          "share_max": 0.0108
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.154,
+          "share_min": 0.1535,
+          "share_max": 0.1543
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1542,
+          "share_min": 0.1541,
+          "share_max": 0.1559
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2281,
+          "share_min": 0.2273,
+          "share_max": 0.2295
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2703,
+          "share_min": 0.2689,
+          "share_max": 0.2713
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2243.1,
+        2250.8,
+        2244.2,
+        2242.8,
+        2233.4
+      ],
+      "root_duration_ms": {
+        "median": 2243.1,
+        "min": 2233.4,
+        "max": 2250.8
+      }
+    },
+    {
+      "condition": "event_only",
+      "prompt_size": "8k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            447,
+            447,
+            447,
+            441
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 447,
+      "chat_growth_last_over_first": 0.987,
+      "sum_span_bytes": 3323,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ]
+      ],
+      "trace_gzip": [
+        1256,
+        1260,
+        1264,
+        1261,
+        1255
+      ],
+      "trace_zstd": [
+        1269,
+        1279,
+        1272,
+        1268,
+        1257
+      ],
+      "largest_request": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "event_bytes": [
+        40957,
+        40957,
+        40957,
+        40957,
+        40957
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "http.url",
+          "bytes": 44
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 3797,
+        "largest_span_after": 447
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1828,
+          "share_min": 0.1817,
+          "share_max": 0.1838
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.01,
+          "share_min": 0.0093,
+          "share_max": 0.0104
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1536,
+          "share_max": 0.1545
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0001,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1547,
+          "share_min": 0.154,
+          "share_max": 0.1557
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2276,
+          "share_min": 0.2272,
+          "share_max": 0.2283
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2705,
+          "share_min": 0.2699,
+          "share_max": 0.2709
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2248.8,
+        2240.4,
+        2244.9,
+        2241.1,
+        2255.1
+      ],
+      "root_duration_ms": {
+        "median": 2244.9,
+        "min": 2240.4,
+        "max": 2255.1
+      }
+    },
+    {
+      "condition": "event_only",
+      "prompt_size": "32k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            447,
+            447,
+            447,
+            441
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 447,
+      "chat_growth_last_over_first": 0.987,
+      "sum_span_bytes": 3323,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ],
+        [
+          201,
+          447,
+          243,
+          227,
+          447,
+          171,
+          447,
+          243,
+          229,
+          227,
+          441
+        ]
+      ],
+      "trace_gzip": [
+        1261,
+        1268,
+        1262,
+        1261,
+        1255
+      ],
+      "trace_zstd": [
+        1280,
+        1278,
+        1265,
+        1264,
+        1255
+      ],
+      "largest_request": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "event_bytes": [
+        139321,
+        139321,
+        139321,
+        139321,
+        139321
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "http.url",
+          "bytes": 44
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          447,
+          243,
+          447,
+          447,
+          243,
+          441,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 3797,
+        "largest_span_after": 447
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.183,
+          "share_min": 0.1818,
+          "share_max": 0.1833
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.01,
+          "share_min": 0.0091,
+          "share_max": 0.0108
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1545,
+          "share_min": 0.1532,
+          "share_max": 0.1549
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0001,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1546,
+          "share_min": 0.1535,
+          "share_max": 0.156
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2276,
+          "share_min": 0.2253,
+          "share_max": 0.2295
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2703,
+          "share_min": 0.2702,
+          "share_max": 0.2715
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            3799
+          ],
+          "sdk_request_bytes": [
+            3797
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2241.9,
+        2237.9,
+        2244.3,
+        2240.6,
+        2238.7
+      ],
+      "root_duration_ms": {
+        "median": 2240.6,
+        "min": 2237.9,
+        "max": 2244.3
+      }
+    },
+    {
+      "condition": "span_and_event",
+      "prompt_size": "1k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        14060,
+        14060,
+        14060,
+        14060,
+        14060
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            1872,
+            2324,
+            3142,
+            3588
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            503,
+            445
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            828
+          ]
+        }
+      },
+      "largest_span": 3588,
+      "chat_growth_last_over_first": 1.917,
+      "sum_span_bytes": 13586,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ],
+        [
+          201,
+          1872,
+          503,
+          227,
+          2324,
+          828,
+          3142,
+          445,
+          229,
+          227,
+          3588
+        ]
+      ],
+      "trace_gzip": [
+        2847,
+        2845,
+        2842,
+        2836,
+        2853
+      ],
+      "trace_zstd": [
+        2920,
+        2906,
+        2900,
+        2898,
+        2923
+      ],
+      "largest_request": [
+        14060,
+        14060,
+        14060,
+        14060,
+        14060
+      ],
+      "event_bytes": [
+        12283,
+        12283,
+        12283,
+        12283,
+        12283
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 2809
+        },
+        "attributes_over_limit": 2,
+        "span_bytes_before": [
+          201,
+          1872,
+          503,
+          2324,
+          3142,
+          445,
+          3588,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_after": [
+          201,
+          1872,
+          503,
+          2324,
+          2739,
+          445,
+          2827,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          403,
+          0,
+          761,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 12896,
+        "largest_span_after": 2827
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1834,
+          "share_min": 0.1816,
+          "share_max": 0.1855
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0095,
+          "share_min": 0.0087,
+          "share_max": 0.0121
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1538,
+          "share_min": 0.1522,
+          "share_max": 0.1551
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0001,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.154,
+          "share_min": 0.1525,
+          "share_max": 0.1546
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2283,
+          "share_min": 0.2253,
+          "share_max": 0.2299
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2708,
+          "share_min": 0.2697,
+          "share_max": 0.2713
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 3
+          }
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            14062
+          ],
+          "sdk_request_bytes": [
+            14060
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.retrieval.documents",
+        "gen_ai.retrieval.query.text",
+        "gen_ai.tool.call.arguments",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.call.result",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2247.7,
+        2235.2,
+        2253.6,
+        2228.8,
+        2248.4
+      ],
+      "root_duration_ms": {
+        "median": 2247.7,
+        "min": 2228.8,
+        "max": 2253.6
+      }
+    },
+    {
+      "condition": "span_and_event",
+      "prompt_size": "8k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        42830,
+        42830,
+        42830,
+        42830,
+        42830
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            9064,
+            9516,
+            10334,
+            10780
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            503,
+            445
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            828
+          ]
+        }
+      },
+      "largest_span": 10780,
+      "chat_growth_last_over_first": 1.189,
+      "sum_span_bytes": 42354,
+      "envelope_bytes": 476,
+      "span_bytes_per_run": [
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ],
+        [
+          201,
+          9064,
+          503,
+          227,
+          9516,
+          828,
+          10334,
+          445,
+          229,
+          227,
+          10780
+        ]
+      ],
+      "trace_gzip": [
+        4345,
+        4349,
+        4349,
+        4361,
+        4353
+      ],
+      "trace_zstd": [
+        4306,
+        4314,
+        4310,
+        4328,
+        4319
+      ],
+      "largest_request": [
+        42830,
+        42830,
+        42830,
+        42830,
+        42830
+      ],
+      "event_bytes": [
+        40957,
+        40957,
+        40957,
+        40957,
+        40957
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 10001
+        },
+        "attributes_over_limit": 4,
+        "span_bytes_before": [
+          201,
+          9064,
+          503,
+          9516,
+          10334,
+          445,
+          10780,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_after": [
+          201,
+          2722,
+          503,
+          2746,
+          2739,
+          445,
+          2827,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_lost": [
+          0,
+          6342,
+          0,
+          6770,
+          7595,
+          0,
+          7953,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 14168,
+        "largest_span_after": 2827
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.183,
+          "share_min": 0.1817,
+          "share_max": 0.1838
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0092,
+          "share_min": 0.009,
+          "share_max": 0.0095
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1542,
+          "share_min": 0.1539,
+          "share_max": 0.1562
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0002
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1542,
+          "share_min": 0.154,
+          "share_max": 0.1553
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2282,
+          "share_min": 0.2269,
+          "share_max": 0.2293
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2705,
+          "share_min": 0.2691,
+          "share_max": 0.2709
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 3
+          }
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            42832
+          ],
+          "sdk_request_bytes": [
+            42830
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.retrieval.documents",
+        "gen_ai.retrieval.query.text",
+        "gen_ai.tool.call.arguments",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.call.result",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2244.7,
+        2233.9,
+        2230.7,
+        2243.4,
+        2248.9
+      ],
+      "root_duration_ms": {
+        "median": 2243.4,
+        "min": 2230.7,
+        "max": 2248.9
+      }
+    },
+    {
+      "condition": "span_and_event",
+      "prompt_size": "32k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        141482,
+        141482,
+        141482,
+        141482,
+        141482
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            33726,
+            34178,
+            34996,
+            35442
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            503,
+            445
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            828
+          ]
+        }
+      },
+      "largest_span": 35442,
+      "chat_growth_last_over_first": 1.051,
+      "sum_span_bytes": 141002,
+      "envelope_bytes": 480,
+      "span_bytes_per_run": [
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ],
+        [
+          201,
+          33726,
+          503,
+          227,
+          34178,
+          828,
+          34996,
+          445,
+          229,
+          227,
+          35442
+        ]
+      ],
+      "trace_gzip": [
+        21746,
+        21753,
+        21772,
+        21755,
+        21755
+      ],
+      "trace_zstd": [
+        7718,
+        7732,
+        7721,
+        7713,
+        7719
+      ],
+      "largest_request": [
+        141482,
+        141482,
+        141482,
+        141482,
+        141482
+      ],
+      "event_bytes": [
+        139321,
+        139321,
+        139321,
+        139321,
+        139321
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 34660
+        },
+        "attributes_over_limit": 4,
+        "span_bytes_before": [
+          201,
+          33726,
+          503,
+          34178,
+          34996,
+          445,
+          35442,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_after": [
+          201,
+          2722,
+          503,
+          2746,
+          2739,
+          445,
+          2827,
+          227,
+          229,
+          227,
+          828
+        ],
+        "span_bytes_lost": [
+          0,
+          31004,
+          0,
+          31432,
+          32257,
+          0,
+          32615,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 14168,
+        "largest_span_after": 2827
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1821,
+          "share_min": 0.1815,
+          "share_max": 0.1828
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0088,
+          "share_min": 0.0077,
+          "share_max": 0.0091
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1546,
+          "share_min": 0.1537,
+          "share_max": 0.1562
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0001,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1544,
+          "share_min": 0.1539,
+          "share_max": 0.1562
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2286,
+          "share_min": 0.2264,
+          "share_max": 0.2295
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2715,
+          "share_min": 0.2697,
+          "share_max": 0.2719
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            141484
+          ],
+          "sdk_request_bytes": [
+            141482
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 3
+          }
+        }
+      ],
+      "uploaded_files": null,
+      "uploaded_bytes": null,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.retrieval.documents",
+        "gen_ai.retrieval.query.text",
+        "gen_ai.tool.call.arguments",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.call.result",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2251.1,
+        2236.8,
+        2226.2,
+        2235.5,
+        2229.9
+      ],
+      "root_duration_ms": {
+        "median": 2235.5,
+        "min": 2226.2,
+        "max": 2251.1
+      }
+    },
+    {
+      "condition": "ref",
+      "prompt_size": "1k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        4709,
+        4709,
+        4709,
+        4709,
+        4709
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            675,
+            675,
+            675,
+            669
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 675,
+      "chat_growth_last_over_first": 0.991,
+      "sum_span_bytes": 4235,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ]
+      ],
+      "trace_gzip": [
+        1471,
+        1472,
+        1474,
+        1474,
+        1475
+      ],
+      "trace_zstd": [
+        1481,
+        1469,
+        1470,
+        1483,
+        1477
+      ],
+      "largest_request": [
+        4709,
+        4709,
+        4709,
+        4709,
+        4709
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.output.messages_ref",
+          "bytes": 81
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          675,
+          243,
+          675,
+          675,
+          243,
+          669,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          675,
+          243,
+          675,
+          675,
+          243,
+          669,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 4709,
+        "largest_span_after": 675
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1828,
+          "share_min": 0.181,
+          "share_max": 0.1848
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0087,
+          "share_min": 0.0084,
+          "share_max": 0.0108
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1538,
+          "share_min": 0.1534,
+          "share_max": 0.1553
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0002,
+          "share_min": 0.0001,
+          "share_max": 0.0002
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1548,
+          "share_min": 0.1535,
+          "share_max": 0.1561
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2285,
+          "share_min": 0.2249,
+          "share_max": 0.229
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2709,
+          "share_min": 0.2701,
+          "share_max": 0.2711
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 3
+          }
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        }
+      ],
+      "uploaded_files": [
+        "2b51fe86-ccd4-442f-b14a-0b8d83dd661d_inputs.json",
+        "2b51fe86-ccd4-442f-b14a-0b8d83dd661d_outputs.json",
+        "666a8d23-057f-4fc7-938e-1b5ae3ea98fa_inputs.json",
+        "666a8d23-057f-4fc7-938e-1b5ae3ea98fa_outputs.json",
+        "a98c2c5f-3102-4d04-b7cc-1f25eeb16621_inputs.json",
+        "a98c2c5f-3102-4d04-b7cc-1f25eeb16621_outputs.json",
+        "cdfa1037-5aad-4568-bf66-8df9b70bb184_inputs.json",
+        "cdfa1037-5aad-4568-bf66-8df9b70bb184_outputs.json"
+      ],
+      "uploaded_bytes": 8892,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages_ref",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages_ref",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2248.5,
+        2242.5,
+        2234.5,
+        2236.2,
+        2239.3
+      ],
+      "root_duration_ms": {
+        "median": 2239.3,
+        "min": 2234.5,
+        "max": 2248.5
+      }
+    },
+    {
+      "condition": "ref",
+      "prompt_size": "8k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        4709,
+        4709,
+        4709,
+        4709,
+        4709
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            675,
+            675,
+            675,
+            669
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 675,
+      "chat_growth_last_over_first": 0.991,
+      "sum_span_bytes": 4235,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ]
+      ],
+      "trace_gzip": [
+        1472,
+        1472,
+        1479,
+        1471,
+        1473
+      ],
+      "trace_zstd": [
+        1474,
+        1471,
+        1493,
+        1472,
+        1473
+      ],
+      "largest_request": [
+        4709,
+        4709,
+        4709,
+        4709,
+        4709
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.output.messages_ref",
+          "bytes": 81
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          675,
+          243,
+          675,
+          675,
+          243,
+          669,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          675,
+          243,
+          675,
+          675,
+          243,
+          669,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 4709,
+        "largest_span_after": 675
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1822,
+          "share_min": 0.1817,
+          "share_max": 0.1835
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0087,
+          "share_min": 0.008,
+          "share_max": 0.0099
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1539,
+          "share_min": 0.1536,
+          "share_max": 0.154
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0002,
+          "share_min": 0.0002,
+          "share_max": 0.0003
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1542,
+          "share_min": 0.1538,
+          "share_max": 0.1557
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2279,
+          "share_min": 0.2276,
+          "share_max": 0.2318
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2711,
+          "share_min": 0.2693,
+          "share_max": 0.2721
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        }
+      ],
+      "uploaded_files": [
+        "4a057cdf-f5d2-4628-a365-40ff28027645_inputs.json",
+        "4a057cdf-f5d2-4628-a365-40ff28027645_outputs.json",
+        "745bf567-d4b8-439a-91f8-e2a1db1dedbe_inputs.json",
+        "745bf567-d4b8-439a-91f8-e2a1db1dedbe_outputs.json",
+        "83fb5f70-ca38-4710-b902-af7519d54a12_inputs.json",
+        "83fb5f70-ca38-4710-b902-af7519d54a12_outputs.json",
+        "f9d34d24-8874-4ef2-83cc-f3cff0535b4a_inputs.json",
+        "f9d34d24-8874-4ef2-83cc-f3cff0535b4a_outputs.json"
+      ],
+      "uploaded_bytes": 37660,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages_ref",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages_ref",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2232.9,
+        2246.5,
+        2228.8,
+        2232.5,
+        2238.4
+      ],
+      "root_duration_ms": {
+        "median": 2232.9,
+        "min": 2228.8,
+        "max": 2246.5
+      }
+    },
+    {
+      "condition": "ref",
+      "prompt_size": "32k",
+      "runs": 5,
+      "bytes_identical_across_runs": true,
+      "trace_bytes": [
+        4709,
+        4709,
+        4709,
+        4709,
+        4709
+      ],
+      "span_count": 11,
+      "spans_by_type": {
+        "invoke_agent": {
+          "count": 1,
+          "bytes": [
+            201
+          ]
+        },
+        "chat": {
+          "count": 4,
+          "bytes": [
+            675,
+            675,
+            675,
+            669
+          ]
+        },
+        "execute_tool": {
+          "count": 2,
+          "bytes": [
+            243,
+            243
+          ]
+        },
+        "http_client": {
+          "count": 3,
+          "bytes": [
+            227,
+            229,
+            227
+          ]
+        },
+        "retrieval": {
+          "count": 1,
+          "bytes": [
+            171
+          ]
+        }
+      },
+      "largest_span": 675,
+      "chat_growth_last_over_first": 0.991,
+      "sum_span_bytes": 4235,
+      "envelope_bytes": 474,
+      "span_bytes_per_run": [
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ],
+        [
+          201,
+          675,
+          243,
+          227,
+          675,
+          171,
+          675,
+          243,
+          229,
+          227,
+          669
+        ]
+      ],
+      "trace_gzip": [
+        1473,
+        1473,
+        1472,
+        1472,
+        1479
+      ],
+      "trace_zstd": [
+        1474,
+        1482,
+        1470,
+        1473,
+        1489
+      ],
+      "largest_request": [
+        4709,
+        4709,
+        4709,
+        4709,
+        4709
+      ],
+      "event_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "truncation": {
+        "cut_to_bytes": 2048,
+        "longest_string_attribute": {
+          "key": "gen_ai.output.messages_ref",
+          "bytes": 81
+        },
+        "attributes_over_limit": 0,
+        "span_bytes_before": [
+          201,
+          675,
+          243,
+          675,
+          675,
+          243,
+          669,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_after": [
+          201,
+          675,
+          243,
+          675,
+          675,
+          243,
+          669,
+          227,
+          229,
+          227,
+          171
+        ],
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 4709,
+        "largest_span_after": 675
+      },
+      "step_shares": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1827,
+          "share_min": 0.1819,
+          "share_max": 0.1827
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0098,
+          "share_min": 0.0086,
+          "share_max": 0.0107
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1536,
+          "share_max": 0.1547
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0003,
+          "share_min": 0.0002,
+          "share_max": 0.0006
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1539,
+          "share_min": 0.153,
+          "share_max": 0.1545
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2294,
+          "share_min": 0.2289,
+          "share_max": 0.2303
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2698,
+          "share_min": 0.268,
+          "share_max": 0.2704
+        }
+      ],
+      "collector_check": [
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 2
+          }
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 5
+          }
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {}
+        },
+        {
+          "agent_request_bytes": [
+            4711
+          ],
+          "sdk_request_bytes": [
+            4709
+          ],
+          "delta_bytes": [
+            2
+          ],
+          "agent_spans_received": 11,
+          "other_service_spans": {
+            "checkout-service": 4
+          }
+        }
+      ],
+      "uploaded_files": [
+        "2a25dd10-7cff-4976-9057-e92b4df21031_inputs.json",
+        "2a25dd10-7cff-4976-9057-e92b4df21031_outputs.json",
+        "3689ecc5-b287-40b4-bf1a-583033a2a86e_inputs.json",
+        "3689ecc5-b287-40b4-bf1a-583033a2a86e_outputs.json",
+        "37f01d67-fabe-424e-b6b3-94dc5887964f_inputs.json",
+        "37f01d67-fabe-424e-b6b3-94dc5887964f_outputs.json",
+        "92f3f950-e082-486f-a735-1e40d4e291da_inputs.json",
+        "92f3f950-e082-486f-a735-1e40d4e291da_outputs.json"
+      ],
+      "uploaded_bytes": 136296,
+      "span_attribute_keys": [
+        "gen_ai.agent.name",
+        "gen_ai.data_source.id",
+        "gen_ai.input.messages_ref",
+        "gen_ai.operation.name",
+        "gen_ai.output.messages_ref",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.id",
+        "gen_ai.response.model",
+        "gen_ai.tool.call.id",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "http.method",
+        "http.status_code",
+        "http.url",
+        "server.address",
+        "server.port",
+        "user_agent.original"
+      ],
+      "root_duration_ms_runs": [
+        2236.1,
+        2236.2,
+        2250.4,
+        2256.5,
+        2251.0
+      ],
+      "root_duration_ms": {
+        "median": 2250.4,
+        "min": 2236.1,
+        "max": 2256.5
+      }
+    }
+  ],
+  "durations": {
+    "short": {
+      "mode": "short",
+      "size": "8k",
+      "condition": "no_content",
+      "runs": 10,
+      "root_duration_ms_runs": [
+        2252.7,
+        2241.7,
+        2243.9,
+        2249.6,
+        2233.3,
+        2242.4,
+        2232.3,
+        2251.7,
+        2234.1,
+        2242.0
+      ],
+      "median_ms": 2242.2,
+      "min_ms": 2232.3,
+      "max_ms": 2252.7
+    },
+    "long": {
+      "mode": "long",
+      "size": "8k",
+      "condition": "no_content",
+      "runs": 10,
+      "root_duration_ms_runs": [
+        92244.5,
+        92236.3,
+        92242.9,
+        92244.6,
+        92252.6,
+        92293.7,
+        92241.0,
+        92250.7,
+        92270.8,
+        92243.0
+      ],
+      "median_ms": 92244.5,
+      "min_ms": 92236.3,
+      "max_ms": 92293.7
+    }
+  },
+  "calls_to_cap": {
+    "cap_bytes": 1000000,
+    "size": "32k",
+    "condition": "span_only",
+    "sweep": [
+      {
+        "calls": 4,
+        "trace_bytes": 141482,
+        "span_count": 11,
+        "largest_request": 141482
+      },
+      {
+        "calls": 5,
+        "trace_bytes": 178503,
+        "span_count": 13,
+        "largest_request": 178503
+      },
+      {
+        "calls": 6,
+        "trace_bytes": 216349,
+        "span_count": 15,
+        "largest_request": 216349
+      },
+      {
+        "calls": 7,
+        "trace_bytes": 255020,
+        "span_count": 17,
+        "largest_request": 255020
+      },
+      {
+        "calls": 8,
+        "trace_bytes": 294516,
+        "span_count": 19,
+        "largest_request": 294516
+      },
+      {
+        "calls": 9,
+        "trace_bytes": 334837,
+        "span_count": 21,
+        "largest_request": 295062
+      },
+      {
+        "calls": 10,
+        "trace_bytes": 375984,
+        "span_count": 23,
+        "largest_request": 295062
+      },
+      {
+        "calls": 11,
+        "trace_bytes": 417959,
+        "span_count": 25,
+        "largest_request": 295062
+      },
+      {
+        "calls": 12,
+        "trace_bytes": 460761,
+        "span_count": 27,
+        "largest_request": 295062
+      },
+      {
+        "calls": 13,
+        "trace_bytes": 504390,
+        "span_count": 29,
+        "largest_request": 295062
+      },
+      {
+        "calls": 14,
+        "trace_bytes": 548846,
+        "span_count": 31,
+        "largest_request": 295062
+      },
+      {
+        "calls": 15,
+        "trace_bytes": 594129,
+        "span_count": 33,
+        "largest_request": 299416
+      },
+      {
+        "calls": 16,
+        "trace_bytes": 640239,
+        "span_count": 35,
+        "largest_request": 299963
+      },
+      {
+        "calls": 17,
+        "trace_bytes": 687176,
+        "span_count": 37,
+        "largest_request": 299963
+      },
+      {
+        "calls": 18,
+        "trace_bytes": 734940,
+        "span_count": 39,
+        "largest_request": 299963
+      },
+      {
+        "calls": 19,
+        "trace_bytes": 783531,
+        "span_count": 41,
+        "largest_request": 299963
+      },
+      {
+        "calls": 20,
+        "trace_bytes": 832949,
+        "span_count": 43,
+        "largest_request": 299963
+      },
+      {
+        "calls": 21,
+        "trace_bytes": 883194,
+        "span_count": 45,
+        "largest_request": 299963
+      },
+      {
+        "calls": 22,
+        "trace_bytes": 934266,
+        "span_count": 47,
+        "largest_request": 339939
+      },
+      {
+        "calls": 23,
+        "trace_bytes": 986166,
+        "span_count": 49,
+        "largest_request": 391838
+      },
+      {
+        "calls": 24,
+        "trace_bytes": 1038892,
+        "span_count": 51,
+        "largest_request": 392385
+      }
+    ],
+    "calls_to_cap": 24,
+    "repeat_trace_bytes": {
+      "23": [
+        986166,
+        986166,
+        986166
+      ],
+      "24": [
+        1038892,
+        1038892,
+        1038892
+      ]
+    }
+  },
+  "m_values": {
+    "declared_size": "8k",
+    "kb_is_bytes": 1024,
+    "M-OVH-CHAT": {
+      "chat_span_bytes_off": [
+        447,
+        447,
+        447,
+        441
+      ],
+      "min": 441,
+      "max": 447,
+      "rounded_nearest_10": [
+        450,
+        450,
+        450,
+        440
+      ],
+      "by_size": {
+        "1k": [
+          447,
+          447,
+          447,
+          441
+        ],
+        "8k": [
+          447,
+          447,
+          447,
+          441
+        ],
+        "32k": [
+          447,
+          447,
+          447,
+          441
+        ]
+      }
+    },
+    "M-OVH-TOOL": {
+      "tool_span_bytes_off": [
+        243,
+        243
+      ],
+      "rounded_nearest_10": [
+        240,
+        240
+      ],
+      "retrieval_span_bytes_off": [
+        171
+      ],
+      "agent_span_bytes_off": [
+        201
+      ],
+      "http_client_span_bytes_off": [
+        227,
+        229,
+        227
+      ]
+    },
+    "M-SPANS": {
+      "agent_process_spans": 11,
+      "by_type": {
+        "invoke_agent": 1,
+        "chat": 4,
+        "execute_tool": 2,
+        "http_client": 3,
+        "retrieval": 1
+      }
+    },
+    "M-TRACE-OFF": {
+      "bytes": [
+        3797,
+        3797,
+        3797,
+        3797,
+        3797
+      ],
+      "min": 3797,
+      "max": 3797,
+      "varies": false,
+      "rounded_nearest_10": [
+        3800,
+        3800,
+        3800,
+        3800,
+        3800
+      ]
+    },
+    "M-SPAN-MAX": {
+      "bytes": 10780,
+      "kb": 10.5
+    },
+    "M-TRACE-ON": {
+      "bytes": [
+        42830,
+        42830,
+        42830,
+        42830,
+        42830
+      ],
+      "min": 42830,
+      "max": 42830,
+      "varies": false,
+      "kb": [
+        41.8,
+        41.8,
+        41.8,
+        41.8,
+        41.8
+      ]
+    },
+    "M-GROWTH": {
+      "chat_span_bytes_on": [
+        9064,
+        9516,
+        10334,
+        10780
+      ],
+      "last_over_first": 1.189,
+      "first_bytes": 9064,
+      "last_bytes": 10780
+    },
+    "M-TRACE-ON-Z": {
+      "for_this_fixture": true,
+      "gzip": {
+        "bytes": [
+          4359,
+          4354,
+          4353,
+          4359,
+          4364
+        ],
+        "min": 4353,
+        "max": 4364,
+        "varies": true
+      },
+      "zstd": {
+        "bytes": [
+          4325,
+          4318,
+          4314,
+          4315,
+          4337
+        ],
+        "min": 4314,
+        "max": 4337,
+        "varies": true
+      }
+    },
+    "M-TRACE-OFF-Z": {
+      "for_this_fixture": true,
+      "gzip": {
+        "bytes": [
+          1262,
+          1256,
+          1256,
+          1253,
+          1263
+        ],
+        "min": 1253,
+        "max": 1263,
+        "varies": true
+      },
+      "zstd": {
+        "bytes": [
+          1272,
+          1266,
+          1259,
+          1260,
+          1274
+        ],
+        "min": 1259,
+        "max": 1274,
+        "varies": true
+      }
+    },
+    "M-STEP-SHARE": {
+      "short_mode_8k_no_content": [
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1826,
+          "share_min": 0.1821,
+          "share_max": 0.1828
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool lookup_order",
+          "share_median": 0.0094,
+          "share_min": 0.0082,
+          "share_max": 0.0103
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1548,
+          "share_min": 0.1539,
+          "share_max": 0.1555
+        },
+        {
+          "type": "retrieval",
+          "name": "retrieval refund-policy",
+          "share_median": 0.0001,
+          "share_min": 0.0,
+          "share_max": 0.0001
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.1541,
+          "share_min": 0.1538,
+          "share_max": 0.155
+        },
+        {
+          "type": "execute_tool",
+          "name": "execute_tool issue_refund",
+          "share_median": 0.2277,
+          "share_min": 0.227,
+          "share_max": 0.2293
+        },
+        {
+          "type": "chat",
+          "name": "chat stand-in-1",
+          "share_median": 0.2706,
+          "share_min": 0.2699,
+          "share_max": 0.2719
+        }
+      ]
+    },
+    "M-SWEEP": [
+      {
+        "condition": "no_content",
+        "size": "1k",
+        "trace_bytes": [
+          3797,
+          3797,
+          3797,
+          3797,
+          3797
+        ],
+        "largest_span": 447,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          1267,
+          1258,
+          1260,
+          1253,
+          1268
+        ],
+        "trace_zstd": [
+          1276,
+          1268,
+          1263,
+          1260,
+          1285
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "no_content",
+        "size": "8k",
+        "trace_bytes": [
+          3797,
+          3797,
+          3797,
+          3797,
+          3797
+        ],
+        "largest_span": 447,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          1262,
+          1256,
+          1256,
+          1253,
+          1263
+        ],
+        "trace_zstd": [
+          1272,
+          1266,
+          1259,
+          1260,
+          1274
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "no_content",
+        "size": "32k",
+        "trace_bytes": [
+          3797,
+          3797,
+          3797,
+          3797,
+          3797
+        ],
+        "largest_span": 447,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          1262,
+          1258,
+          1261,
+          1259,
+          1265
+        ],
+        "trace_zstd": [
+          1269,
+          1258,
+          1267,
+          1279,
+          1276
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "span_only",
+        "size": "1k",
+        "trace_bytes": [
+          14060,
+          14060,
+          14060,
+          14060,
+          14060
+        ],
+        "largest_span": 3588,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          2841,
+          2838,
+          2852,
+          2843,
+          2842
+        ],
+        "trace_zstd": [
+          2906,
+          2904,
+          2919,
+          2910,
+          2907
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "span_only",
+        "size": "8k",
+        "trace_bytes": [
+          42830,
+          42830,
+          42830,
+          42830,
+          42830
+        ],
+        "largest_span": 10780,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          4359,
+          4354,
+          4353,
+          4359,
+          4364
+        ],
+        "trace_zstd": [
+          4325,
+          4318,
+          4314,
+          4315,
+          4337
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "span_only",
+        "size": "32k",
+        "trace_bytes": [
+          141482,
+          141482,
+          141482,
+          141482,
+          141482
+        ],
+        "largest_span": 35442,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          21752,
+          21747,
+          21758,
+          21758,
+          21748
+        ],
+        "trace_zstd": [
+          7717,
+          7706,
+          7721,
+          7730,
+          7713
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "event_only",
+        "size": "1k",
+        "trace_bytes": [
+          3797,
+          3797,
+          3797,
+          3797,
+          3797
+        ],
+        "largest_span": 447,
+        "span_count": 11,
+        "event_bytes": [
+          12283,
+          12283,
+          12283,
+          12283,
+          12283
+        ],
+        "trace_gzip": [
+          1259,
+          1261,
+          1270,
+          1261,
+          1263
+        ],
+        "trace_zstd": [
+          1267,
+          1265,
+          1281,
+          1263,
+          1275
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "event_only",
+        "size": "8k",
+        "trace_bytes": [
+          3797,
+          3797,
+          3797,
+          3797,
+          3797
+        ],
+        "largest_span": 447,
+        "span_count": 11,
+        "event_bytes": [
+          40957,
+          40957,
+          40957,
+          40957,
+          40957
+        ],
+        "trace_gzip": [
+          1256,
+          1260,
+          1264,
+          1261,
+          1255
+        ],
+        "trace_zstd": [
+          1269,
+          1279,
+          1272,
+          1268,
+          1257
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "event_only",
+        "size": "32k",
+        "trace_bytes": [
+          3797,
+          3797,
+          3797,
+          3797,
+          3797
+        ],
+        "largest_span": 447,
+        "span_count": 11,
+        "event_bytes": [
+          139321,
+          139321,
+          139321,
+          139321,
+          139321
+        ],
+        "trace_gzip": [
+          1261,
+          1268,
+          1262,
+          1261,
+          1255
+        ],
+        "trace_zstd": [
+          1280,
+          1278,
+          1265,
+          1264,
+          1255
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "span_and_event",
+        "size": "1k",
+        "trace_bytes": [
+          14060,
+          14060,
+          14060,
+          14060,
+          14060
+        ],
+        "largest_span": 3588,
+        "span_count": 11,
+        "event_bytes": [
+          12283,
+          12283,
+          12283,
+          12283,
+          12283
+        ],
+        "trace_gzip": [
+          2847,
+          2845,
+          2842,
+          2836,
+          2853
+        ],
+        "trace_zstd": [
+          2920,
+          2906,
+          2900,
+          2898,
+          2923
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "span_and_event",
+        "size": "8k",
+        "trace_bytes": [
+          42830,
+          42830,
+          42830,
+          42830,
+          42830
+        ],
+        "largest_span": 10780,
+        "span_count": 11,
+        "event_bytes": [
+          40957,
+          40957,
+          40957,
+          40957,
+          40957
+        ],
+        "trace_gzip": [
+          4345,
+          4349,
+          4349,
+          4361,
+          4353
+        ],
+        "trace_zstd": [
+          4306,
+          4314,
+          4310,
+          4328,
+          4319
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "span_and_event",
+        "size": "32k",
+        "trace_bytes": [
+          141482,
+          141482,
+          141482,
+          141482,
+          141482
+        ],
+        "largest_span": 35442,
+        "span_count": 11,
+        "event_bytes": [
+          139321,
+          139321,
+          139321,
+          139321,
+          139321
+        ],
+        "trace_gzip": [
+          21746,
+          21753,
+          21772,
+          21755,
+          21755
+        ],
+        "trace_zstd": [
+          7718,
+          7732,
+          7721,
+          7713,
+          7719
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "ref",
+        "size": "1k",
+        "trace_bytes": [
+          4709,
+          4709,
+          4709,
+          4709,
+          4709
+        ],
+        "largest_span": 675,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          1471,
+          1472,
+          1474,
+          1474,
+          1475
+        ],
+        "trace_zstd": [
+          1481,
+          1469,
+          1470,
+          1483,
+          1477
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "ref",
+        "size": "8k",
+        "trace_bytes": [
+          4709,
+          4709,
+          4709,
+          4709,
+          4709
+        ],
+        "largest_span": 675,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          1472,
+          1472,
+          1479,
+          1471,
+          1473
+        ],
+        "trace_zstd": [
+          1474,
+          1471,
+          1493,
+          1472,
+          1473
+        ],
+        "bytes_identical_across_runs": true
+      },
+      {
+        "condition": "ref",
+        "size": "32k",
+        "trace_bytes": [
+          4709,
+          4709,
+          4709,
+          4709,
+          4709
+        ],
+        "largest_span": 675,
+        "span_count": 11,
+        "event_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_gzip": [
+          1473,
+          1473,
+          1472,
+          1472,
+          1479
+        ],
+        "trace_zstd": [
+          1474,
+          1482,
+          1470,
+          1473,
+          1489
+        ],
+        "bytes_identical_across_runs": true
+      }
+    ],
+    "M-DUR-LONG": {
+      "mode": "long",
+      "size": "8k",
+      "condition": "no_content",
+      "runs": 10,
+      "root_duration_ms_runs": [
+        92244.5,
+        92236.3,
+        92242.9,
+        92244.6,
+        92252.6,
+        92293.7,
+        92241.0,
+        92250.7,
+        92270.8,
+        92243.0
+      ],
+      "median_ms": 92244.5,
+      "min_ms": 92236.3,
+      "max_ms": 92293.7
+    },
+    "M-CALLS-TO-CAP": {
+      "calls": 24,
+      "size": "32k",
+      "condition": "span_only",
+      "cap_bytes": 1000000
+    },
+    "M-TRUNC": {
+      "1k": {
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 2809
+        },
+        "attributes_over_limit": 2,
+        "span_bytes_lost": [
+          0,
+          0,
+          0,
+          0,
+          403,
+          0,
+          761,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 12896,
+        "largest_span_after": 2827
+      },
+      "8k": {
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 10001
+        },
+        "attributes_over_limit": 4,
+        "span_bytes_lost": [
+          0,
+          6342,
+          0,
+          6770,
+          7595,
+          0,
+          7953,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 14168,
+        "largest_span_after": 2827
+      },
+      "32k": {
+        "longest_string_attribute": {
+          "key": "gen_ai.input.messages",
+          "bytes": 34660
+        },
+        "attributes_over_limit": 4,
+        "span_bytes_lost": [
+          0,
+          31004,
+          0,
+          31432,
+          32257,
+          0,
+          32615,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trace_bytes_after": 14168,
+        "largest_span_after": 2827
+      }
+    }
+  }
+}

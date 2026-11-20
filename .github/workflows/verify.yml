@@ -75,6 +75,13 @@ jobs:
       # both, and hand-picking a subset of packages hides the fact that these
       # tests import the full SDK. This also checks the requirements files
       # themselves still resolve.
+      - name: Chapter 2 offline tests
+        run: |
+          python -m venv /tmp/venv-ch02
+          /tmp/venv-ch02/bin/pip install --quiet --upgrade pip
+          /tmp/venv-ch02/bin/pip install --quiet -r chapter-02/agent/requirements.txt pytest
+          STAND_IN_DELAY_SCALE=0.01 /tmp/venv-ch02/bin/python -m pytest chapter-02/agent/tests -q
+
       - name: Chapter 3 offline tests
         run: |
           python -m venv /tmp/venv-ch03
