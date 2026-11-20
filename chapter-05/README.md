@@ -462,12 +462,4 @@ rm -rf .venv
 
 ### Versions
 
-| Component | Image |
-|---|---|
-| OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` |
-| Apache Kafka (KRaft) | `apache/kafka:4.3.0` |
-| ClickHouse | `clickhouse/clickhouse-server:25.8` |
-| Apache Flink | `flink:2.2.1-scala_2.12-java17`, with `apache-flink==2.2.1` |
-| Jaeger | `jaegertracing/jaeger:2.19.0` |
-| Prometheus | `prom/prometheus:v3.12.0` |
-| Python | 3.12 in the app image |
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.

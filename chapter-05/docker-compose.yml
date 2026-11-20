@@ -1,5 +1,5 @@
 # Chapter 5 extends Chapter 4: same 3-broker KRaft Kafka cluster, adds Flink 2.2
-# for stream-time assembly and ClickHouse 25.8 for query-time assembly. Both
+# for stream-time assembly and ClickHouse 26.1 for query-time assembly. Both
 # paths coexist so the reader can compare them on the same span stream.
 
 x-kafka-common-env: &kafka-common-env
@@ -96,7 +96,7 @@ services:
 
   # --- Kafka Brokers (KRaft, no ZooKeeper) ---
   kafka-1:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     volumes:
       - kafka-1-data:/var/lib/kafka/data
@@ -108,7 +108,7 @@ services:
     restart: unless-stopped
 
   kafka-2:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     volumes:
       - kafka-2-data:/var/lib/kafka/data
@@ -120,7 +120,7 @@ services:
     restart: unless-stopped
 
   kafka-3:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     volumes:
       - kafka-3-data:/var/lib/kafka/data
@@ -137,7 +137,7 @@ services:
   #   traces.assembled   whole traces from Flink stream-time assembly
   #   spans.late         late spans diverted by the watermark policy
   kafka-init:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     depends_on:
       kafka-1:
@@ -172,7 +172,7 @@ services:
 
   # --- ClickHouse (query-time path target) ---
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.1
     networks: [ch5]
     ports:
       - "8123:8123"
@@ -321,7 +321,7 @@ services:
 
   # --- Jaeger v2 (trace backend for both query-time and stream-time) ---
   jaeger:
-    image: jaegertracing/jaeger:2.19.0
+    image: jaegertracing/jaeger:2.22.0
     networks: [ch5]
     ports:
       - "16686:16686"
@@ -329,7 +329,7 @@ services:
 
   # --- Prometheus (metrics for collector, Flink, ClickHouse) ---
   prometheus:
-    image: prom/prometheus:v3.12.0
+    image: prom/prometheus:v3.14.0
     networks: [ch5]
     ports:
       - "9090:9090"

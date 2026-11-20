@@ -17,7 +17,7 @@ processors:
     timeout: 1s
 
 exporters:
-  otlp:
+  otlp_grpc:
     endpoint: otel-gateway:4317
     tls:
       insecure: true
@@ -31,7 +31,13 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp]
+      exporters: [otlp_grpc]
   telemetry:
     metrics:
       level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
