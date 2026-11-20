@@ -82,6 +82,11 @@ jobs:
           /tmp/venv-ch02/bin/pip install --quiet -r chapter-02/agent/requirements.txt pytest
           STAND_IN_DELAY_SCALE=0.01 /tmp/venv-ch02/bin/python -m pytest chapter-02/agent/tests -q
 
+      - name: Validate chapter 2 and 3 Collector configs
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tests/test_collector_configs.py -q
+
       - name: Chapter 3 offline tests
         run: |
           python -m venv /tmp/venv-ch03
@@ -141,7 +146,8 @@ jobs:
           python -m pip install --quiet pytest
           python scripts/check_listing_anchors.py
           python scripts/render_results.py --check
-          python -m pytest tests/test_scripts.py -q
+          python scripts/check_versions.py
+          python -m pytest tests/test_scripts.py tests/test_versions.py -q
 
       - name: Verification scripts are syntactically valid
         run: |

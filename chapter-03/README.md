@@ -297,3 +297,7 @@ Results land in `benchmarks/results/`. See [BENCHMARKS.md](BENCHMARKS.md) for me
 1. Swap agent config to `collector/tenant-routing-config.yaml`
 2. `python3 scripts/load-generator.py --scenario multi-tenant --duration 60`
 3. Watch spans route to different gateways by tenant
+
+## Versions
+
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.

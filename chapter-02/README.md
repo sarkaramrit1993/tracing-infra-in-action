@@ -476,3 +476,7 @@ Not mapped: 2.2 (production Kafka pipeline; `collector/config.yaml` is a simplif
 - **Chapter 4**: Protecting infrastructure from instrumentation mistakes
 - **Chapter 5**: Trace assembly patterns
 - **Chapter 6**: Sampling strategies
+
+## Versions
+
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.
