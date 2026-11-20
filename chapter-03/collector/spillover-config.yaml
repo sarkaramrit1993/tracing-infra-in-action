@@ -19,7 +19,7 @@ processors:
     timeout: 5s
 
 exporters:
-  loadbalancing:
+  load_balancing:
     protocol:
       otlp:
         timeout: 2s
@@ -31,7 +31,7 @@ exporters:
           - otel-gateway-1:4317
           - otel-gateway-2:4317
     routing_key: traceID
-  otlp/fallback:
+  otlp_grpc/fallback:
     endpoint: otel-gateway-1:4317
     tls:
       insecure: true
@@ -57,4 +57,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [loadbalancing, otlp/fallback]
+      exporters: [load_balancing, otlp_grpc/fallback]

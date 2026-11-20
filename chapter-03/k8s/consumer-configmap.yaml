@@ -26,7 +26,7 @@ data:
         send_batch_size: 1000
         timeout: 5s
     exporters:
-      otlp/jaeger:
+      otlp_grpc/jaeger:
         endpoint: jaeger:4317
         tls:
           insecure: true
@@ -47,4 +47,4 @@ data:
         traces:
           receivers: [kafka]
           processors: [memory_limiter, batch]
-          exporters: [otlp/jaeger]
+          exporters: [otlp_grpc/jaeger]

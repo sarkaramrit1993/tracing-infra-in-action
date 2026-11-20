@@ -20,7 +20,7 @@ processors:
     timeout: 2s
 
 exporters:
-  otlp/blackhole:
+  otlp_grpc/blackhole:
     endpoint: otel-gateway-blackhole:4317
     tls:
       insecure: true
@@ -53,4 +53,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/blackhole]
+      exporters: [otlp_grpc/blackhole]

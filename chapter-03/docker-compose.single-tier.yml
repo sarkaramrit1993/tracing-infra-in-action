@@ -33,7 +33,7 @@ services:
       - jaeger
 
   jaeger:
-    image: jaegertracing/jaeger:2.16.0
+    image: jaegertracing/jaeger:2.22.0
     container_name: jaeger
     ports:
       - "16686:16686"
