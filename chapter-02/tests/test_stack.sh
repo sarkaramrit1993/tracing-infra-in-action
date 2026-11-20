@@ -23,10 +23,33 @@ pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 # Counts traces for checkout-service's /checkout operation specifically,
-# excluding the container's periodic /health check traffic.
+# excluding the container's periodic /health check traffic. Jaeger 2.22 has
+# no /api/traces search, so this uses the v3 API, which streams JSON chunks.
 trace_count() {
-  curl -s "http://localhost:16686/api/traces?service=checkout-service&operation=GET%20%2Fcheckout&limit=1000" \
-    | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('data') or []))" 2>/dev/null || echo 0
+  python3 - <<'PY' 2>/dev/null || echo 0
+import json, urllib.parse, urllib.request
+from datetime import datetime, timedelta, timezone
+now = datetime.now(timezone.utc)
+q = urllib.parse.urlencode({
+    "query.service_name": "checkout-service",
+    "query.operation_name": "GET /checkout",
+    "query.start_time_min": (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "query.start_time_max": (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "query.num_traces": 1000,
+})
+body = urllib.request.urlopen("http://localhost:16686/api/v3/traces?" + q, timeout=10).read().decode()
+dec, i, ids = json.JSONDecoder(), 0, set()
+while i < len(body):
+    if body[i].isspace():
+        i += 1
+        continue
+    obj, i = dec.raw_decode(body, i)
+    for rs in obj["result"]["resourceSpans"]:
+        for ss in rs["scopeSpans"]:
+            for sp in ss["spans"]:
+                ids.add(sp["traceId"])
+print(len(ids))
+PY
 }
 
 echo "== 1. services running =="

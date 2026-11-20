@@ -226,7 +226,7 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  otlp/jaeger:
+  otlp_grpc/jaeger:
     endpoint: jaeger:4317
 ```
 

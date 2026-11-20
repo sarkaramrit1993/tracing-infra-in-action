@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   checkout-service:
     build: ./app
@@ -22,7 +20,7 @@ services:
       retries: 3
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.96.0
+    image: otel/opentelemetry-collector-contrib:0.154.0
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
       - ./collector/config.yaml:/etc/otel/config.yaml:ro
@@ -33,7 +31,7 @@ services:
       - jaeger
 
   jaeger:
-    image: jaegertracing/jaeger:2.5.0
+    image: jaegertracing/jaeger:2.22.0
     ports:
       - "16686:16686" # Jaeger UI
     # Jaeger v2 listens on OTLP gRPC :4317 inside the container
