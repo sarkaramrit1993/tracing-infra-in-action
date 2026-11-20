@@ -269,6 +269,7 @@ services:
     command: taskmanager
     environment:
       FLINK_PROPERTIES: *flink_props
+      DECISION_WAIT_MS: "${DECISION_WAIT_MS:-10000}"
     volumes:
       - flink-checkpoints:/flink-checkpoints
     depends_on:
@@ -282,6 +283,7 @@ services:
     environment:
       # Keep equal to taskmanager.numberOfTaskSlots; the client reads it here.
       PARALLELISM: "1"
+      DECISION_WAIT_MS: "${DECISION_WAIT_MS:-10000}"
     command: >
       bash -c '
         echo "Waiting for a TaskManager to register with the JobManager...";
@@ -335,3 +337,39 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  # --- AI agent workload (docker compose --profile agent ...) ---
+  stand-in-model:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch5]
+    command: ["python", "stand_in_model.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  agent:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch5]
+    environment:
+      - OTEL_SERVICE_NAME=support-agent
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-agent:4317
+      - OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
+      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=no_content
+      - AGENT_RUN_SECONDS=${AGENT_RUN_SECONDS:-long}
+      - AGENT_RUNS=1
+      - STAND_IN_URL=http://stand-in-model:8000
+      - CHECKOUT_URL=http://checkout-service:8080
+    depends_on:
+      stand-in-model:
+        condition: service_healthy
+      otel-agent:
+        condition: service_started
+      checkout-service:
+        condition: service_started

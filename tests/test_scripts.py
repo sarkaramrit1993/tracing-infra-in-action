@@ -681,3 +681,192 @@ def test_chapter4_scripts_report_a_collector_that_stops_answering_mid_run():
         assert "did not finish exporting" in result.stderr or "did not come back" in result.stderr, (
             name + ": silent exit " + result.stdout + result.stderr
         )
+
+
+CH5 = ROOT / "chapter-05"
+CH5_TRACE = "d" * 32
+CH5_FAKE_QUERY = '''#!/usr/bin/env python3
+import os, runpy, sys
+cmd = sys.argv[1]
+if cmd == "flink-state":
+    print(os.environ.get("FAKE_FLINK", "RUNNING"))
+elif cmd == "jaeger-sources":
+    print("query-time " + os.environ.get("FAKE_QUERY_TIME", "3"))
+    print("stream-time " + os.environ.get("FAKE_STREAM_TIME", "2"))
+else:
+    sys.argv[0] = os.path.join(os.path.dirname(__file__), "query_real.py")
+    runpy.run_path(sys.argv[0], run_name="__main__")
+'''
+
+
+def _ch5_timeline(assembled=2, late=1, spans=3):
+    def span(i):
+        return {"name": f"span-{i}", "start_ms": 1000 * i, "end_ms": 1000 * i + 500}
+
+    return json.dumps({
+        "otlp_spans": [{"kafka_ms": 1000 * (i + 1), "spans": [span(i)]} for i in range(spans)],
+        "traces.assembled": [{"kafka_ms": 11000, "spans": [span(i) for i in range(assembled)]}] if assembled else [],
+        "spans.late": [{"kafka_ms": 12000, "spans": [span(i) for i in range(assembled, assembled + late)]}] if late else [],
+    })
+
+
+def _run_chapter5_long_run(tmp_path, wait="10000", up=True, build_ok=True, run="line", timeline=None,
+                           clickhouse="3", flink="RUNNING", query_time="3", stream_time="2", prior_run=True):
+    """Run send-long-agent-run.sh with stubbed docker, curl, sleep and date and a stand-in for the
+    two query.py commands that need a stack. run is line, silent or fails; wait is what the Flink
+    task manager reports for DECISION_WAIT_MS ('' means it printed nothing)."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-05"
+    shutil.copytree(CH5 / "scripts", chapter / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+    (chapter / "scripts" / "query_real.py").write_text((CH5 / "scripts" / "query.py").read_text())
+    (chapter / "scripts" / "query.py").write_text(CH5_FAKE_QUERY)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    clock = tmp_path / "clock"
+    clock.write_text("0")
+    (bin_dir / "date").write_text(f'#!/usr/bin/env bash\necho $((1000000 + $(cat {clock})))\n')
+    (bin_dir / "sleep").write_text(f'#!/usr/bin/env bash\necho $(($(cat {clock}) + ${{1:-1}})) > {clock}\n')
+    (tmp_path / "timeline.json").write_text(_ch5_timeline() if timeline is None else timeline)
+    run_lines = {
+        "line": f"echo run 1/1: trace_id={CH5_TRACE} size=8k capture=no_content seconds=92.4; exit 0",
+        "silent": "echo nothing useful; exit 0",
+        "fails": "echo compose exploded; exit 1",
+    }[run]
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        'case "$*" in\n'
+        f'  *printenv*) printf "%s" "{wait}";;\n'
+        f'  *" build "*) exit {0 if build_ok else 1};;\n'
+        f'  *" run --rm"*) {run_lines};;\n'
+        f'  *consumer-clickhouse*) cat {tmp_path}/timeline.json;;\n'
+        f'  *clickhouse-client*) echo {clickhouse};;\n'
+        '  *"ps -q jaeger"*) echo jaeger-id;;\n'
+        '  inspect*) echo jaeger-id@started;;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "curl").write_text(f'#!/usr/bin/env bash\n{"exit 0" if up else "exit 7"}\n')
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    if prior_run:
+        state_dir = tmp_path / "tracing-in-action-ch05"
+        state_dir.mkdir()
+        (state_dir / "traffic").write_text(
+            f"STACK_ID=jaeger-id@started\nCOUNT=120\nSTARTED=1\nREADY=1\nLAST_TRACE={CH5_TRACE}\n")
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp_path),
+           "FAKE_FLINK": flink, "FAKE_QUERY_TIME": query_time, "FAKE_STREAM_TIME": stream_time}
+    return subprocess.run([str(chapter / "scripts" / "send-long-agent-run.sh")], capture_output=True,
+                          text=True, env=env, timeout=60)
+
+
+def test_chapter5_long_run_script_is_runnable_and_strict():
+    path = CH5 / "scripts" / "send-long-agent-run.sh"
+    text = path.read_text()
+    assert text.startswith("#!/usr/bin/env bash\n")
+    assert path.stat().st_mode & 0o111
+    assert 'source "$(dirname "$0")/lib.sh"' in text
+    assert subprocess.run(["bash", "-n", str(path)]).returncode == 0
+
+
+def test_chapter5_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH5 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-agent:4317" in text.split("\n  agent:\n")[1]
+
+
+def test_chapter5_long_run_prints_the_wait_the_arrivals_and_where_each_store_stands(tmp_path):
+    result = _run_chapter5_long_run(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Flink assembly window              10000 ms (DECISION_WAIT_MS)" in result.stdout
+    assert "This takes about 90 seconds" in result.stdout
+    assert "span-0" in result.stdout and "traces.assembled" in result.stdout and "spans.late" in result.stdout
+    assert "the assembled trace holds 2 spans, stamped +11.0s" in result.stdout
+    assert "spans.late holds 1 spans of this trace" in result.stdout
+    assert "Jaeger, assembly.source=stream-time" in result.stdout
+
+
+def test_chapter5_long_run_prints_a_wait_it_was_given(tmp_path):
+    result = _run_chapter5_long_run(tmp_path, wait="30000")
+    assert "30000 ms (DECISION_WAIT_MS)" in result.stdout
+
+
+def test_chapter5_long_run_says_what_to_run_when_the_stack_is_down(tmp_path):
+    result = _run_chapter5_long_run(tmp_path, up=False, prior_run=False)
+    assert result.returncode != 0
+    assert "docker compose up -d --build" in result.stderr
+
+
+def test_chapter5_long_run_asks_for_traffic_first(tmp_path):
+    result = _run_chapter5_long_run(tmp_path, prior_run=False)
+    assert result.returncode != 0
+    assert "./scripts/send-traffic.sh" in result.stderr
+
+
+def test_chapter5_long_run_stops_with_a_message_on_each_failure(tmp_path):
+    for kwargs, expected in (
+        ({"wait": ""}, "could not read DECISION_WAIT_MS"),
+        ({"build_ok": False}, "could not build the agent image"),
+        ({"run": "fails"}, "the AI agent run failed"),
+        ({"run": "silent"}, "the AI agent printed no trace ID"),
+    ):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter5_long_run(Path(tmp), **kwargs)
+        assert result.returncode != 0, kwargs
+        assert expected in result.stderr, (kwargs, result.stderr)
+
+
+def test_chapter5_long_run_gives_up_when_flink_never_accounts_for_every_span(tmp_path):
+    result = _run_chapter5_long_run(tmp_path, timeline=_ch5_timeline(assembled=1, late=0, spans=3))
+    assert result.returncode != 0
+    assert "timed out after 180s waiting for Flink to assemble the trace" in result.stderr
+
+
+def test_chapter5_long_run_gives_up_on_an_empty_or_failed_timeline_read(tmp_path):
+    for timeline in ("", "not json"):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter5_long_run(Path(tmp), timeline=timeline)
+        assert result.returncode != 0, repr(timeline)
+        assert "timed out after 180s" in result.stderr, repr(timeline)
+
+
+def test_chapter5_long_run_gives_up_when_the_stores_never_catch_up(tmp_path):
+    result = _run_chapter5_long_run(tmp_path, clickhouse="0")
+    assert result.returncode != 0
+    assert "waiting for ClickHouse and Jaeger to hold the trace" in result.stderr
+
+
+def test_chapter5_long_run_never_prints_a_zero_for_a_dead_clickhouse(tmp_path):
+    result = _run_chapter5_long_run(tmp_path, clickhouse="")
+    assert result.returncode != 0
+    assert "where" not in result.stdout
+
+
+def test_chapter5_timeline_marks_where_each_span_went():
+    import contextlib
+    import importlib.util
+    import io
+
+    spec = importlib.util.spec_from_file_location("ch5_query", CH5 / "scripts" / "query.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = io.StringIO()
+    sys_stdin = sys.stdin
+    sys.stdin = io.StringIO(_ch5_timeline())
+    try:
+        with contextlib.redirect_stdout(out):
+            mod.cmd_timeline()
+    finally:
+        sys.stdin = sys_stdin
+    lines = out.getvalue().splitlines()
+    assert lines[0].split() == ["arrived", "span", "started", "ended", "went", "to"]
+    assert lines[1].split() == ["+1.0s", "span-0", "+0.0s", "+0.5s", "traces.assembled"]
+    assert lines[2].split() == ["+2.0s", "span-1", "+1.0s", "+1.5s", "traces.assembled"]
+    assert lines[3].split() == ["+3.0s", "span-2", "+2.0s", "+2.5s", "spans.late"]

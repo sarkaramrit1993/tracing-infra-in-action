@@ -53,7 +53,8 @@ def test_compose_service_set_and_pins():
         "checkout-service", "otel-agent", "otel-gateway", "kafka-1", "kafka-2",
         "kafka-3", "kafka-init", "clickhouse", "consumer-clickhouse",
         "otel-consumer", "flink-jobmanager", "flink-taskmanager",
-        "flink-job-submit", "otel-stream-consumer", "jaeger", "prometheus"}, \
+        "flink-job-submit", "otel-stream-consumer", "jaeger", "prometheus",
+        "stand-in-model", "agent"}, \
         f"the service set moved: {sorted(services)}"
     tags = {}
     for name, svc in services.items():

@@ -407,6 +407,108 @@ FAILURE_MODE=producer-crash    python3 benchmarks/atomicity_audit.py
 FAILURE_MODE=buffer-overflow   python3 benchmarks/atomicity_audit.py
 ```
 
+## Agent workloads
+
+An AI agent run lasts minutes, and a trace assembler waits seconds. This step sends one long run, about 90 seconds, through the same stack and shows what the stream-time path does with a trace whose spans keep arriving long after the first. Run it after step 2, from this folder (`chapter-05/`). The first run builds the agent image, which takes about a minute, and the run itself takes about 90 seconds.
+
+### Send a long agent run
+
+```bash
+./scripts/send-long-agent-run.sh
+```
+
+```
+Flink assembly window              10000 ms (DECISION_WAIT_MS)
+Running one AI agent run in long mode. This takes about 90 seconds.
+run 1/1: trace_id=aa641985762c21011a1b16646bd33fc9 size=8k capture=no_content seconds=92.4
+waiting for Flink to assemble the trace... ok
+waiting for ClickHouse and Jaeger to hold the trace... ok
+
+arrived  span                        started  ended   went to
++25.5s   GET /orders/ORD-1042        +20.0s   +20.0s  traces.assembled
++26.5s   chat stand-in-1             +0.0s    +20.0s  spans.late
++26.5s   execute_tool lookup_order   +20.0s   +20.0s  traces.assembled
++26.5s   GET                         +20.0s   +20.0s  traces.assembled
++40.5s   chat stand-in-1             +20.0s   +35.1s  traces.assembled
++40.5s   retrieval refund-policy     +35.1s   +35.1s  traces.assembled
++56.5s   chat stand-in-1             +35.1s   +50.1s  spans.late
++61.5s   POST                        +50.1s   +56.2s  spans.late
++66.6s   execute_tool issue_refund   +50.1s   +62.3s  spans.late
++66.6s   POST                        +56.3s   +62.3s  spans.late
++93.6s   invoke_agent support-agent  +0.0s    +92.3s  spans.late
++93.6s   chat stand-in-1             +62.3s   +92.3s  spans.late
+
+the assembled trace holds 5 spans, stamped +30.0s
+spans.late holds 7 spans of this trace
+
+where                                        spans
+ClickHouse tracing.otel_traces               12
+Jaeger, assembly.source=query-time           12
+Jaeger, assembly.source=stream-time          5
+```
+
+Your trace ID and timings differ, and so does the split between the assembled trace and `spans.late` by a span or two. Times count from the start of the run, and `arrived` is when the span reached Kafka. A span leaves the agent only when it ends, so the model calls and the agent's own span arrive long after they started, and the agent's span, which started first, arrives last, at +93.6s. The first span Flink saw started at +20.0s, so its 10-second timer was due at +30.0s on the event clock, and the assembled trace carries that time (`stamped +30.0s`). Flink put 5 of the 12 spans in the assembled trace and sent the other 7 to `spans.late`, which never merges them back. The agent span is one of the 7, so the stream-time copy in Jaeger has no root. ClickHouse holds all 12 spans and the query-time copy in Jaeger shows all 12.
+
+What it runs:
+
+```text
+docker compose --profile agent run --rm -T agent
+```
+
+then reads the trace back from the `otlp_spans`, `traces.assembled` and `spans.late` topics, and from ClickHouse and Jaeger.
+
+### Run it against the chapter's 30 seconds
+
+The stack's job waits 10 seconds. The chapter's text uses 30. Start the stack again with that wait:
+
+```bash
+docker compose --profile agent down -v
+DECISION_WAIT_MS=30000 docker compose up -d --build
+./scripts/send-traffic.sh
+./scripts/wait-until-ready.sh
+./scripts/send-long-agent-run.sh
+```
+
+```
+Flink assembly window              30000 ms (DECISION_WAIT_MS)
+Running one AI agent run in long mode. This takes about 90 seconds.
+run 1/1: trace_id=dc47c482a10c6bd6b52a9c0c06f7e284 size=8k capture=no_content seconds=92.3
+waiting for Flink to assemble the trace... ok
+waiting for ClickHouse and Jaeger to hold the trace... ok
+
+arrived  span                        started  ended   went to
++22.8s   GET /orders/ORD-1042        +20.0s   +20.1s  traces.assembled
++26.8s   chat stand-in-1             +0.0s    +20.0s  spans.late
++26.8s   execute_tool lookup_order   +20.0s   +20.1s  traces.assembled
++26.8s   GET                         +20.0s   +20.1s  traces.assembled
++41.8s   chat stand-in-1             +20.1s   +35.1s  spans.late
++41.8s   retrieval refund-policy     +35.1s   +35.1s  traces.assembled
++56.8s   chat stand-in-1             +35.1s   +50.1s  spans.late
++61.8s   POST                        +50.1s   +56.1s  traces.assembled
++66.8s   POST                        +56.2s   +62.2s  traces.assembled
++66.8s   execute_tool issue_refund   +50.1s   +62.2s  traces.assembled
++93.8s   invoke_agent support-agent  +0.0s    +92.2s  spans.late
++93.8s   chat stand-in-1             +62.2s   +92.2s  spans.late
+
+the assembled trace holds 7 spans, stamped +50.0s
+spans.late holds 5 spans of this trace
+
+where                                        spans
+ClickHouse tracing.otel_traces               12
+Jaeger, assembly.source=query-time           12
+Jaeger, assembly.source=stream-time          7
+```
+
+The wait line now reads `30000 ms` and the timer is due at +50.0s, 30 seconds after the first span. The split still moves from run to run. Here 7 spans made the assembled trace and 5 went to `spans.late`, and a second run on the same stack gave 5 and 7. Either way the agent span, which ends last, is in `spans.late`.
+
+### Remove everything
+
+```bash
+docker compose --profile agent down -v
+```
+
+This removes the containers and volumes, including the agent and the stand-in model.
+
 ## Run the tests
 
 Offline, no Docker needed:
