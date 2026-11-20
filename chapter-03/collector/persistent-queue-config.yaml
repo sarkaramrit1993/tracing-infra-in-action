@@ -19,7 +19,7 @@ processors:
     timeout: 5s
 
 exporters:
-  otlp:
+  otlp_grpc:
     endpoint: otel-gateway-1:4317
     tls:
       insecure: true
@@ -55,4 +55,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp]
+      exporters: [otlp_grpc]

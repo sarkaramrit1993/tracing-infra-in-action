@@ -29,15 +29,15 @@ connectors:
         pipelines: [traces/premium]
 
 exporters:
-  otlp/default:
+  otlp_grpc/default:
     endpoint: otel-gateway-1:4317
     tls:
       insecure: true
-  otlp/enterprise:
+  otlp_grpc/enterprise:
     endpoint: otel-gateway-2:4317
     tls:
       insecure: true
-  otlp/premium:
+  otlp_grpc/premium:
     endpoint: otel-gateway-2:4317
     tls:
       insecure: true
@@ -64,10 +64,10 @@ service:
       exporters: [routing]
     traces/default:
       receivers: [routing]
-      exporters: [otlp/default]
+      exporters: [otlp_grpc/default]
     traces/enterprise:
       receivers: [routing]
-      exporters: [otlp/enterprise]
+      exporters: [otlp_grpc/enterprise]
     traces/premium:
       receivers: [routing]
-      exporters: [otlp/premium]
+      exporters: [otlp_grpc/premium]

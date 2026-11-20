@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: jaeger
-        image: jaegertracing/jaeger:2.19.0
+        image: jaegertracing/jaeger:2.22.0
         ports:
         - containerPort: 4317
           name: otlp-grpc

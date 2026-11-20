@@ -28,7 +28,7 @@ data:
           value: ${NODE_NAME}
           action: upsert
     exporters:
-      loadbalancing:
+      load_balancing:
         protocol:
           otlp:
             timeout: 10s
@@ -56,4 +56,4 @@ data:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, resource, batch]
-          exporters: [loadbalancing]
+          exporters: [load_balancing]

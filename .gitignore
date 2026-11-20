@@ -5,3 +5,5 @@ __pycache__/
 venv/
 node_modules/
 .DS_Store
+chapter-02/measure-out/
+chapter-02/agent/results/collector-out/

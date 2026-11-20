@@ -1,0 +1,150 @@
+# One version per component, across every chapter.
+# scripts/check_versions.py fails on any image, base image or package pin that disagrees.
+#
+# exceptions: a chapter may differ only when a measured number or a printed
+#   listing depends on that version, or another pin makes the registry version
+#   uninstallable. The reason names the number, the listing or the conflict.
+# range: only for build, test or transitive dependencies, with range_reason.
+#   Packages the chapter code imports are pinned exactly.
+# prose / prose_version: how the book names the component, for the manuscript check.
+# status: proposed marks a version chosen to clear drift that is not yet ruled on.
+# open_drift: known disagreements waiting on a fix. Printed, never failed.
+#   An entry that no longer matches a pin fails, so the list only shrinks.
+
+images:
+  otel/opentelemetry-collector-contrib:
+    version: "0.154.0"
+    prose: [Collector, Collector-contrib, Collector contrib, Collector Contrib]
+  ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:
+    version: "v0.154.0"
+    prose: [telemetrygen]
+  jaegertracing/jaeger:
+    version: "2.22.0"
+    prose: [Jaeger]
+  apache/kafka:
+    version: "4.3.1"
+    prose: [Kafka, Apache Kafka]
+  clickhouse/clickhouse-server:
+    version: "26.1"
+    note: author ruling 2026-11-19, ch5 and ch7 moved from 25.8 (2026-09-21 decision, Neil N1)
+    prose: [ClickHouse]
+  prom/prometheus:
+    version: "v3.14.0"
+    prose: [Prometheus]
+  grafana/tempo:
+    version: "3.0.2"
+    prose: [Tempo, Grafana Tempo]
+  grafana/loki:
+    version: "3.7.8"
+    prose: [Loki, Grafana Loki]
+  chrislusf/seaweedfs:
+    version: "4.47"
+    prose: [SeaweedFS]
+  flink:
+    version: "2.2.1-scala_2.12-java17"
+    prose: [Flink, Apache Flink]
+    prose_version: "2.2.1"
+  python:
+    version: "3.12-slim"
+    prose: [Python]
+    prose_version: "3.12"
+
+local_images:
+  tracing-in-action-agent:ch02: built by chapter-02/agent, reused by the later stacks
+  checkout-service:latest: >-
+    built and side-loaded by chapter-03/scripts/setup-kind.sh; the manifest sets
+    imagePullPolicy IfNotPresent, so the tag never reaches a registry
+
+packages:
+  opentelemetry-api: {version: "1.43.0"}
+  opentelemetry-sdk: {version: "1.43.0", prose: [Python SDK, OpenTelemetry Python]}
+  opentelemetry-exporter-otlp-proto-grpc: {version: "1.43.0"}
+  opentelemetry-exporter-otlp-proto-common: {version: "1.43.0"}
+  opentelemetry-proto: {version: "1.43.0"}
+  opentelemetry-instrumentation: {version: "0.64b0"}
+  opentelemetry-instrumentation-flask: {version: "0.64b0"}
+  opentelemetry-instrumentation-requests: {version: "0.64b0"}
+  opentelemetry-semantic-conventions: {version: "0.64b0"}
+  opentelemetry-instrumentation-openai-v2: {version: "2.4b0"}
+  opentelemetry-util-genai: {version: "1.1b0"}
+  openai: {version: "1.109.1"}
+  flask: {version: "3.1.0"}
+  requests: {version: "2.32.3"}
+  grpcio: {version: "1.66.2"}
+  confluent-kafka: {version: "2.6.1"}
+  clickhouse-driver: {version: "0.2.9"}
+  prometheus-client: {version: "0.26.0"}
+  zstandard: {version: "0.23.0"}
+  fsspec: {version: "2026.9.0"}
+  apache-flink: {version: "2.2.1", note: PyFlink, must match the flink image}
+  protobuf:
+    version: "7.36.2"
+    note: >-
+      author ruling 2026-11-19: one major, 7.x. Allowed by opentelemetry-proto 1.43.0
+      (>=5.0,<8) and apache-flink 2.2.1 (>=3.19.0); grpcio 1.66.2 does not depend on it
+    exceptions:
+      - chapter: chapter-05
+        version: "5.29.6"
+        reason: >-
+          flink/Dockerfile only: apache-flink 2.2.1 needs apache-beam <=2.61.0, and every
+          beam up to 2.61.0 needs protobuf <6, so 7.x does not install there (build failed
+          2026-11-19). 5.29.6 is the newest 5.x. Author ruling 2026-11-19.
+  setuptools:
+    range: ">=68.0,<80"
+    range_reason: build tool for the app images
+  pyyaml: {version: "6.0.3", note: test-only, exact per author ruling 2026-11-19}
+  pytest: {version: "9.2.0", note: test-only, exact per author ruling 2026-11-19}
+
+open_drift:
+  - {component: apache/kafka, chapter: chapter-04, version: "4.3.0"}
+  - {component: flask, chapter: chapter-04, version: "3.0.0"}
+  - {component: jaegertracing/jaeger, chapter: chapter-04, version: "2.19.0"}
+  - {component: opentelemetry-api, chapter: chapter-04, version: "1.42.1"}
+  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-04, version: "1.42.1"}
+  - {component: opentelemetry-instrumentation-flask, chapter: chapter-04, version: "0.63b1"}
+  - {component: opentelemetry-proto, chapter: chapter-04, version: ""}
+  - {component: opentelemetry-sdk, chapter: chapter-04, version: "1.42.1"}
+  - {component: prom/prometheus, chapter: chapter-04, version: "v3.12.0"}
+  - {component: protobuf, chapter: chapter-04, version: ""}
+  - {component: apache-flink, chapter: chapter-05, version: "2.2.1"}
+  - {component: apache/kafka, chapter: chapter-05, version: "4.3.0"}
+  - {component: clickhouse/clickhouse-server, chapter: chapter-05, version: "25.8"}
+  - {component: flask, chapter: chapter-05, version: "3.0.0"}
+  - {component: jaegertracing/jaeger, chapter: chapter-05, version: "2.19.0"}
+  - {component: opentelemetry-api, chapter: chapter-05, version: "1.42.1"}
+  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-05, version: "1.42.1"}
+  - {component: opentelemetry-instrumentation-flask, chapter: chapter-05, version: "0.63b1"}
+  - {component: opentelemetry-proto, chapter: chapter-05, version: "1.42.1"}
+  - {component: opentelemetry-sdk, chapter: chapter-05, version: "1.42.1"}
+  - {component: prom/prometheus, chapter: chapter-05, version: "v3.12.0"}
+  - {component: protobuf, chapter: chapter-05, version: ">=4.25,<6"}
+  - {component: pytest, chapter: chapter-05, version: ""}
+  - {component: pyyaml, chapter: chapter-05, version: ">=6.0"}
+  - {component: apache/kafka, chapter: chapter-07, version: "4.3.0"}
+  - {component: clickhouse/clickhouse-server, chapter: chapter-07, version: "25.8"}
+  - {component: flask, chapter: chapter-07, version: "3.0.0"}
+  - {component: opentelemetry-api, chapter: chapter-07, version: "1.42.1"}
+  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-07, version: "1.42.1"}
+  - {component: opentelemetry-instrumentation-flask, chapter: chapter-07, version: "0.63b1"}
+  - {component: opentelemetry-proto, chapter: chapter-07, version: "1.42.1"}
+  - {component: opentelemetry-sdk, chapter: chapter-07, version: "1.42.1"}
+  - {component: prom/prometheus, chapter: chapter-07, version: "v3.12.0"}
+  - {component: protobuf, chapter: chapter-07, version: ">=4.25,<6"}
+  - {component: pyyaml, chapter: chapter-07, version: "6.0.2"}
+  - {component: pyyaml, chapter: chapter-08, version: ">=6.0"}
+  - {component: flask, chapter: chapter-09, version: "3.0.0"}
+  - {component: opentelemetry-api, chapter: chapter-09, version: "1.42.1"}
+  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-09, version: "1.42.1"}
+  - {component: opentelemetry-instrumentation-flask, chapter: chapter-09, version: "0.63b1"}
+  - {component: opentelemetry-proto, chapter: chapter-09, version: "1.42.1"}
+  - {component: opentelemetry-sdk, chapter: chapter-09, version: "1.42.1"}
+  - {component: protobuf, chapter: chapter-09, version: ">=4.25,<6"}
+  - {component: pyyaml, chapter: chapter-09, version: ">=6.0"}
+  - {component: flask, chapter: chapter-10, version: "3.0.0"}
+  - {component: opentelemetry-api, chapter: chapter-10, version: "1.42.1"}
+  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-10, version: "1.42.1"}
+  - {component: opentelemetry-instrumentation-flask, chapter: chapter-10, version: "0.63b1"}
+  - {component: opentelemetry-proto, chapter: chapter-10, version: "1.42.1"}
+  - {component: opentelemetry-sdk, chapter: chapter-10, version: "1.42.1"}
+  - {component: protobuf, chapter: chapter-10, version: ">=4.25,<6"}
+  - {component: pyyaml, chapter: chapter-10, version: ">=6.0"}

@@ -18,9 +18,9 @@ teardown_stack() {
         echo "  (skip: $label not running or compose unavailable)"
 }
 
-teardown_stack "multi-tier"  -f docker-compose.yml
+teardown_stack "multi-tier"  -f docker-compose.yml --profile agent
 teardown_stack "single-tier" -f docker-compose.single-tier.yml
-teardown_stack "benchmark"   -f docker-compose.yml -f docker-compose.benchmark.yml
+teardown_stack "benchmark"   -f docker-compose.yml -f docker-compose.benchmark.yml --profile agent
 
 # Delete the Kind cluster if kind is installed.
 if command -v kind >/dev/null 2>&1; then

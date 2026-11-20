@@ -1,0 +1,14 @@
+[
+  {
+    "id": "refund-policy-1",
+    "text": "Refunds are available within 30 days of delivery for items in their original condition. The refund goes back to the original payment method."
+  },
+  {
+    "id": "refund-policy-2",
+    "text": "Damaged or defective items are refunded in full, including shipping, at any time within the warranty period. Photos are not required for orders under 100 USD."
+  },
+  {
+    "id": "refund-policy-3",
+    "text": "Refunds are issued once per order. A second request for the same order is declined and the first refund id is quoted back to the customer."
+  }
+]

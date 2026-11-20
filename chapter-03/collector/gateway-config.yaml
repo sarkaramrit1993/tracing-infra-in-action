@@ -27,13 +27,14 @@ processors:
     traces:
       span:
         - 'name == "health"'
+        - 'name == "GET /health"'
         - 'name == "healthz"'
         - 'name == "ready"'
         - 'name == "readiness"'
         - 'name == "liveness"'
 
 exporters:
-  otlp/jaeger:
+  otlp_grpc/jaeger:
     endpoint: jaeger:4317
     tls:
       insecure: true
@@ -57,4 +58,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, filter/low_priority, resource, batch]
-      exporters: [otlp/jaeger]
+      exporters: [otlp_grpc/jaeger]

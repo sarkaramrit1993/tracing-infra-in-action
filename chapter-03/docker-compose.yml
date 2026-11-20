@@ -3,7 +3,7 @@ services:
     build: ./app
     container_name: checkout-service
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - OTEL_SERVICE_NAME=checkout-service
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-agent:4317
@@ -24,11 +24,11 @@ services:
     container_name: otel-agent
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
-      - ./collector/agent-config.yaml:/etc/otel/config.yaml:ro
+      - ./collector/${AGENT_TIER_CONFIG:-agent-config.yaml}:/etc/otel/config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8888:8888"   # Metrics
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "127.0.0.1:8888:8888"   # Metrics
     depends_on:
       - otel-gateway-1
       - otel-gateway-2
@@ -38,10 +38,10 @@ services:
     container_name: otel-gateway-1
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
-      - ./collector/gateway-config.yaml:/etc/otel/config.yaml:ro
+      - ./collector/${GATEWAY_CONFIG:-gateway-config.yaml}:/etc/otel/config.yaml:ro
     ports:
-      - "4327:4317"   # OTLP gRPC (remapped)
-      - "8889:8888"   # Metrics
+      - "127.0.0.1:4327:4317"   # OTLP gRPC (remapped)
+      - "127.0.0.1:8889:8888"   # Metrics
     depends_on:
       - jaeger
 
@@ -50,24 +50,61 @@ services:
     container_name: otel-gateway-2
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
-      - ./collector/gateway-config.yaml:/etc/otel/config.yaml:ro
+      - ./collector/${GATEWAY_CONFIG:-gateway-config.yaml}:/etc/otel/config.yaml:ro
     ports:
-      - "4337:4317"   # OTLP gRPC (remapped)
-      - "8890:8888"   # Metrics
+      - "127.0.0.1:4337:4317"   # OTLP gRPC (remapped)
+      - "127.0.0.1:8890:8888"   # Metrics
     depends_on:
       - jaeger
 
   jaeger:
-    image: jaegertracing/jaeger:2.16.0
+    image: jaegertracing/jaeger:2.22.0
     container_name: jaeger
     ports:
-      - "16686:16686" # Jaeger UI
-      - "14250:14250" # gRPC (legacy Jaeger protocol)
+      - "127.0.0.1:16686:16686" # Jaeger UI
+      - "127.0.0.1:14250:14250" # gRPC (legacy Jaeger protocol)
 
   prometheus:
-    image: prom/prometheus:v3.10.0
+    image: prom/prometheus:v3.14.0
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  stand-in-model:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    command: ["python", "stand_in_model.py"]
+    environment:
+      - STAND_IN_DELAY_SCALE=0.01
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  agent:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    environment:
+      - OTEL_SERVICE_NAME=support-agent
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-agent:4317
+      - OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
+      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-no_content}
+      - OTEL_BSP_MAX_EXPORT_BATCH_SIZE=50
+      - AGENT_PROMPT_SIZE=${AGENT_PROMPT_SIZE:-8k}
+      - AGENT_MODEL_CALLS=${AGENT_MODEL_CALLS:-4}
+      - AGENT_RUNS=${AGENT_RUNS:-1}
+      - STAND_IN_URL=http://stand-in-model:8000
+      - CHECKOUT_URL=http://checkout-service:8080
+    depends_on:
+      stand-in-model:
+        condition: service_healthy
+      otel-agent:
+        condition: service_started
+      checkout-service:
+        condition: service_started

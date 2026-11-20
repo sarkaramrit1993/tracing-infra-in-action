@@ -17,7 +17,7 @@ processors:
     timeout: 5s
 
 exporters:
-  loadbalancing:
+  load_balancing:
     protocol:
       otlp:
         timeout: 10s
@@ -61,4 +61,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [loadbalancing]
+      exporters: [load_balancing]

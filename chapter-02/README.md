@@ -226,7 +226,7 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  otlp/jaeger:
+  otlp_grpc/jaeger:
     endpoint: jaeger:4317
 ```
 
@@ -249,6 +249,136 @@ exporters:
 - Attributes on each span
 - Error spans (red)
 - Exception events (expand error spans)
+
+---
+
+## Agent workloads
+
+A small support agent runs against a stand-in model, so there are no API keys, no model bills and the same result every run. It makes four model calls, two tool calls and one retrieval, then answers. The stand-in's token counts are the byte length divided by 4, a fixed rule, not a tokenizer. The agent's spans leave through the same Collector as `checkout-service`.
+
+Run every command from this folder (`chapter-02/`). Each script starts what it needs, so the Quick Start stack does not have to be running.
+
+### 1. Run the agent once
+
+```bash
+./scripts/run-agent.sh
+```
+
+You will see:
+
+```
+Building the agent image if needed and running one agent run. This takes under a minute the first time.
+run 1/1: trace_id=38626ccf5982bc5f875b8bf777d4f87c size=8k capture=no_content seconds=3.6
+Waiting for the trace to reach Jaeger.
+Trace 38626ccf5982bc5f875b8bf777d4f87c has 13 spans in Jaeger.
+Open: http://localhost:16686/trace/38626ccf5982bc5f875b8bf777d4f87c
+```
+
+Your trace ID and timing differ. Capture is off, which is the default.
+
+### 2. Look at the trace in Jaeger
+
+```bash
+open http://localhost:16686
+```
+
+Pick the service `support-agent`, click **Find Traces**, and open the newest trace. It has 13 spans. One root span, `invoke_agent support-agent`, sits at the top. Under it are four `chat stand-in-1` spans (the model calls), two `execute_tool` spans (`lookup_order` and `issue_refund`), one `retrieval refund-policy` span, and three HTTP client spans. Two more spans, `GET /orders/<order_id>` and `fetch_order`, belong to `checkout-service`, which the agent calls over HTTP.
+
+Click a `chat stand-in-1` span and look at its attributes. They carry the model name and `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`. There is no `gen_ai.input.messages`: no prompt text is stored.
+
+### 3. Measure the trace with capture off
+
+```bash
+./scripts/measure-agent-trace.sh
+```
+
+You will see:
+
+```
+Measuring three agent runs with capture off. This takes about 15 seconds.
+
+              spans per run  capture off (bytes per span)  capture on (bytes per span)
+------------  -------------  ----------------------------  ---------------------------
+invoke_agent              1                           201             not measured yet
+chat                      4                    441 to 447             not measured yet
+execute_tool              2                           243             not measured yet
+retrieval                 1                           171             not measured yet
+http_client               3                    227 to 229             not measured yet
+whole trace              11                          3797             not measured yet
+largest span                                          447             not measured yet
+
+Across the 3 runs the byte counts were the same every time.
+
+Next: ./scripts/capture-on.sh (or capture-off.sh), then ./scripts/measure-agent-trace.sh again.
+Files: chapter-02/measure-out/
+```
+
+The table counts the 11 spans the agent process emits. Jaeger shows 13 because it adds the two `checkout-service` spans.
+
+### 4. Switch capture on and measure again
+
+```bash
+./scripts/capture-on.sh
+./scripts/measure-agent-trace.sh
+```
+
+You will see:
+
+```
+Capture is on. The next run puts prompt, tool and retrieval text on the spans.
+Next: ./scripts/run-agent.sh
+Measuring three agent runs with capture on. This takes about 15 seconds.
+
+              spans per run  capture off (bytes per span)  capture on (bytes per span)
+------------  -------------  ----------------------------  ---------------------------
+invoke_agent              1                           201                          201
+chat                      4                    441 to 447                9064 to 10780
+execute_tool              2                           243                   445 to 503
+retrieval                 1                           171                          828
+http_client               3                    227 to 229                   227 to 229
+whole trace              11                          3797                        42830
+largest span                                          447                        10780
+
+Across the 3 runs the byte counts were the same every time.
+
+Next: ./scripts/capture-on.sh (or capture-off.sh), then ./scripts/measure-agent-trace.sh again.
+Files: chapter-02/measure-out/
+```
+
+The trace grows from 3,797 to 42,830 bytes. The four `chat` spans grow with every model call (9,064 bytes for the first, 10,780 for the last) because each call carries the conversation so far.
+
+### 5. See what capture put on the spans
+
+```bash
+./scripts/run-agent.sh
+```
+
+You will see:
+
+```
+Building the agent image if needed and running one agent run. This takes under a minute the first time.
+run 1/1: trace_id=67afcd98ec8a6dae356763c68c1fb715 size=8k capture=span_only seconds=2.4
+Waiting for the trace to reach Jaeger.
+Trace 67afcd98ec8a6dae356763c68c1fb715 has 13 spans in Jaeger.
+Open: http://localhost:16686/trace/67afcd98ec8a6dae356763c68c1fb715
+```
+
+Refresh Jaeger, open the newest `support-agent` trace, and click a `chat stand-in-1` span. It now has `gen_ai.input.messages` and `gen_ai.output.messages`, the prompt and the reply as text.
+
+### 6. Switch capture back off
+
+```bash
+./scripts/capture-off.sh
+```
+
+You will see:
+
+```
+Capture is off. The next run carries model, token and tool metadata and no text.
+Next: ./scripts/run-agent.sh
+```
+
+The two scripts write one line to a `.env` file in this folder, which Docker Compose reads on every run, so you never edit a file. The measurement files are in `measure-out/`.
 
 ---
 
@@ -292,16 +422,22 @@ lsof -i :16686
 
 ## Cleanup
 
+Switch capture back off, so the next run starts from the default:
+
+```bash
+./scripts/capture-off.sh
+```
+
 Stop all services:
 
 ```bash
-docker compose down
+docker compose --profile agent down
 ```
 
 Remove the volumes too:
 
 ```bash
-docker compose down -v
+docker compose --profile agent down -v
 ```
 
 ---
@@ -340,3 +476,7 @@ Not mapped: 2.2 (production Kafka pipeline; `collector/config.yaml` is a simplif
 - **Chapter 4**: Protecting infrastructure from instrumentation mistakes
 - **Chapter 5**: Trace assembly patterns
 - **Chapter 6**: Sampling strategies
+
+## Versions
+
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.

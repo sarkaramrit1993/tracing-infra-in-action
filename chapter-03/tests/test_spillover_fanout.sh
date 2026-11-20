@@ -111,7 +111,7 @@ for m in re.finditer(r'^otelcol_exporter_sent_spans\{([^}]*)\}\s+([\d.e+]+)', te
     if ex:
         counts[ex.group(1)] = counts.get(ex.group(1), 0) + val
 
-missing = [e for e in ("loadbalancing", "otlp/fallback") if e not in counts]
+missing = [e for e in ("load_balancing", "otlp_grpc/fallback") if e not in counts]
 if missing:
     print(f"FAIL: no counter for {missing}; exporters seen: {sorted(counts)}")
     sys.exit(1)

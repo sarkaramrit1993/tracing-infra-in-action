@@ -1,0 +1,9 @@
+{
+  "currency": "USD",
+  "delivered_on": "2026-11-02",
+  "items": 2,
+  "order_id": "ORD-1042",
+  "payment_method": "card",
+  "status": "delivered",
+  "total": "84.50"
+}
