@@ -158,3 +158,7 @@ Results are written to `benchmarks/results/` (gitignored).
 | 4.7 | `collector/consumer-config.yaml` | Consumer collector with Kafka receiver |
 
 Not mapped: 4.4 (raw Kafka consumer client properties; the OTel Collector's Kafka receiver exposes a smaller settings surface than a raw Kafka client, so it doesn't have a direct file equivalent here), 4.5 (Kafka tiered storage, not configured in this stack; see chapter 7 for cold-tier storage).
+
+## Versions
+
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.
