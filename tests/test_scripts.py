@@ -495,3 +495,189 @@ def test_stand_in_delay_scale_defaults_to_one():
                             capture_output=True, text=True)
     assert default.stdout.strip() == "1.0", default.stderr
     assert scaled.stdout.strip() == "0.01", scaled.stderr
+
+
+CH4 = ROOT / "chapter-04"
+CH4_AGENT_SCRIPTS = ("send-agent-to-kafka.sh", "raise-kafka-limits.sh")
+
+
+def test_chapter4_agent_scripts_are_runnable_and_strict():
+    for name in CH4_AGENT_SCRIPTS:
+        path = CH4 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/agent-lib.sh"' in text, f"{name}: does not source agent-lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert "set -euo pipefail" in (CH4 / "scripts" / "agent-lib.sh").read_text()
+
+
+def test_chapter4_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH4 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+    assert "${GATEWAY_CONFIG:-gateway-config.yaml}" in text
+
+
+def test_chapter4_demo_gateways_differ_from_the_shipped_one_in_what_each_shows():
+    shipped = (CH4 / "collector" / "gateway-config.yaml").read_text()
+    plain = (CH4 / "collector" / "gateway-agent-config.yaml").read_text()
+    raised = (CH4 / "collector" / "gateway-agent-raised-config.yaml").read_text()
+    assert "max_message_bytes: 1000000" in shipped and "partition_traces_by_id: true" in shipped
+    assert "max_message_bytes: 1000000" in plain and "partition_traces_by_id: true" in plain
+    assert "max_message_bytes: 2000000" in raised and "partition_traces_by_id: true" in raised
+
+    def body(text, drop=()):
+        return [l for l in text.splitlines() if not l.startswith("#") and l.strip() and not any(d in l for d in drop)]
+
+    assert "timeout: 30s" in plain and "timeout: 30s" in raised
+    assert "processors: [memory_limiter, filter/drop_health, batch]" in plain
+    assert body(plain, ("max_message_bytes",)) == body(raised, ("max_message_bytes",))
+
+
+def _chapter4_gateway_metrics(phase, failing):
+    after = phase == "after"
+    taken = 53 if after else 0
+    sent = (2 if failing else 53) if after else 0
+    failed = (51 if failing else 0) if after else 0
+    return (
+        f'otelcol_processor_outgoing_items{{otel_signal="traces",processor="filter/drop_health"}} {taken}\n'
+        f'otelcol_exporter_sent_spans{{exporter="kafka"}} {sent}\n'
+        f'otelcol_exporter_send_failed_spans{{error_permanent="true",error_type="_OTHER",exporter="kafka"}} {failed}\n'
+        'otelcol_receiver_refused_spans{receiver="otlp",transport="grpc"} 0\n'
+    )
+
+
+def _run_chapter4_script(tmp_path, name, mode="up", failing=True, exec_fails=False, logs_fail=False):
+    """Run a chapter 4 agent script with stubbed docker, curl and sleep. mode is up (metrics
+    change after the run), down (connection refused), jaeger_down (only the trace lookup
+    fails), stuck (the exporter never reports) or dies (the metrics answer once, for the stack
+    check, then the Collector stops answering)."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-04"
+    shutil.copytree(CH4 / "scripts", chapter / "scripts")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    phase = tmp_path / "phase"
+    phase.write_text("before")
+    before = _chapter4_gateway_metrics("before", failing)
+    after = _chapter4_gateway_metrics("after", failing)
+    log_line = "ts error kafkaexporter record size 1037924 exceeds max 1000000: MESSAGE_TOO_LARGE: x"
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        f'if [ "$2" = run ]; then echo after > {phase}; echo "run 1/1: trace_id=abc123 size=32k capture=span_only seconds=1.4"; fi\n'
+        f'[ "$2" = exec ] && [ "{int(exec_fails)}" = 1 ] && exit 1\n'
+        '[ "$2" = exec ] && echo "Completed updating config for topic otlp_spans."\n'
+        f'if [ "$2" = logs ]; then [ "{int(logs_fail)}" = 1 ] && exit 1; [ "{int(failing)}" = 1 ] && echo "{log_line}"; fi\n'
+        'exit 0\n'
+    )
+    (bin_dir / "curl").write_text(
+        '#!/usr/bin/env bash\n'
+        f'[ "{mode}" = down ] && exit 7\n'
+        'case "$*" in\n'
+        f'  *api/v3/traces*) [ "{mode}" = jaeger_down ] && exit 7\n'
+        f'    if [ "{int(failing)}" = 1 ]; then echo \'{{"spanId":"a"}}\'; else echo \'{{"spanId":"a"}}\'; echo \'{{"spanId":"b"}}\'; fi; exit 0;;\n'
+        '  *:8889/metrics*)\n'
+        f'    if [ "{mode}" = dies ]; then n=$(cat {tmp_path}/calls 2>/dev/null || echo 0); echo $((n + 1)) > {tmp_path}/calls; [ "$n" -ge 2 ] && exit 7; fi\n'
+        f'    if [ "{mode}" = stuck ] || [ "$(cat {phase})" = before ]; then cat <<\'M\'\n{before}M\n'
+        f'    else cat <<\'M\'\n{after}M\n    fi; exit 0;;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "EXPORT_TRIES": "3"}
+    return subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env)
+
+
+def test_chapter4_failure_script_prints_the_log_line_and_the_counters():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter4_script(Path(tmp), "send-agent-to-kafka.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Gateway: took in 53 spans, receiver refused 0 spans" in result.stdout
+    assert "Kafka exporter: sent 2 spans, failed 51 spans" in result.stdout
+    assert "record size 1037924 exceeds max 1000000: MESSAGE_TOO_LARGE" in result.stdout
+    assert "Spans of that trace in Jaeger: 1" in result.stdout
+    assert "Next: ./scripts/raise-kafka-limits.sh" in result.stdout
+
+
+def test_chapter4_fix_script_shows_the_record_landing():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter4_script(Path(tmp), "raise-kafka-limits.sh", failing=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Completed updating config for topic otlp_spans." in result.stdout
+    assert "Kafka exporter: sent 53 spans, failed 0 spans" in result.stdout
+    assert "MESSAGE_TOO_LARGE lines in the gateway log: 0" in result.stdout
+    assert "Spans of that trace in Jaeger: 2" in result.stdout
+
+
+def test_chapter4_scripts_say_what_to_run_when_the_stack_is_down():
+    import tempfile
+
+    for name in CH4_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter4_script(Path(tmp), name, mode="down")
+        assert result.returncode != 0, name
+        assert "The stack is not running. Run: docker compose up -d" in result.stderr, name
+
+
+def test_chapter4_scripts_give_up_with_a_message_when_nothing_is_exported():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter4_script(Path(tmp), "send-agent-to-kafka.sh", mode="stuck")
+    assert result.returncode != 0
+    assert "did not finish exporting in 3 seconds" in result.stderr
+
+
+def test_chapter4_scripts_survive_a_jaeger_that_does_not_answer():
+    import tempfile
+
+    for name, failing in (("send-agent-to-kafka.sh", True), ("raise-kafka-limits.sh", False)):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter4_script(Path(tmp), name, mode="jaeger_down", failing=failing)
+        assert result.returncode == 0, name + result.stdout + result.stderr
+        assert "Spans of that trace in Jaeger: 0" in result.stdout, name
+
+
+def test_chapter4_scripts_survive_an_empty_gateway_log():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter4_script(Path(tmp), "send-agent-to-kafka.sh", logs_fail=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "MESSAGE_TOO_LARGE" not in result.stdout
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter4_script(Path(tmp), "raise-kafka-limits.sh", failing=False, logs_fail=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "MESSAGE_TOO_LARGE lines in the gateway log: 0" in result.stdout
+
+
+def test_chapter4_fix_script_says_so_when_the_topic_cannot_be_altered():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter4_script(Path(tmp), "raise-kafka-limits.sh", exec_fails=True)
+    assert result.returncode != 0
+    assert "Could not raise the topic limit" in result.stderr
+
+
+def test_chapter4_scripts_report_a_collector_that_stops_answering_mid_run():
+    import tempfile
+
+    for name in CH4_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter4_script(Path(tmp), name, mode="dies")
+        assert result.returncode != 0, name
+        assert "did not finish exporting" in result.stderr or "did not come back" in result.stderr, (
+            name + ": silent exit " + result.stdout + result.stderr
+        )

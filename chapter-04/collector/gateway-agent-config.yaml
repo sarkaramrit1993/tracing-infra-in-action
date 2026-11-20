@@ -1,0 +1,62 @@
+# Demo gateway for the AI agent workload: Listing 4.6 with a 30 second batch timer,
+# so one AI agent run reaches the Kafka exporter in one batch. The health-check spans are
+# dropped so the counters count only the run.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        include_metadata: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  filter/drop_health:
+    error_mode: ignore
+    traces:
+      span:
+        - 'name == "GET /health"'
+  batch:
+    send_batch_size: 8192
+    timeout: 30s
+    metadata_keys: [x-tenant-id]
+
+exporters:
+  # The Kafka exporter from Listing 4.2 (collector/gateway-config.yaml)
+  kafka:
+    brokers:
+      - kafka-1:9093
+      - kafka-2:9093
+      - kafka-3:9093
+    protocol_version: "3.9.0"
+    traces:
+      topic: otlp_spans
+      encoding: otlp_proto
+    partition_traces_by_id: true
+    include_metadata_keys: [x-tenant-id]
+    producer:
+      compression: lz4
+      required_acks: 1
+      max_message_bytes: 1000000
+
+extensions:
+  health_check: {}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/drop_health, batch]
+      exporters: [kafka]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
