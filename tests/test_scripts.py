@@ -319,6 +319,170 @@ def test_run_agent_reports_timeout_when_curl_always_fails(tmp_path):
     assert polls == 20
 
 
+CH3 = ROOT / "chapter-03"
+CH3_AGENT_SCRIPTS = ("send-agent-burst.sh", "send-oversized-agent-run.sh", "cap-batch-spans-at-agent-tier.sh", "trim-prompts-at-agent-tier.sh")
+
+
+def test_chapter3_agent_scripts_are_runnable_and_strict():
+    for name in CH3_AGENT_SCRIPTS:
+        path = CH3 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/agent-lib.sh"' in text, f"{name}: does not source agent-lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert "set -euo pipefail" in (CH3 / "scripts" / "agent-lib.sh").read_text()
+
+
+def test_chapter3_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH3 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+
+
+def test_chapter3_demo_configs_differ_from_the_shipped_ones_in_the_one_thing_each_shows():
+    shipped_gateway = (CH3 / "collector" / "gateway-config.yaml").read_text()
+    demo_gateway = (CH3 / "collector" / "gateway-default-limit-config.yaml").read_text()
+    assert "max_recv_msg_size_mib: 16" in shipped_gateway
+    keep = lambda text: [l for l in text.splitlines() if not l.startswith("#") and "max_recv" not in l]
+    assert not [l for l in demo_gateway.splitlines() if not l.startswith("#") and "max_recv" in l]
+    assert keep(shipped_gateway) == keep(demo_gateway)
+
+    plain = (CH3 / "collector" / "agent-genai-config.yaml").read_text()
+    trim = (CH3 / "collector" / "agent-genai-trim-config.yaml").read_text()
+    assert "compression: none" in plain and "compression: none" in trim
+    assert "truncate_all" not in plain
+    assert "processors: [memory_limiter, filter/drop_health, batch]" in plain
+    assert "processors: [memory_limiter, filter/drop_health, transform/trim_prompts, batch]" in trim
+    assert "truncate_all(attributes, 2048) where" in trim
+
+    cap = (CH3 / "collector" / "agent-genai-batchcap-config.yaml").read_text()
+    assert "compression: none" in cap and "truncate_all" not in cap
+    assert "processors: [memory_limiter, filter/drop_health, batch]" in cap
+    assert "send_batch_size: 100\n    send_batch_max_size: 100\n" in cap
+    assert "send_batch_max_size" not in plain
+
+
+def test_chapter3_default_stack_is_selected_by_unset_variables():
+    text = (CH3 / "docker-compose.yml").read_text()
+    assert "${AGENT_TIER_CONFIG:-agent-config.yaml}" in text
+    assert text.count("${GATEWAY_CONFIG:-gateway-config.yaml}") == 2
+
+
+def _chapter3_metrics(port, phase):
+    """Prometheus text a stubbed Collector serves; `phase` is before or after the run."""
+    import textwrap
+
+    after = phase == "after"
+    if port == "8888":
+        return textwrap.dedent(f"""\
+            otelcol_processor_outgoing_items{{otel_signal="traces",processor="filter/drop_health"}} {185 if after else 0}
+            otelcol_processor_batch_batch_send_size_sum{{processor="batch"}} {185 if after else 0}
+            otelcol_processor_batch_batch_send_size_bytes_count{{processor="batch"}} {1 if after else 0}
+            otelcol_processor_batch_batch_send_size_bytes_sum{{processor="batch"}} {6.349353e+06 if after else 0}
+            otelcol_exporter_send_failed_spans{{error_permanent="true",error_type="ResourceExhausted",exporter="otlp_grpc/gateway"}} {185 if after else 0}
+            """)
+    return 'otelcol_receiver_accepted_spans{receiver="otlp"} 0\notelcol_receiver_refused_spans{receiver="otlp"} 0\n'
+
+
+def _run_chapter3_script(tmp_path, name, curl_mode="up", timeout_tries="3", jaeger="ab"):
+    """Run a chapter 3 agent script with stubbed docker, curl and sleep. curl_mode is
+    up (metrics change after the run), down (connection refused) or stuck (never exports)."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-03"
+    shutil.copytree(CH3 / "scripts", chapter / "scripts", ignore=shutil.ignore_patterns("*.py"))
+    (chapter / "collector").mkdir()
+    for config in ("agent-genai-trim-config.yaml", "agent-genai-batchcap-config.yaml"):
+        shutil.copy(CH3 / "collector" / config, chapter / "collector")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    phase = tmp_path / "phase"
+    phase.write_text("before")
+    after_8888 = _chapter3_metrics("8888", "after")
+    before_8888 = _chapter3_metrics("8888", "before")
+    gateway = _chapter3_metrics("8889", "after")
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        f'if [ "$2" = run ]; then echo after > {phase}; echo "run 1/1: trace_id=abc123 size=32k capture=span_only seconds=5.0"; fi\n'
+        '[ "$1" = logs ] && echo \'ts error queue_sender "error": "not retryable error: Permanent error: rpc error: code = ResourceExhausted desc = grpc: received message larger than max (6349437 vs. 4194304)", "dropped_items": 185}\'\n'
+        'exit 0\n'
+    )
+    (bin_dir / "curl").write_text(
+        '#!/usr/bin/env bash\n'
+        f'[ "{curl_mode}" = down ] && exit 7\n'
+        'case "$*" in\n'
+        f'  *api/v3/traces*) for s in $(echo {jaeger} | fold -w1); do echo "{{\\"spanId\\":\\"$s\\"}}"; done; exit 0;;\n'
+        '  *:8888/metrics*)\n'
+        f'    if [ "{curl_mode}" = stuck ] || [ "$(cat {phase})" = before ]; then cat <<\'M\'\n{before_8888}M\n'
+        f'    else cat <<\'M\'\n{after_8888}M\n    fi; exit 0;;\n'
+        f'  *:8889/metrics*|*:8890/metrics*) cat <<\'M\'\n{gateway}M\n    exit 0;;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "EXPORT_TRIES": timeout_tries,
+           "POLL_TRIES": "2", "POLL_SECONDS": "0"}
+    return subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env)
+
+
+def test_oversized_run_prints_where_the_refusal_shows():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter3_script(Path(tmp), "send-oversized-agent-run.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Agent tier exporter: sent 0 spans, failed 185 spans" in result.stdout
+    assert "Gateway 1 receiver: accepted 0 spans, refused 0 spans" in result.stdout
+    assert "received message larger than max (6349437 vs. 4194304)" in result.stdout
+    assert '"dropped_items": 185' in result.stdout
+    assert "Next: ./scripts/cap-batch-spans-at-agent-tier.sh" in result.stdout
+
+
+def test_cap_run_names_the_cap_and_points_to_the_trim():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter3_script(Path(tmp), "cap-batch-spans-at-agent-tier.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Cap: send_batch_max_size: 100 spans per request" in result.stdout
+    assert "Agent tier batch: 185 spans in 1 request" in result.stdout
+    assert "Next: ./scripts/trim-prompts-at-agent-tier.sh" in result.stdout
+
+
+def test_trim_fails_when_the_trace_never_reaches_jaeger():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter3_script(Path(tmp), "trim-prompts-at-agent-tier.sh", jaeger="")
+    assert result.returncode != 0
+    assert "Spans of that trace in Jaeger: 0" in result.stdout
+    assert "Jaeger has 0 of the 0 spans the agent tier sent" in result.stderr
+
+
+def test_chapter3_scripts_say_what_to_run_when_the_stack_is_down():
+    import tempfile
+
+    for name in CH3_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter3_script(Path(tmp), name, curl_mode="down")
+        assert result.returncode != 0, name
+        assert "The stack is not running. Run: docker compose up --build -d" in result.stderr, name
+
+
+def test_chapter3_scripts_give_up_with_a_message_when_nothing_is_exported():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter3_script(Path(tmp), "send-agent-burst.sh", curl_mode="stuck")
+    assert result.returncode != 0
+    assert "did not finish exporting in 3 seconds" in result.stderr
+
+
 def test_stand_in_delay_scale_defaults_to_one():
     """Chapter 3 shortens the stand-in's sleeps; every other chapter must keep them."""
     import os

@@ -27,6 +27,7 @@ processors:
     traces:
       span:
         - 'name == "health"'
+        - 'name == "GET /health"'
         - 'name == "healthz"'
         - 'name == "ready"'
         - 'name == "readiness"'
