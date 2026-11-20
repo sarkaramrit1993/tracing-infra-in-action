@@ -198,7 +198,7 @@ Open: http://localhost:16686/trace/9d21156c713e7c5e5c244c6aebed67c8
 Next: ./scripts/trim-prompts-at-agent-tier.sh
 ```
 
-The prompts are untouched and the byte total is the same as in step 3. What changed is how the bytes leave: as two requests, one of 100 spans and one of 85, each about 3.4 MB or less, under the gateway's 4,194,304. The change is in the `batch` processor of `collector/agent-genai-batchcap-config.yaml`:
+The prompts are untouched and the byte total is the same as in step 3. Your total can come out a few hundred bytes higher than step 3's. The count includes a short header for each batch the services sent, and how many batches a run splits into depends on timing. What changed is how the bytes leave: as two requests, one of 100 spans and one of 85, each about 3.4 MB or less, under the gateway's 4,194,304. The change is in the `batch` processor of `collector/agent-genai-batchcap-config.yaml`:
 
 ```yaml
 batch:
