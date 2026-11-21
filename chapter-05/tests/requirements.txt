@@ -1,9 +1,9 @@
-PyYAML>=6.0
-pytest
+PyYAML==6.0.3
+pytest==9.2.0
 setuptools>=68.0,<80
-flask==3.0.0
-opentelemetry-sdk==1.42.1
-opentelemetry-proto==1.42.1
-opentelemetry-exporter-otlp-proto-grpc==1.42.1
-opentelemetry-instrumentation-flask==0.63b1
-protobuf>=4.25,<6
+flask==3.1.0
+opentelemetry-sdk==1.43.0
+opentelemetry-proto==1.43.0
+opentelemetry-exporter-otlp-proto-grpc==1.43.0
+opentelemetry-instrumentation-flask==0.64b0
+protobuf==7.36.2

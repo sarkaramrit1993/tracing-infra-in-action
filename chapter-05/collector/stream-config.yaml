@@ -26,7 +26,7 @@ processors:
     timeout: 2s
 
 exporters:
-  otlp:
+  otlp_grpc:
     endpoint: jaeger:4317
     tls:
       insecure: true
@@ -40,7 +40,13 @@ service:
     traces:
       receivers: [kafka]
       processors: [resource, batch]
-      exporters: [otlp]
+      exporters: [otlp_grpc]
   telemetry:
     metrics:
       level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888

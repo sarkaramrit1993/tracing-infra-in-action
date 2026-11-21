@@ -96,30 +96,6 @@ packages:
   pytest: {version: "9.2.0", note: test-only, exact per author ruling 2026-11-19}
 
 open_drift:
-  - {component: apache/kafka, chapter: chapter-04, version: "4.3.0"}
-  - {component: flask, chapter: chapter-04, version: "3.0.0"}
-  - {component: jaegertracing/jaeger, chapter: chapter-04, version: "2.19.0"}
-  - {component: opentelemetry-api, chapter: chapter-04, version: "1.42.1"}
-  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-04, version: "1.42.1"}
-  - {component: opentelemetry-instrumentation-flask, chapter: chapter-04, version: "0.63b1"}
-  - {component: opentelemetry-proto, chapter: chapter-04, version: ""}
-  - {component: opentelemetry-sdk, chapter: chapter-04, version: "1.42.1"}
-  - {component: prom/prometheus, chapter: chapter-04, version: "v3.12.0"}
-  - {component: protobuf, chapter: chapter-04, version: ""}
-  - {component: apache-flink, chapter: chapter-05, version: "2.2.1"}
-  - {component: apache/kafka, chapter: chapter-05, version: "4.3.0"}
-  - {component: clickhouse/clickhouse-server, chapter: chapter-05, version: "25.8"}
-  - {component: flask, chapter: chapter-05, version: "3.0.0"}
-  - {component: jaegertracing/jaeger, chapter: chapter-05, version: "2.19.0"}
-  - {component: opentelemetry-api, chapter: chapter-05, version: "1.42.1"}
-  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-05, version: "1.42.1"}
-  - {component: opentelemetry-instrumentation-flask, chapter: chapter-05, version: "0.63b1"}
-  - {component: opentelemetry-proto, chapter: chapter-05, version: "1.42.1"}
-  - {component: opentelemetry-sdk, chapter: chapter-05, version: "1.42.1"}
-  - {component: prom/prometheus, chapter: chapter-05, version: "v3.12.0"}
-  - {component: protobuf, chapter: chapter-05, version: ">=4.25,<6"}
-  - {component: pytest, chapter: chapter-05, version: ""}
-  - {component: pyyaml, chapter: chapter-05, version: ">=6.0"}
   - {component: apache/kafka, chapter: chapter-07, version: "4.3.0"}
   - {component: clickhouse/clickhouse-server, chapter: chapter-07, version: "25.8"}
   - {component: flask, chapter: chapter-07, version: "3.0.0"}
