@@ -96,7 +96,6 @@ packages:
   pytest: {version: "9.2.0", note: test-only, exact per author ruling 2026-11-19}
 
 open_drift:
-  - {component: pyyaml, chapter: chapter-08, version: ">=6.0"}
   - {component: flask, chapter: chapter-09, version: "3.0.0"}
   - {component: opentelemetry-api, chapter: chapter-09, version: "1.42.1"}
   - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-09, version: "1.42.1"}

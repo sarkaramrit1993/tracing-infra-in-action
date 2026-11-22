@@ -272,19 +272,10 @@ def test_compose_parses_and_pins_one_tag():
 
 
 @test
-def test_the_readme_names_the_tag_the_compose_file_pins():
-    """The manifest is a claim about what runs, so it has to track the repin.
-
-    The tag moved once already, for listing 8.2's `use_skip_indexes_on_data_read`,
-    and the README went on naming the old one and asserting parity with chapter 7
-    that had stopped being true. A version table nobody checks is worse than none,
-    because it is read as checked.
-    """
-    compose = yaml.safe_load(read("docker-compose.yml"))
-    image = compose["services"]["clickhouse"]["image"]
-    readme = read("README.md")
-    assert f"`{image}`" in readme, \
-        f"README's version manifest does not name {image}, which is what compose pins"
+def test_readme_points_at_the_version_registry():
+    """versions.yaml is the one list of pins and check_versions.py checks this
+    chapter against it, so a README table would only be a third copy to drift."""
+    assert "](../versions.yaml)" in read("README.md")
 
 
 @test

@@ -442,12 +442,7 @@ Both bind to `127.0.0.1` only.
 
 ### Versions
 
-| Component | Version | Role |
-|---|---|---|
-| ClickHouse | `clickhouse/clickhouse-server:26.1` | The whole stack: query tier, storage, and the tables all three listings run against |
-| Python | 3 on the host, standard library only | `generate/generate.py`, which runs `clickhouse-client` in the container |
-
-`chapter-07/` runs 25.8. This one can't, because of listing 8.2; NOTES says why.
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.
 
 ### Files
 
