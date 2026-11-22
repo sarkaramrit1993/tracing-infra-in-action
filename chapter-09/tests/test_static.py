@@ -517,7 +517,8 @@ def test_compose_parses_and_pins_one_tag_per_image():
     services = compose["services"]
     assert set(services) == {
         "checkout-service", "otel-collector", "kafka", "kafka-init",
-        "clickhouse", "consumer-clickhouse", "prometheus", "loki"}, \
+        "clickhouse", "consumer-clickhouse", "prometheus", "loki",
+        "stand-in-model", "agent"}, \
         f"the service set moved: {sorted(services)}"
     tags_by_repo = {}
     for name, svc in services.items():
@@ -795,12 +796,14 @@ def test_every_script_is_strict_bash_and_used():
         for _, calls in _script_calls(rel):
             used.update(calls)
     assert "set -euo pipefail" in read("scripts/lib.sh")
+    assert 'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"' in read("scripts/agent-lib.sh")
     for path in sorted((CHAPTER / "scripts").glob("*.sh")):
-        if path.name == "lib.sh":
+        if path.name in ("lib.sh", "agent-lib.sh"):
             continue
         text = path.read_text()
         assert text.startswith("#!/usr/bin/env bash\n"), f"{path.name} has no bash shebang"
-        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{path.name} does not source lib.sh"
+        assert re.search(r'source "\$\(dirname "\$0"\)/(agent-)?lib\.sh"', text), \
+            f"{path.name} does not source lib.sh or agent-lib.sh"
         assert not re.search(r"declare -A|mapfile|readarray|\$\{\w+,,\}|\$\{\w+\^\^\}", text), \
             f"{path.name} uses a bash 4 feature that macOS bash 3.2 does not have"
         assert path.name in used, f"scripts/{path.name} is never run by any page"

@@ -191,6 +191,111 @@ What it runs, in PromQL:
 traces_service_graph_request_total
 ```
 
+## Agent workloads
+
+An AI agent makes the same kinds of calls a checkout does: it calls a model, it calls tools, and a tool calls a service. These three scripts send five agent runs through the stack above and show which of those calls become edges in the service graph, which call holds the time, and where a failure lands. The agent and its stand-in model come from [`../chapter-02/agent/`](../chapter-02/agent/), so there is no model to sign up for and every run takes the same steps. The stand-in also plays a payment service, `payment-stub`, so the agent's refund tool has something to call.
+
+Run these after steps 1 to 5. The first run builds the agent image, which takes about a minute.
+
+### A1. Send five agent runs
+
+```bash
+./scripts/send-agent-traffic.sh
+```
+
+```
+sending 4 ordinary agent runs and 1 run whose refund fails every time...
+waiting for the runs to reach ClickHouse... ok
+sent 5 agent runs, 35 calls from the agent, 7 of them failed
+Next: ./scripts/show-agent-dependencies.sh
+```
+
+In an ordinary run the refund fails once, with a 503, and the agent retries it. In the fifth run the refund fails on every attempt, so the agent gives up and the run ends in error. A call from the agent is any model call or HTTP request it makes. The failed ones are the 503s: one per ordinary run, three in the failing run.
+
+What it runs, once per run:
+
+```text
+docker compose --profile agent run --rm -T agent
+AGENT_FAIL_LAST_TOOL=1 docker compose --profile agent run --rm -T agent
+```
+
+### A2. Read the service graph and the error spans
+
+```bash
+./scripts/show-agent-dependencies.sh
+```
+
+```
+waiting for the service graph to reach Prometheus... ok
+support-agent -> checkout-service 5
+support-agent -> payment-stub 4
+support-agent -> unknown 19
+support-agent -> payment-stub 7 (failed)
+
+Spans with an error status in the run whose refund failed every time:
+service        span                        parent
+support-agent  invoke_agent support-agent
+support-agent  execute_tool issue_refund   invoke_agent support-agent
+support-agent  POST                        execute_tool issue_refund
+payment-stub   POST /payments/refund       POST
+support-agent  POST                        execute_tool issue_refund
+payment-stub   POST /payments/refund       POST
+support-agent  POST                        execute_tool issue_refund
+payment-stub   POST /payments/refund       POST
+```
+
+Three edges leave the agent. `support-agent -> checkout-service` is the order lookup, five of them. `support-agent -> payment-stub` is the refund call: 4 that succeeded and 7 that failed, 11 in all, which is two attempts in each ordinary run and three in the failing one. `support-agent -> unknown` is the 19 model calls. They are client calls with no server span on the other side, because the stand-in model does not trace, so the graph has nobody to name.
+
+No edge carries a tool name. A tool call, `execute_tool issue_refund`, is an internal span, so it is neither half of a call and the graph draws nothing for it. The same goes for the retrieval: the agent reads the policy text in its own process, so `retrieval refund-policy` is internal too and the five retrievals make no edge. The tool's name sits one level up: the HTTP call under it is the client half, and `payment-stub` is the server half.
+
+The error table is the failing run. The 503 marks eight spans: the three HTTP calls, the three `payment-stub` spans that answered them, the tool span, and the root. The tool span is there because the agent raised the failure inside it. In an ordinary run the retry succeeds, so only the first HTTP call and its `payment-stub` span are in error, and the tool span ends unset. The parent column is how you walk from the failing service to the tool: `payment-stub` is under `POST`, which is under `execute_tool issue_refund`.
+
+The service graph writes its counts out once a minute, which is why the script waits.
+
+What it runs, in PromQL and SQL:
+
+```promql
+traces_service_graph_request_total{client="support-agent"}
+```
+
+```sql
+SELECT s.service_name AS service, s.span_name AS span, p.span_name AS parent
+FROM tracing.otel_traces AS s
+LEFT JOIN tracing.otel_traces AS p ON p.trace_id = s.trace_id AND p.span_id = s.parent_span_id
+WHERE s.trace_id = '<the failing run>' AND s.status_code = 'STATUS_CODE_ERROR'
+ORDER BY s.timestamp, s.span_id
+```
+
+### A3. Find the call that holds the time
+
+```bash
+./scripts/show-agent-critical-path.sh
+```
+
+```
+1  chat stand-in-1             18.4%
+2  execute_tool lookup_order    0.2%
+3  chat stand-in-1             15.5%
+4  retrieval refund-policy      0.0%
+5  chat stand-in-1             15.5%
+6  execute_tool issue_refund   23.0%
+7  chat stand-in-1             27.3%
+   between steps                0.0%
+The call holding the most time: step 7, chat stand-in-1, 27.3% of the run
+```
+
+This is the last ordinary run, walked backwards from the end of the root span: take the child that finished last, move to its start, repeat. The agent's steps run one after another, so every step is on the path and the shares add up to 100. Step 7 is the last model call, the one that writes the answer. The seconds belong to the stand-in, which sleeps a set time per call, so read the shares. Yours will differ in the last digit.
+
+What it runs:
+
+```sql
+SELECT span_id, parent_span_id, span_name, toUnixTimestamp64Nano(timestamp) AS start_ns, duration_ns
+FROM tracing.otel_traces
+WHERE trace_id = '<the last ordinary run>'
+```
+
+The tail sampler keeps every trace with an error span, so all five runs are stored. A trace with no error would be kept one time in a hundred.
+
 ## Exercises
 
 Each exercise starts from a running stack and cleans up after itself, so do them
@@ -257,7 +362,7 @@ recorded run is in [RESULTS.md](RESULTS.md).
 ## Tear down
 
 ```bash
-docker compose down -v
+docker compose --profile agent down -v
 deactivate 2>/dev/null
 rm -rf .venv
 ```

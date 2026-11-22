@@ -91,8 +91,9 @@ def cmd_instance(url):
     fail(f"no target_info on {url}. {HINT}")
 
 
-def cmd_edges():
+def cmd_edges(client=""):
     result = prom("traces_service_graph_request_total")["result"]
+    result = [r for r in result if r["metric"].get("client", "").startswith(client)]
     rows = sorted(result, key=lambda r: (r["metric"].get("failed") == "true",
                                          r["metric"].get("client", ""),
                                          r["metric"].get("server", "")))

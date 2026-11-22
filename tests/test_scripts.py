@@ -1295,3 +1295,206 @@ def test_chapter8_remove_drops_the_columns_and_deletes_the_agent_spans():
         log = calls.read_text()
     assert "DROP COLUMN IF EXISTS agent_name" in log
     assert "DELETE WHERE service_name = 'support-agent'" in log
+
+
+CH9 = ROOT / "chapter-09"
+CH9_AGENT_SCRIPTS = ("send-agent-traffic.sh", "show-agent-dependencies.sh", "show-agent-critical-path.sh")
+CH9_TRACE = "b" * 32
+CH9_SPANS = "\n".join(
+    json.dumps({"span_id": sid, "parent_span_id": parent, "span_name": name, "start_ns": str(start), "duration_ns": str(dur)})
+    for sid, parent, name, start, dur in (
+        ("0a", "", "invoke_agent support-agent", 0, 1000),
+        ("0b", "0a", "chat stand-in-1", 0, 400),
+        ("0c", "0a", "execute_tool issue_refund", 400, 100),
+        ("0d", "0c", "POST", 420, 60),
+        ("0e", "0a", "chat stand-in-1", 500, 500),
+    )
+)
+CH9_FAKE_QUERY = '''#!/usr/bin/env python3
+import os, sys
+cmd = sys.argv[1]
+if cmd == "instance":
+    print(os.environ.get("FAKE_INSTANCE", "collector-1"))
+elif cmd == "sum":
+    failed = 'failed="true"' in sys.argv[2]
+    print(os.environ.get("FAKE_FAILED" if failed else "FAKE_ALL", "none"))
+elif cmd == "edges":
+    print("support-agent -> checkout-service 5")
+elif cmd == "table":
+    sys.stdout.write(sys.stdin.read())
+else:
+    print(0)
+'''
+
+
+def _run_chapter9_script(tmp_path, name, up=True, build_ok=True, run="line", clickhouse="ok", traces="5",
+                         stored="35", failed_calls="7", graph_all="35", graph_failed="7", spans=None,
+                         prior_run=True, instance="collector-1", saved_instance="collector-1"):
+    """Run a chapter 9 agent script with stubbed docker, curl, sleep and date, and a stand-in
+    for scripts/query.py, so nothing touches Docker or Prometheus. run is line (the agent prints
+    a trace line), silent (it prints none) or fails. clickhouse is ok or down."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-09"
+    shutil.copytree(CH9 / "scripts", chapter / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+    (chapter / "scripts" / "query.py").write_text(CH9_FAKE_QUERY)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    clock = tmp_path / "clock"
+    clock.write_text("0")
+    (bin_dir / "date").write_text(f'#!/usr/bin/env bash\necho $((1000000 + $(cat {clock})))\n')
+    (bin_dir / "sleep").write_text(f'#!/usr/bin/env bash\necho $(($(cat {clock}) + ${{1:-1}})) > {clock}\n')
+    run_lines = {
+        "line": f"echo run 1/1: trace_id={CH9_TRACE} size=1k capture=no_content seconds=2.3; exit 0",
+        "silent": "echo nothing useful; exit 0",
+        "fails": "echo compose exploded; exit 1",
+    }[run]
+    ch_body = {
+        "ok": (
+            f'case "$*" in\n'
+            f'  *uniqExact*) echo {traces};;\n'
+            f"  *count*\"status_code = 'STATUS_CODE_ERROR'\"*) echo {failed_calls};;\n"
+            f'  *count*) echo {stored};;\n'
+            f'  *JSONEachRow*) cat {tmp_path}/spans.jsonl;;\n'
+            f'  *TSVWithNames*) printf "service\\tspan\\tparent\\nsupport-agent\\texecute_tool issue_refund\\tinvoke_agent support-agent\\n";;\n'
+            f'esac'
+        ),
+        "down": "exit 1",
+    }[clickhouse]
+    (tmp_path / "spans.jsonl").write_text((CH9_SPANS if spans is None else spans) + "\n")
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        'case "$*" in\n'
+        f'  *" build "*) exit {0 if build_ok else 1};;\n'
+        f'  *" run --rm"*) {run_lines};;\n'
+        f'  *clickhouse-client*) {ch_body};;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "curl").write_text(f'#!/usr/bin/env bash\n{"exit 0" if up else "exit 7"}\n')
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    if prior_run:
+        state_dir = tmp_path / "tracing-in-action-ch09"
+        state_dir.mkdir()
+        (state_dir / "agent").write_text(
+            f"COLLECTOR_ID={saved_instance}\nOK_TRACE={CH9_TRACE}\nFAIL_TRACE={'c' * 32}\nIDS='x'\n"
+            "TARGET_ALL=35\nTARGET_FAILED=7\n")
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp_path),
+           "FAKE_ALL": graph_all, "FAKE_FAILED": graph_failed, "FAKE_INSTANCE": instance}
+    return subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env, timeout=60)
+
+
+def test_chapter9_agent_scripts_are_runnable_and_strict():
+    for name in CH9_AGENT_SCRIPTS:
+        path = CH9 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/agent-lib.sh"' in text, f"{name}: does not source agent-lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert 'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"' in (CH9 / "scripts" / "agent-lib.sh").read_text()
+    assert "set -euo pipefail" in (CH9 / "scripts" / "lib.sh").read_text()
+
+
+def test_chapter9_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH9 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+    stand_in = text.split("\n  stand-in-model:\n")[1].split("\n\n")[0]
+    assert 'STAND_IN_SPANS: "1"' in stand_in
+    assert "OTEL_SERVICE_NAME: payment-stub" in stand_in
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317" in text.split("\n  agent:\n")[1].split("\n\n")[0]
+
+
+def test_chapter9_send_script_saves_what_the_next_scripts_wait_for(tmp_path):
+    result = _run_chapter9_script(tmp_path, "send-agent-traffic.sh", prior_run=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "sent 5 agent runs, 35 calls from the agent, 7 of them failed" in result.stdout
+    saved = (tmp_path / "tracing-in-action-ch09" / "agent").read_text()
+    assert f"OK_TRACE={CH9_TRACE}\n" in saved
+    assert f"FAIL_TRACE={CH9_TRACE}\n" in saved
+    assert "TARGET_ALL=70\n" in saved and "TARGET_FAILED=14\n" in saved
+    assert saved.count(f"'{CH9_TRACE}'") == 5
+
+
+def test_chapter9_send_script_waits_for_every_run_not_only_the_first_traces(tmp_path):
+    result = _run_chapter9_script(tmp_path, "send-agent-traffic.sh", prior_run=False, traces="4")
+    assert result.returncode != 0
+    assert "timed out" in result.stderr
+
+
+def test_chapter9_send_script_stops_with_a_message_on_each_failure(tmp_path):
+    for tag, kwargs, message in (
+        ("build", {"build_ok": False}, "Could not build the agent image"),
+        ("silent", {"run": "silent"}, "The agent printed no trace ID"),
+        ("fails", {"run": "fails"}, "The agent run failed: compose exploded"),
+        ("down", {"up": False}, "is not answering"),
+    ):
+        (tmp_path / tag).mkdir()
+        result = _run_chapter9_script(tmp_path / tag, "send-agent-traffic.sh", prior_run=False, **kwargs)
+        assert result.returncode != 0, tag
+        assert message in result.stderr, tag
+
+
+def test_chapter9_dependencies_prints_the_agent_edges_and_the_error_spans(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-dependencies.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "support-agent -> checkout-service 5" in result.stdout
+    assert "execute_tool issue_refund" in result.stdout
+    assert "invoke_agent support-agent" in result.stdout
+
+
+def test_chapter9_dependencies_waits_for_the_graph_and_gives_up_with_a_message(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-dependencies.sh", graph_all="34")
+    assert result.returncode != 0
+    assert "timed out" in result.stderr
+    assert "support-agent ->" not in result.stdout
+    (tmp_path / "none").mkdir()
+    result = _run_chapter9_script(tmp_path / "none", "show-agent-dependencies.sh", graph_all="none")
+    assert result.returncode != 0 and "timed out" in result.stderr
+
+
+def test_chapter9_read_scripts_say_to_send_traffic_first(tmp_path):
+    for name in ("show-agent-dependencies.sh", "show-agent-critical-path.sh"):
+        for tag, kwargs in (("fresh", {"prior_run": False}), ("stale", {"saved_instance": "collector-0"})):
+            case = tmp_path / f"{name}-{tag}"
+            case.mkdir()
+            result = _run_chapter9_script(case, name, **kwargs)
+            assert result.returncode != 0, f"{name} {tag}"
+            assert "no agent traffic yet: run ./scripts/send-agent-traffic.sh first" in result.stderr, f"{name} {tag}"
+
+
+def test_chapter9_critical_path_prints_shares_and_names_the_longest_step(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-critical-path.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[0].split() == ["1", "chat", "stand-in-1", "40.0%"]
+    assert lines[1].split() == ["2", "execute_tool", "issue_refund", "10.0%"]
+    assert lines[2].split() == ["3", "chat", "stand-in-1", "50.0%"]
+    assert lines[-1] == "The call holding the most time: step 3, chat stand-in-1, 50.0% of the run"
+    assert "ns" not in result.stdout and "seconds" not in result.stdout
+
+
+def test_chapter9_critical_path_stops_when_the_trace_is_not_stored_yet(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-critical-path.sh", spans="")
+    assert result.returncode != 0
+    assert "is not in ClickHouse yet" in result.stderr
+
+
+def test_chapter9_critical_path_follows_the_last_finisher_and_breaks_ties_by_length():
+    sys.path.insert(0, str(CH9 / "scripts"))
+    import critical_path
+
+    def trace(rows):
+        return critical_path.load(
+            json.dumps({"span_id": s, "parent_span_id": p, "span_name": s, "start_ns": a, "duration_ns": d})
+            for s, p, a, d in rows
+        )
+
+    spans = trace([("root", "", 0, 100), ("fast", "root", 0, 30), ("slow", "root", 0, 90), ("tail", "root", 90, 10)])
+    assert critical_path.on_path(spans["root"]) == {"root": 0, "tail": 10, "slow": 90}
+    tied = trace([("root", "", 0, 100), ("short", "root", 50, 50), ("long", "root", 0, 100)])
+    assert critical_path.on_path(tied["root"]) == {"root": 0, "long": 100}
