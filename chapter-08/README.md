@@ -373,6 +373,87 @@ The file then runs the same `EXPLAIN` twice more: once as it is, and once with
 ALTER TABLE tracing.otel_traces DROP INDEX IF EXISTS idx_trace_id
 ```
 
+## 7. Find one agent run (agent workloads)
+
+The stack so far holds generated checkout traffic. This step adds one real agent
+run to the same table. Chapter 2 recorded it: a support agent, one trace of 11
+spans, written out as OTLP JSON. Nothing here runs an agent or a Collector. The
+script reads the recorded file, turns each span into a row of `tracing.otel_traces`
+and inserts it:
+
+```bash
+./scripts/load-agent-traces.sh
+```
+
+```
+loaded 11 spans from chapter-02/agent/results/agent-traces-otlp.json into tracing.otel_traces
+```
+
+Running it a second time stops with a message instead of loading the run twice.
+
+The GenAI conventions put the model, the tool or the agent name in the span
+name: `chat stand-in-1`, `execute_tool issue_refund`, `invoke_agent support-agent`.
+The same three values are also attributes, and the table keeps attributes in a
+generic map. So each of them can be found through the span name, which is the second
+column of the sort key, through the map, or through a column of its own:
+
+```bash
+./scripts/find-runs-by-tool.sh
+```
+
+```
+tracing.otel_traces holds 1079411 spans, 11 of them the agent run
+
+by tool
+filter                                            spans   traces   rows read   bytes read
+span_name = 'execute_tool issue_refund'               1        1        8203   8.56 KiB
+attributes['gen_ai.tool.name'] = 'issue_refund'       1        1     1079411   37.86 MiB
+tool_name = 'issue_refund'                            1        1     1079411   1.03 MiB
+
+by model
+filter                                              spans   traces   rows read   bytes read
+span_name = 'chat stand-in-1'                           4        1        8203   8.56 KiB
+attributes['gen_ai.request.model'] = 'stand-in-1'       5        1     1079411   37.86 MiB
+request_model = 'stand-in-1'                            5        1     1079411   1.03 MiB
+
+by agent name
+filter                                              spans   traces   rows read   bytes read
+span_name = 'invoke_agent support-agent'                1        1        8203   8.56 KiB
+attributes['gen_ai.agent.name'] = 'support-agent'       1        1     1079411   37.86 MiB
+agent_name = 'support-agent'                            1        1     1079411   1.03 MiB
+
+the columns are dropped again; ./scripts/remove-agent-traces.sh deletes the agent spans
+```
+
+Each filter finds the one run, `traces` is 1 on every line. Read the other
+columns as three routes:
+
+- **Span name.** The sort key puts `span_name` right behind `service_name`, so
+  ClickHouse reads 8203 rows and skips the rest of the table. The route only finds
+  spans whose name carries the value. The model sits on five spans, four `chat`
+  spans and the `invoke_agent` span, and the name finds four.
+- **Attributes map.** Every span matches the key, so ClickHouse reads all
+  1,079,411 rows and the whole map, 37.86 MiB, to return one.
+- **Materialized column.** The script adds `tool_name`, `request_model` and
+  `agent_name` as `MATERIALIZED` columns over the same map keys and fills them.
+  The rows read are the same, since a column is not a sort slot or an index. The
+  bytes read fall from 37.86 MiB to 1.03 MiB, because the query now reads one
+  small column and the trace ID instead of the map.
+
+The row and byte counts come from `system.query_log`. The exact byte counts will
+not survive a version bump of the image; the ratios should.
+
+The script drops its three columns before it ends. Take the agent spans back out
+when you are done, so the table is the way the stack starts:
+
+```bash
+./scripts/remove-agent-traces.sh
+```
+
+```
+removed the agent spans; tracing.otel_traces has no agent columns
+```
+
 ## Exercises
 
 Each exercise starts from a running stack, makes its own data and cleans up
@@ -452,7 +533,8 @@ chapter-08/
 ├── README.md
 ├── NOTES.md                  # why everything works the way it does
 ├── generate/
-│   └── generate.py           # builds the population, samples it, records the truth
+│   ├── generate.py           # builds the population, samples it, records the truth
+│   └── otlp_to_rows.py       # turns the recorded agent run into table rows
 ├── scripts/                  # one script per step; lib.sh holds what they share
 ├── exercises/
 │   ├── unbiased.md           # listing 8.1: grade four answers against the population

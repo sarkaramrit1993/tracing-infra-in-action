@@ -506,6 +506,7 @@ def test_every_page_puts_back_what_it_changed():
         "build-view-without-populate.sh": ({"drop-rollup-views.sh", "clean-up-rollup.sh"}, "drop the view"),
         "build-view-without-root-filter.sh": ({"drop-rollup-views.sh", "clean-up-rollup.sh"}, "drop the view"),
         "send-live-batch.sh": ({"clean-up-rollup.sh"}, "delete the demo rows"),
+        "load-agent-traces.sh": ({"remove-agent-traces.sh"}, "delete the agent spans"),
     }
     offenders = []
     for rel in READER_DOCS:
