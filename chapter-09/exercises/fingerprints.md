@@ -219,8 +219,8 @@ grep -n 'replaceRegexpAll(attributes\|extractAll(attributes' clickhouse/error_in
 ```
 
 ```
-73:        replaceRegexpAll(attributes['exception.message'],
-77:                extractAll(attributes['exception.stacktrace'],
+75:        replaceRegexpAll(attributes['exception.message'],
+79:                extractAll(attributes['exception.stacktrace'],
 ```
 
 The benchmark reads that file and substitutes three table names. Nothing in it
