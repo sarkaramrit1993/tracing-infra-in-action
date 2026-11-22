@@ -1,5 +1,5 @@
 # Chapter 5 extends Chapter 4: same 3-broker KRaft Kafka cluster, adds Flink 2.2
-# for stream-time assembly and ClickHouse 25.8 for query-time assembly. Both
+# for stream-time assembly and ClickHouse 26.1 for query-time assembly. Both
 # paths coexist so the reader can compare them on the same span stream.
 
 x-kafka-common-env: &kafka-common-env
@@ -96,7 +96,7 @@ services:
 
   # --- Kafka Brokers (KRaft, no ZooKeeper) ---
   kafka-1:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     volumes:
       - kafka-1-data:/var/lib/kafka/data
@@ -108,7 +108,7 @@ services:
     restart: unless-stopped
 
   kafka-2:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     volumes:
       - kafka-2-data:/var/lib/kafka/data
@@ -120,7 +120,7 @@ services:
     restart: unless-stopped
 
   kafka-3:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     volumes:
       - kafka-3-data:/var/lib/kafka/data
@@ -137,7 +137,7 @@ services:
   #   traces.assembled   whole traces from Flink stream-time assembly
   #   spans.late         late spans diverted by the watermark policy
   kafka-init:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch5]
     depends_on:
       kafka-1:
@@ -172,7 +172,7 @@ services:
 
   # --- ClickHouse (query-time path target) ---
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.1
     networks: [ch5]
     ports:
       - "8123:8123"
@@ -269,6 +269,7 @@ services:
     command: taskmanager
     environment:
       FLINK_PROPERTIES: *flink_props
+      DECISION_WAIT_MS: "${DECISION_WAIT_MS:-10000}"
     volumes:
       - flink-checkpoints:/flink-checkpoints
     depends_on:
@@ -282,6 +283,7 @@ services:
     environment:
       # Keep equal to taskmanager.numberOfTaskSlots; the client reads it here.
       PARALLELISM: "1"
+      DECISION_WAIT_MS: "${DECISION_WAIT_MS:-10000}"
     command: >
       bash -c '
         echo "Waiting for a TaskManager to register with the JobManager...";
@@ -321,7 +323,7 @@ services:
 
   # --- Jaeger v2 (trace backend for both query-time and stream-time) ---
   jaeger:
-    image: jaegertracing/jaeger:2.19.0
+    image: jaegertracing/jaeger:2.22.0
     networks: [ch5]
     ports:
       - "16686:16686"
@@ -329,9 +331,45 @@ services:
 
   # --- Prometheus (metrics for collector, Flink, ClickHouse) ---
   prometheus:
-    image: prom/prometheus:v3.12.0
+    image: prom/prometheus:v3.14.0
     networks: [ch5]
     ports:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  # --- AI agent workload (docker compose --profile agent ...) ---
+  stand-in-model:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch5]
+    command: ["python", "stand_in_model.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  agent:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch5]
+    environment:
+      - OTEL_SERVICE_NAME=support-agent
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-agent:4317
+      - OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
+      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=no_content
+      - AGENT_RUN_SECONDS=${AGENT_RUN_SECONDS:-long}
+      - AGENT_RUNS=1
+      - STAND_IN_URL=http://stand-in-model:8000
+      - CHECKOUT_URL=http://checkout-service:8080
+    depends_on:
+      stand-in-model:
+        condition: service_healthy
+      otel-agent:
+        condition: service_started
+      checkout-service:
+        condition: service_started

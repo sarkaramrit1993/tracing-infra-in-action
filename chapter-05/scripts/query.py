@@ -132,7 +132,38 @@ def cmd_table():
         print("  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip())
 
 
+def cmd_timeline():
+    """Reads trace-timeline.py's JSON on stdin and prints when each span arrived and where it went."""
+    data = json.load(sys.stdin)
+    key = lambda s: (s["name"], s["start_ms"], s["end_ms"])
+    fate = {}
+    for topic in ("traces.assembled", "spans.late"):
+        for rec in data[topic]:
+            for s in rec["spans"]:
+                fate[key(s)] = topic
+    arrivals = [(rec["kafka_ms"], s) for rec in data["otlp_spans"] for s in rec["spans"]]
+    if not arrivals:
+        fail("no spans of that trace on otlp_spans yet")
+    t0 = min(s["start_ms"] for _, s in arrivals)
+    rows = [("arrived", "span", "started", "ended", "went to")]
+    for ms, s in sorted(arrivals, key=lambda a: (a[0], a[1]["start_ms"], a[1]["name"])):
+        rows.append((f"+{(ms - t0) / 1000:.1f}s", s["name"], f"+{(s['start_ms'] - t0) / 1000:.1f}s",
+                     f"+{(s['end_ms'] - t0) / 1000:.1f}s", fate.get(key(s), "nowhere yet")))
+    widths = [max(len(r[i]) for r in rows) for i in range(5)]
+    for r in rows:
+        print("  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip())
+    for rec in data["traces.assembled"]:
+        print(f"\nthe assembled trace holds {len(rec['spans'])} spans, stamped +{(rec['kafka_ms'] - t0) / 1000:.1f}s")
+    print(f"spans.late holds {sum(len(r['spans']) for r in data['spans.late'])} spans of this trace")
+
+
+def cmd_count_spans(topic):
+    """Spans of the trace on one topic, from trace-timeline.py's JSON on stdin."""
+    print(sum(len(r["spans"]) for r in json.load(sys.stdin)[topic]))
+
+
 COMMANDS = {
+    "timeline": cmd_timeline, "count-spans": cmd_count_spans,
     "flink-state": cmd_flink_state, "flink-summary": cmd_flink_summary,
     "jaeger-sources": cmd_jaeger_sources, "count-records": cmd_count_records,
     "table": cmd_table,

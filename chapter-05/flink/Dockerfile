@@ -13,8 +13,8 @@ RUN apt-get update && \
 # source-only deps (e.g. pemja, which has no linux/arm64 wheel) compile.
 RUN pip3 install --break-system-packages --no-cache-dir --prefer-binary \
         apache-flink==2.2.1 \
-        opentelemetry-proto==1.42.1 \
-        'protobuf>=4.25,<6'
+        opentelemetry-proto==1.43.0 \
+        protobuf==5.29.6
 
 COPY assembly_job.py /opt/flink/jobs/assembly_job.py
 

@@ -102,5 +102,14 @@ def checkout_slow():
     return jsonify({"status": "completed", "delay_seconds": round(delay, 2)})
 
 
+@app.route("/orders/<order_id>")
+def get_order(order_id):
+    """Order lookup, the tool call the AI agent workload makes."""
+    with tracer.start_as_current_span("fetch_order") as span:
+        span.set_attribute("order.id", order_id)
+        time.sleep(0.015)
+    return jsonify({"order_id": order_id, "items": random.randint(1, 5)})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)

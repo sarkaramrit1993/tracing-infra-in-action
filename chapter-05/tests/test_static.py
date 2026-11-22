@@ -53,7 +53,8 @@ def test_compose_service_set_and_pins():
         "checkout-service", "otel-agent", "otel-gateway", "kafka-1", "kafka-2",
         "kafka-3", "kafka-init", "clickhouse", "consumer-clickhouse",
         "otel-consumer", "flink-jobmanager", "flink-taskmanager",
-        "flink-job-submit", "otel-stream-consumer", "jaeger", "prometheus"}, \
+        "flink-job-submit", "otel-stream-consumer", "jaeger", "prometheus",
+        "stand-in-model", "agent"}, \
         f"the service set moved: {sorted(services)}"
     tags = {}
     for name, svc in services.items():
@@ -69,13 +70,10 @@ def test_compose_service_set_and_pins():
 
 
 @test
-def test_readme_version_table_matches_the_pins():
-    compose = yaml.safe_load(read("docker-compose.yml"))
-    readme = read("README.md")
-    for image in sorted({s["image"] for s in compose["services"].values() if "image" in s}):
-        assert f"`{image}`" in readme, f"{image} runs and is not in the README's version table"
-    flink = re.search(r"^FROM (\S+)", read("flink/Dockerfile"), re.M).group(1)
-    assert f"`{flink}`" in readme, f"the Flink base image {flink} is not in the version table"
+def test_readme_points_at_the_version_registry():
+    """versions.yaml is the one list of pins and check_versions.py checks this
+    chapter against it, so a README table would only be a third copy to drift."""
+    assert "](../versions.yaml)" in read("README.md")
 
 
 @test
