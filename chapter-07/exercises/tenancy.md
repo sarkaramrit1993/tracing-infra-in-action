@@ -72,7 +72,7 @@ until one customer needs two people.
 
 ```
 tenant_id  rows
-tenant_a   2116
+tenant_a   2109
 
 tenant_b_rows
             0
@@ -120,7 +120,7 @@ One row, tagged `tenant_b`. Same query, as `globex_reader`.
 
 ```
 tenant_id  rows
-tenant_a   2116
+tenant_a   2109
 tenant_b      1
 ```
 
@@ -232,7 +232,7 @@ exempting the operator:
 
 ```
 newhire_reads
-         2119
+         2112
 
 acme_reads_of_tenant_b
                      0
@@ -270,7 +270,7 @@ Then admit `newhire` the way the map intends, with one row in `tenant_users`:
 
 ```
 tenant_id  rows
-tenant_a   2117
+tenant_a   2110
 ```
 
 Acme's rows and only Acme's. Two logins now hold one tenant, and the policy
@@ -356,7 +356,7 @@ them with INSERT, which deserves more care than a policy.
 
 ```
 row policies left: 0
-rows in otel_traces: 2116
+rows in otel_traces: 2109
 columns: timestamp, trace_id, span_id, service_name, span_name, status_code, duration_ns, adjusted_count, attributes
 ```
 

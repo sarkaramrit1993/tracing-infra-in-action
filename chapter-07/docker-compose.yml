@@ -13,11 +13,11 @@
 # the same S3-compatible object store (SeaweedFS).
 #
 # Pinned versions (one tag per image, N1):
-#   apache/kafka                                  4.3.0
+#   apache/kafka                                  4.3.1
 #   otel/opentelemetry-collector-contrib          0.154.0
-#   clickhouse/clickhouse-server                  25.8
+#   clickhouse/clickhouse-server                  26.1
 #   grafana/tempo                                 3.0.2
-#   prom/prometheus                               v3.12.0
+#   prom/prometheus                               v3.14.0
 #   chrislusf/seaweedfs                           4.47
 
 x-kafka-env: &kafka-env
@@ -97,7 +97,7 @@ services:
 
   # --- Kafka (single-broker KRaft, no ZooKeeper) ---
   kafka:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch7]
     volumes:
       - kafka-data:/var/lib/kafka/data
@@ -107,7 +107,7 @@ services:
     restart: unless-stopped
 
   kafka-init:
-    image: apache/kafka:4.3.0
+    image: apache/kafka:4.3.1
     networks: [ch7]
     depends_on:
       kafka:
@@ -153,7 +153,7 @@ services:
 
   # --- ClickHouse: the listing 7.1 store, primary backend ---
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.1
     networks: [ch7]
     ports:
       - "127.0.0.1:8123:8123"
@@ -196,7 +196,7 @@ services:
 
   # --- Prometheus (collector + ClickHouse metrics) ---
   prometheus:
-    image: prom/prometheus:v3.12.0
+    image: prom/prometheus:v3.14.0
     networks: [ch7]
     ports:
       - "127.0.0.1:9090:9090"

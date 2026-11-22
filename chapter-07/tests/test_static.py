@@ -66,8 +66,8 @@ def test_gateway_fans_out_to_both_archetypes():
     cfg = yaml.safe_load(_read("collector/gateway-config.yaml"))
     exporters = cfg["service"]["pipelines"]["traces"]["exporters"]
     assert "kafka" in exporters, "row archetype (Kafka -> ClickHouse) not wired"
-    assert "otlp/tempo" in exporters, "block archetype (Tempo) not wired"
-    assert cfg["exporters"]["otlp/tempo"]["endpoint"] == "tempo:4317"
+    assert "otlp_grpc/tempo" in exporters, "block archetype (Tempo) not wired"
+    assert cfg["exporters"]["otlp_grpc/tempo"]["endpoint"] == "tempo:4317"
 
 
 def test_tempo_writes_blocks_to_the_same_object_store():

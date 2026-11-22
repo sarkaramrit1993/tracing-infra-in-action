@@ -177,7 +177,7 @@ WHERE status_code = 'STATUS_CODE_ERROR' ORDER BY timestamp DESC LIMIT 5
 
 ```
 partition  on_disk    rows  parts  disk
- 20261008  51.88 KiB  2108      3  default
+ 20261008  55.78 KiB  2108      3  default
 ```
 
 One partition per day, which is what `PARTITION BY toYYYYMMDD(timestamp)` asks
@@ -438,17 +438,7 @@ front rather than widening the binding.
 
 ### Versions
 
-| Component | Version | Role |
-|---|---|---|
-| ClickHouse | `clickhouse/clickhouse-server:25.8` (LTS) | primary trace store (listing 7.1) |
-| OTel Collector contrib | `otel/opentelemetry-collector-contrib:0.154.0` | OTLP in, partition-by-trace-id, Kafka out |
-| Apache Kafka | `apache/kafka:4.3.0` (KRaft) | replayable span buffer feeding the store |
-| Prometheus | `prom/prometheus:v3.12.0` | collector + ClickHouse metrics |
-| Grafana Tempo | `grafana/tempo:3.0.2` | block archetype for the section 7.3 contrast, fed by the Collector, blocks in SeaweedFS |
-| SeaweedFS | `chrislusf/seaweedfs:4.47` (`weed mini`, Apache 2.0) | S3-compatible object store behind the cold tier and Tempo's blocks; creates both buckets on startup |
-| Python | `python:3.12-slim` + OTel SDK 1.42.1 | checkout producer + consumer |
-
-These match `chapter-05/` (Collector >= 0.151.0).
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.
 
 ### Files
 

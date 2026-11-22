@@ -65,7 +65,7 @@ midday. Running it again starts the exercise over:
 
 ```
 partition  disk_name   rows  parts  size
- 20261007  default    50000      1  820.62 KiB
+ 20261007  default    50000      1  909.38 KiB
 ```
 
 One partition, on `default`. Your date will be yesterday in UTC, which is the
@@ -108,7 +108,7 @@ so nothing is going to move on its own. Move it by hand:
 ```
 moving partition 20261007
 partition  disk_name   rows  parts  size
- 20261007  s3_cold    50000      1  820.62 KiB
+ 20261007  s3_cold    50000      1  909.38 KiB
 ```
 
 `disk_name` flipped to `s3_cold`. That disk is defined in
@@ -133,10 +133,10 @@ ALTER TABLE tracing.tiering_demo MOVE PARTITION '$PART' TO VOLUME 'cold'
 ```
 ClickHouse:
 s3_objects  bytes
-        15  822.09 KiB
+        15  910.88 KiB
 
 SeaweedFS:
-block:  15	logical size:    841822	/buckets/traces-cold
+block:  15	logical size:    932744	/buckets/traces-cold
 18 directories, 15 files
 ```
 
@@ -242,7 +242,7 @@ Staging again starts from a fresh demo table:
 ```
 moving partition 20261007
 partition  disk_name   rows  parts  size
- 20261007  default    50000      1  820.62 KiB
+ 20261007  default    50000      1  909.38 KiB
 
 spans  traces  avg_ms
 50000    8334     101
@@ -274,8 +274,8 @@ table, stage a second batch dated a week back:
 
 ```
 partition  disk_name   rows  parts  size
- 20261001  s3_cold    50000      1  820.62 KiB
- 20261007  default    50000      1  820.62 KiB
+ 20261001  s3_cold    50000      1  909.38 KiB
+ 20261007  default    50000      1  909.38 KiB
 ```
 
 The week-old batch is the `s3_cold` line. The other is the partition you staged
@@ -300,8 +300,8 @@ left it:
 waiting for the background mover to take partition 20261007 to s3_cold... ok
 moved after 3s, with nobody asking
 partition  disk_name   rows  parts  size
- 20261001  s3_cold    50000      1  820.62 KiB
- 20261007  s3_cold    50000      1  820.62 KiB
+ 20261001  s3_cold    50000      1  909.38 KiB
+ 20261007  s3_cold    50000      1  909.38 KiB
 ```
 
 Runs here have taken from under a second to about a minute, and the script

@@ -194,7 +194,7 @@ exactly one privileged login and it is both the operator and the writer. Roles
 named `admin` and `ingest` cannot stand in for the book's names either: the
 `default` user is declared in `users.d/z-allow-network.xml`, and granting a role
 to a user held in XML storage fails with `ACCESS_STORAGE_READONLY` (verified on
-25.8). Swap `default` for your own operator and writer logins and the line is
+26.1). Swap `default` for your own operator and writer logins and the line is
 the book's.
 
 The exemption is the reason nothing else here has to work around the policy. The
@@ -271,7 +271,7 @@ behaves unexpectedly, these are why:
    table.** ClickHouse requires the primary key to stay a prefix of the sorting
    key, and `MODIFY ORDER BY` only accepts columns introduced in the same
    statement, so a pre-existing `tenant_id` column cannot be moved into the sort
-   key by ALTER (verified on 25.8, `BAD_ARGUMENTS`, both prepend and append). A
+   key by ALTER (verified on 26.1, `BAD_ARGUMENTS`, both prepend and append). A
    tenant-leading layout is therefore a `CREATE TABLE` property: a fresh store
    creates the table with `ORDER BY (tenant_id, service_name, span_name,
    toStartOfHour(timestamp), trace_id)`. `tenancy.sql` adds the `tenant_id`

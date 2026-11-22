@@ -7,8 +7,8 @@ re-run the script.
 
 ## Bloom index granule pruning
 
-Source: `bloom-index-2026-08-03T044838.json`
-Measured: 2026-08-03
+Source: `bloom-index-2026-11-19T203611.json`
+Measured: 2026-11-19
 
 | Metric | Value |
 |---|---|
@@ -30,8 +30,8 @@ Measured: 2026-08-03
 
 ## Per-column compression
 
-Source: `compression-ratio-2026-08-03T045517.json`
-Measured: 2026-08-03
+Source: `compression-ratio-2026-11-19T203610.json`
+Measured: 2026-11-19
 
 200,000 spans at 6 spans per trace.
 
@@ -42,17 +42,17 @@ Measured: 2026-08-03
 | status_code | 4,316 | 200,450 | 46.44x |
 | adjusted_count | 67,272 | 1,600,000 | 23.78x |
 | attributes | 365,019 | 4,204,609 | 11.52x |
-| span_id | 656,955 | 3,400,000 | 5.18x |
+| span_id | 698,792 | 4,800,000 | 6.87x |
+| trace_id | 3,253,689 | 8,000,000 | 2.46x |
 | duration_ns | 701,825 | 1,600,000 | 2.28x |
-| trace_id | 3,375,024 | 6,600,000 | 1.96x |
 | timestamp | 1,083,112 | 1,600,000 | 1.48x |
 
 > Measured on a scratch copy of the listing 7.1 schema, same columns and codecs, loaded from a fixed row generator and a fixed timestamp anchor, so two runs at the same row count report the same bytes. The copy carries no TTL: on the real table listing 7.2 would write fixed-anchor rows straight to the cold volume, and the numbers would describe S3-resident parts. Every column here is written by the generator, so none of the ratios is the compressibility of a column left at its default.
 
 ## Per-tenant attribute cardinality
 
-Source: `tenant-cardinality-2026-08-03T044700.json`
-Measured: 2026-08-03
+Source: `tenant-cardinality-2026-11-19T203623.json`
+Measured: 2026-11-19
 
 | Metric | Value |
 |---|---|
@@ -77,8 +77,8 @@ Measured: 2026-08-03
 
 ## Hot-to-cold tiering
 
-Source: `tiering-move-2026-09-28T041746.json`
-Measured: 2026-09-28
+Source: `tiering-move-2026-11-19T203621.json`
+Measured: 2026-11-19
 
 | Metric | Value |
 |---|---|
@@ -87,16 +87,16 @@ Measured: 2026-09-28
 | cold_disk | s3_cold |
 | parts_moved | 1 |
 | rows_moved | 50000 |
-| bytes_moved | 348677 |
+| bytes_moved | 424807 |
 | s3_objects_for_moved_parts | 15 |
 | same_answer_after_move | True |
 | query_repeats | 10 |
-| hot_query_ms.median | 8.26 |
-| hot_query_ms.min | 6.49 |
-| hot_query_ms.max | 12.57 |
-| cold_query_ms.median | 14.6 |
-| cold_query_ms.min | 10.38 |
-| cold_query_ms.max | 15.62 |
-| cold_over_hot | 1.77 |
+| hot_query_ms.median | 8.0 |
+| hot_query_ms.min | 5.86 |
+| hot_query_ms.max | 13.62 |
+| cold_query_ms.median | 12.92 |
+| cold_query_ms.min | 10.17 |
+| cold_query_ms.max | 20.2 |
+| cold_over_hot | 1.61 |
 
 > Both tiers hold the same generated batch, so the latency gap is the storage path and nothing else. The absolute milliseconds include the client round trip and are specific to this laptop; the ratio is the number to read, and only its direction is stable. Repeated runs on one machine have landed between 1.4x and 2.0x, so treat the figure above as one draw and not a constant. The assertion is set at 1.3x for that reason. It is a floor, not a forecast: the cold tier here is SeaweedFS on the same Docker network, and a real S3 endpoint across a network is slower than that. Nothing here reports how long the move itself took, because that is the background scheduler's backoff, not a property of the tier.

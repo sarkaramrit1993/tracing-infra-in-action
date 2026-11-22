@@ -28,7 +28,7 @@
 -- one privileged login and it is both: `default`. Roles called admin and ingest
 -- cannot stand in for it either, because `default` is declared in users.xml and
 -- ClickHouse refuses to grant a role to a user held in read-only storage
--- (ACCESS_STORAGE_READONLY, verified on 25.8). So the exempt list below names
+-- (ACCESS_STORAGE_READONLY, verified on 26.1). So the exempt list below names
 -- `default`, and the mapping from the printed line to this one is:
 --
 --     admin, ingest   ->   default

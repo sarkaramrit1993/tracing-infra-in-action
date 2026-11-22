@@ -111,7 +111,7 @@ and not two draws from the same generator. The last query checks that claim
 rather than trusting it: both counts read 200000 and both hashes match.
 
 The timestamp anchor is fixed, so your bytes below will match these to the byte
-on the ClickHouse this stack pins, 25.8. On another version they will not.
+on the ClickHouse this stack pins, 26.1. On another version they will not.
 Codec implementations, part format and index granularity defaults all move
 between releases. The ratios between the columns are the point, and they
 survive the move. What it runs:
@@ -156,15 +156,15 @@ once. `clickhouse/compression.sql` has the single-table version.
 
 ```
 column          listing_7_1  plain       smaller_by
-trace_id        3.22 MiB     6.28 MiB             2
+trace_id        3.10 MiB     6.13 MiB             2
 timestamp       1.03 MiB     1.23 MiB           1.2
 duration_ns     685.38 KiB   1.08 MiB           1.6
-span_id         641.56 KiB   1.04 MiB           1.7
+span_id         682.41 KiB   1.03 MiB           1.5
 attributes      356.46 KiB   833.21 KiB         2.3
 adjusted_count  65.70 KiB    209.94 KiB         3.2
-status_code     4.21 KiB     45.74 KiB         10.9
-service_name    420.00 B     14.50 KiB         35.4
-span_name       525.00 B     11.42 KiB         22.3
+status_code     4.21 KiB     83.21 KiB         19.7
+service_name    420.00 B     20.81 KiB         50.7
+span_name       525.00 B     17.77 KiB         34.7
 ```
 
 One caveat before you read anything into a single row. The plain table drops
@@ -176,7 +176,7 @@ Read it from the bottom up. `service_name` and `span_name` are the two columns
 that lead the sort key. They hold five and ten distinct values, and
 `LowCardinality` turns each of them into a dictionary plus a column of small
 integers. 420 bytes for 200,000 service names. `status_code` gets the same
-treatment and lands 10.9x smaller, less than the other two because it is not in
+treatment and lands 19.7x smaller, less than the other two because it is not in
 the sort key, so its values are not grouped into runs.
 
 Now read the top. `trace_id` is the biggest column in both tables and it only
@@ -209,14 +209,14 @@ The whole-table figure:
 
 ```
 table             on_disk    raw          rows
-compress_listing  5.96 MiB   18.70 MiB  200000
-compress_plain    10.71 MiB  31.20 MiB  200000
+compress_listing  5.89 MiB   21.37 MiB  200000
+compress_plain    10.60 MiB  37.87 MiB  200000
 ```
 
-5.96 MiB against 10.71 MiB. The same spans, the same answers, 44% less disk.
+5.89 MiB against 10.60 MiB. The same spans, the same answers, 44% less disk.
 
-Careful with the `raw` column though. It differs between the two tables (18.70
-against 31.20) because `LowCardinality` changes what "uncompressed" even means:
+Careful with the `raw` column though. It differs between the two tables (21.37
+against 37.87) because `LowCardinality` changes what "uncompressed" even means:
 the raw form of a dictionary column is already a column of integers. A ratio
 built from those two raw numbers would be comparing different things.
 `on_disk` is the number that means something across both. What it runs:
