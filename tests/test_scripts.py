@@ -870,3 +870,238 @@ def test_chapter5_timeline_marks_where_each_span_went():
     assert lines[1].split() == ["+1.0s", "span-0", "+0.0s", "+0.5s", "traces.assembled"]
     assert lines[2].split() == ["+2.0s", "span-1", "+1.0s", "+1.5s", "traces.assembled"]
     assert lines[3].split() == ["+3.0s", "span-2", "+2.0s", "+2.5s", "spans.late"]
+
+
+CH7 = ROOT / "chapter-07"
+CH7_AGENT_SCRIPTS = ("send-agent-to-tempo.sh", "read-agent-prompt-back.sh", "capture-to-file.sh")
+CH7_REF = "file:///uploads/0a1b2c3d-0000-4000-8000-000000000001_inputs.json"
+
+
+def test_chapter7_agent_scripts_are_runnable_and_strict():
+    for name in CH7_AGENT_SCRIPTS:
+        path = CH7 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/agent-lib.sh"' in text, f"{name}: does not source agent-lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert "set -euo pipefail" in (CH7 / "scripts" / "lib.sh").read_text()
+    assert "source \"$(dirname \"${BASH_SOURCE[0]}\")/lib.sh\"" in (CH7 / "scripts" / "agent-lib.sh").read_text()
+
+
+def test_chapter7_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH7 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+    agent = text.split("\n  agent:\n")[1]
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317" in agent
+    assert "agent-uploads:/uploads" in agent
+
+
+def _tempo_trace_json(with_prompt, with_ref):
+    import base64
+
+    def span_id(n):
+        return base64.b64encode(bytes([n] * 8)).decode()
+
+    def attr(key, value):
+        return {"key": key, "value": {"stringValue": value}}
+
+    spans = []
+    for n, start in ((1, 1000), (2, 2000)):
+        attrs = []
+        if with_prompt:
+            attrs.append(attr("gen_ai.input.messages", "x" * 2048))
+        if with_ref:
+            attrs.append(attr("gen_ai.input.messages_ref", CH7_REF if n == 1 else CH7_REF.replace("0001", "0002")))
+        spans.append({"spanId": span_id(n), "startTimeUnixNano": str(start), "attributes": attrs})
+    spans.append({"spanId": span_id(3), "startTimeUnixNano": "3000", "attributes": []})
+    return json.dumps({"batches": [{"scopeSpans": [{"spans": spans}]}]})
+
+
+def _run_chapter7_script(tmp_path, name, mode="up", with_prompt=True, with_ref=False, tempo_json=None,
+                         logs_fail=False, file_fails=False, ch_fails=False, spans_in_ch="3", prior_run=False):
+    """Run a chapter 7 agent script with stubbed docker, curl and sleep. mode is up, down
+    (connection refused) or tempo_empty (Tempo answers everything but trace lookups)."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-07"
+    shutil.copytree(CH7 / "scripts", chapter / "scripts")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    trace_file = tmp_path / "trace.json"
+    trace_file.write_text(tempo_json if tempo_json is not None else _tempo_trace_json(with_prompt, with_ref))
+    log_line = ('tempo-1  | level=warn ts=2026-11-19T04:12:10Z caller=rate_limited_logger.go:38 msg="attributes truncated" '
+                'tenant=single-tenant total_truncated=4 max_size_bytes=2048 example_scope=span '
+                'example_name=gen_ai.input.messages example_field=value example_orig_size=8390')
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        'case "$*" in\n'
+        '  *"compose ps -q"*) echo abc123;;\n'
+        '  *"compose exec"*)\n'
+        f'    [ "{int(ch_fails)}" = 1 ] && exit 1\n'
+        '    case "$*" in\n'
+        "      *mapContains*) printf 'C\\t0101010101010101\\t1000\\t8390\\nC\\t0202020202020202\\t2000\\t8818\\n';;\n"
+        f'      *"SELECT count()"*) echo {spans_in_ch};;\n'
+        '      *) echo 1;;\n'
+        '    esac;;\n'
+        '  *"compose run"*)\n'
+        '    case "$*" in\n'
+        f'      *"sh -c"*) [ "{int(file_fails)}" = 1 ] && exit 1; printf \'8391\\n{{"content":"Order ORD-1042"}}\\n\';;\n'
+        '      *) echo "run 1/1: trace_id=deadbeef01 size=8k capture=span_only seconds=0.3";;\n'
+        '    esac;;\n'
+        f'  *"compose logs"*) [ "{int(logs_fail)}" = 1 ] && exit 1; echo \'{log_line}\' | sed "s/^tempo-1  | //";;\n'
+        'esac\nexit 0\n'
+    )
+    collector = (
+        'otelcol_receiver_refused_spans{receiver="otlp",transport="grpc"} 0\n'
+        'otelcol_exporter_sent_spans{exporter="otlp_grpc/tempo"} 3\n'
+    )
+    tempo = (
+        'tempo_receiver_refused_spans{receiver="otlp/otlp_receiver",transport="grpc"} 0\n'
+        'tempo_distributor_attributes_truncated_total{scope="span",tenant="single-tenant"} 4\n'
+        'tempo_distributor_attributes_truncated_total{scope="event",tenant="single-tenant"} 0\n'
+    )
+    (bin_dir / "curl").write_text(
+        '#!/usr/bin/env bash\n'
+        f'[ "{mode}" = down ] && exit 7\n'
+        'case "$*" in\n'
+        f'  *api/traces/*) [ "{mode}" = tempo_empty ] && exit 7; cat {trace_file}; exit 0;;\n'
+        f'  *:8888/metrics*) cat <<\'M\'\n{collector}M\n    exit 0;;\n'
+        f'  *:3200/metrics*) cat <<\'M\'\n{tempo}M\n    exit 0;;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp_path), "POLL_TRIES": "5",
+           "POLL_SECONDS": "0", "READ_BUDGET": "2"}
+    if prior_run:
+        state_dir = tmp_path / "tracing-in-action-ch07"
+        state_dir.mkdir()
+        (state_dir / "agent").write_text("STACK_ID=abc123\nTRACE_ID=deadbeef01\n")
+    return subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env)
+
+
+def test_chapter7_send_script_reports_the_trace_in_tempo():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "send-agent-to-tempo.sh")
+        assert (Path(tmp) / "tracing-in-action-ch07" / "agent").read_text() == "STACK_ID=abc123\nTRACE_ID=deadbeef01\n"
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "run 1/1: trace_id=deadbeef01 size=8k capture=span_only" in result.stdout
+    assert "Spans of that trace in Tempo: 3" in result.stdout
+    assert "Next: ./scripts/read-agent-prompt-back.sh" in result.stdout
+
+
+def test_chapter7_read_back_shows_the_push_succeeded_and_the_value_came_back_cut():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh", prior_run=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    out = result.stdout
+    assert "Collector: refused 0 spans, failed to send 0 spans to Tempo" in out
+    assert "Tempo: refused 0 spans, discarded 0 spans" in out
+    assert "attribute values cut: 4" in out
+    assert "max_size_bytes=2048 example_scope=span example_name=gen_ai.input.messages" in out
+    rows = [line.split() for line in out.splitlines() if line.strip()[:1] in ("1", "2")]
+    assert rows == [["1", "8390", "2048"], ["2", "8818", "2048"]]
+
+
+def test_chapter7_read_back_needs_a_run_first():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh")
+    assert result.returncode != 0
+    assert "no agent run yet: run ./scripts/send-agent-to-tempo.sh first" in result.stderr
+
+
+def test_chapter7_read_back_survives_an_empty_tempo_log_and_gives_up_when_the_stores_disagree():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh", prior_run=True, logs_fail=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "log:" not in result.stdout
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh", prior_run=True, spans_in_ch="0")
+    assert result.returncode != 0
+    assert "timed out after 2s waiting for the trace in ClickHouse and Tempo" in result.stderr
+
+
+def test_chapter7_capture_script_prints_one_reference_and_the_file():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", with_prompt=False, with_ref=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"gen_ai.input.messages_ref = {CH7_REF}" in result.stdout
+    assert "Spans with gen_ai.input.messages in Tempo: 0" in result.stdout
+    assert "  8391" in result.stdout
+    assert 'Order ORD-1042' in result.stdout
+
+
+def test_chapter7_capture_script_refuses_a_reference_outside_uploads():
+    import tempfile
+
+    bad = _tempo_trace_json(False, True).replace(CH7_REF, "file:///etc/passwd")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", tempo_json=bad)
+    assert result.returncode != 0
+    assert "Unexpected reference file:///etc/passwd" in result.stderr
+
+
+def test_chapter7_capture_script_says_so_when_there_is_no_reference_or_no_file():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", with_prompt=True, with_ref=False)
+    assert result.returncode != 0
+    assert "has no gen_ai.input.messages_ref" in result.stderr
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", with_prompt=False, with_ref=True, file_fails=True)
+    assert result.returncode != 0
+    assert "Could not read /uploads/" in result.stderr
+
+
+def test_chapter7_scripts_say_what_to_run_when_the_stack_is_down():
+    import tempfile
+
+    for name in CH7_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter7_script(Path(tmp), name, mode="down", prior_run=True)
+        assert result.returncode != 0, name
+        assert "The stack is not running. From chapter-07/ run: docker compose up -d --build --wait" in result.stderr, name
+
+
+def test_chapter7_scripts_survive_a_tempo_that_does_not_return_the_trace():
+    import tempfile
+
+    for name in ("send-agent-to-tempo.sh", "capture-to-file.sh"):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter7_script(Path(tmp), name, mode="tempo_empty")
+        assert result.returncode != 0, name
+        assert "Tempo has none of the trace" in result.stderr, name
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "send-agent-to-tempo.sh", tempo_json="not json")
+    assert result.returncode != 0
+    assert "Tempo has none of the trace" in result.stderr
+
+
+def test_chapter7_scripts_survive_a_clickhouse_that_stops_answering():
+    import tempfile
+
+    for name in CH7_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter7_script(Path(tmp), name, ch_fails=True, prior_run=True)
+        assert result.returncode != 0, name
+        assert "ClickHouse is not answering" in result.stderr, name

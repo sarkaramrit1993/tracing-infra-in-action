@@ -337,6 +337,86 @@ WHERE service_name = 'checkout-service' AND span_name = 'GET /checkout'
 ORDER BY timestamp DESC LIMIT 5
 ```
 
+## Agent workloads
+
+An AI agent can put its whole prompt on a span. These three scripts show what Tempo does with a prompt that large, how to tell, and how to keep the prompt outside the trace. The agent and its stand-in model come from [`../chapter-02/agent/`](../chapter-02/agent/), so there is no model to sign up for and every run is the same. Both stores from the steps above receive its spans.
+
+Run these after steps 1 to 7, not before: the agent's spans land in the same tables, and step 5 counts rows. The first run builds the agent image, which takes about a minute.
+
+### A1. Send an agent run with prompt capture on
+
+```bash
+./scripts/send-agent-to-tempo.sh
+```
+
+```
+Running one AI agent run with 4 model calls and prompt capture on.
+run 1/1: trace_id=468b9e51894ad823e13d741e9f15298f size=8k capture=span_only seconds=0.3
+Waiting for the trace to settle in Tempo. This takes about 20 seconds.
+Spans of that trace in Tempo: 13
+Next: ./scripts/read-agent-prompt-back.sh
+```
+
+Your trace id and timing differ. With capture on, each of the four model calls puts its prompt on its span as the `gen_ai.input.messages` attribute. The trace is 13 spans: the agent's 11 plus the two the checkout service adds when the agent looks up an order.
+
+### A2. Read the prompts back
+
+```bash
+./scripts/read-agent-prompt-back.sh
+```
+
+```
+waiting for the trace in ClickHouse and Tempo... ok
+trace_id = 468b9e51894ad823e13d741e9f15298f
+
+The push, as the sender and Tempo counted it:
+  Collector: refused 0 spans, failed to send 0 spans to Tempo
+  Tempo: refused 0 spans, discarded 0 spans
+  ClickHouse and Tempo both hold 13 spans of the trace
+
+What Tempo says about the cut:
+  attribute values cut: 4
+  log: msg="attributes truncated" tenant=single-tenant total_truncated=4 max_size_bytes=2048 example_scope=span example_name=gen_ai.input.messages example_field=value example_orig_size=8390
+
+gen_ai.input.messages, one row per model call:
+call  ClickHouse  Tempo
+   1        8390   2048
+   2        8818   2048
+   3        9643   2048
+   4       10001   2048
+```
+
+The last table is the answer: the same attribute, in bytes, as each store holds it. ClickHouse keeps every prompt whole. Tempo returns each one cut at 2048 bytes, the default of its `max_attribute_bytes` setting.
+
+The lines above it show that nothing went wrong on the way. The Collector's export to Tempo failed for no span, and Tempo refused and discarded none, so the sender had no error to see. Both stores hold all 13 spans. The only signs of the cut are in Tempo: the counter `tempo_distributor_attributes_truncated_total` (4 values, one per prompt) and a warning in its log, which names the attribute and the size of the first value it cut (`example_orig_size=8390`). Tempo logs that warning at most once a second, so it carries one example, not four.
+
+The counters are totals since the stack started, so a second run reads 8 for the cut.
+
+What runs: `curl -s http://localhost:3200/api/traces/<trace_id>` for the Tempo column, and `length(attributes['gen_ai.input.messages'])` on that trace's rows in `tracing.otel_traces` for the ClickHouse column.
+
+### A3. Keep the prompt outside the trace
+
+```bash
+./scripts/capture-to-file.sh
+```
+
+```
+Running one AI agent run with the upload hook on and prompt capture off.
+run 1/1: trace_id=979f3f4246494d3b825b71c1e8aeb75b size=8k capture=no_content seconds=0.3
+Waiting for the trace to settle in Tempo. This takes about 20 seconds.
+gen_ai.input.messages_ref = file:///uploads/e8d66494-5a4a-4a79-9d6c-987f2514a690_inputs.json
+Spans with gen_ai.input.messages in Tempo: 0
+The file, inside the agent container (size in bytes, then its last 89 bytes):
+  8391
+  [{"content":"Order ORD-1042 arrived damaged. Can I get my money back?","type":"text"}]}]
+```
+
+Your trace id and file name differ. The run sets `OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK=upload` and `OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH=/uploads`. The instrumentation writes each prompt to a file there, and the span carries only a reference to it: `gen_ai.input.messages_ref`, with a matching `gen_ai.output.messages_ref` for the reply. No span has the prompt itself, so there is nothing for Tempo to cut.
+
+The file holds the whole prompt. It is 8391 bytes, well past 2048, and it ends with the customer's question, which is the part a cut at 2048 bytes would have lost. The extra byte is a trailing newline.
+
+`/uploads` is a folder in a volume inside the agent container, the choice this companion makes. The span only carries the reference as a string. Where the content lives, who can read it and how long it stays are yours to decide, and the trace's retention does not cover it.
+
 ## Exercises
 
 Each exercise starts from a running stack and cleans up after itself, so do
@@ -400,10 +480,11 @@ run, so all four give the same answer whatever ran before them.
 ## Tear down
 
 The `-v` drops the named volumes, including Tempo's blocks and the SeaweedFS
-buckets.
+buckets. `--profile agent` makes it remove the agent, the stand-in model and the
+uploads volume too.
 
 ```bash
-docker compose down -v
+docker compose --profile agent down -v
 deactivate 2>/dev/null
 rm -rf .venv
 ```
@@ -449,7 +530,7 @@ chapter-07/
 ├── README.md
 ├── NOTES.md                    # why everything works the way it does
 ├── RESULTS.md                  # measured numbers, rendered from benchmarks/results/
-├── scripts/                    # one script per step, sharing lib.sh
+├── scripts/                    # one script per step, sharing lib.sh (agent scripts: agent-lib.sh)
 ├── exercises/
 │   ├── compression.md          # what listing 7.1's column types are worth
 │   ├── tiering.md              # where a part goes when it gets old (listing 7.2)

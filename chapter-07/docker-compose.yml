@@ -53,6 +53,7 @@ volumes:
   clickhouse-data:
   tempo-data:
   seaweedfs-data:
+  agent-uploads:
 
 services:
   # --- Application: checkout producer (same trace shape as chapter 5) ---
@@ -229,3 +230,47 @@ services:
     ports:
       - "127.0.0.1:3200:3200"   # Tempo HTTP/query
       - "127.0.0.1:4417:4317"   # Tempo OTLP gRPC (mapped off 4317 to avoid collector clash)
+
+  # --- AI agent workload (docker compose --profile agent ...) ---
+  stand-in-model:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch7]
+    command: ["python", "stand_in_model.py"]
+    environment:
+      - STAND_IN_DELAY_SCALE=0.01
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  agent:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch7]
+    volumes:
+      - agent-uploads:/uploads
+    environment:
+      - OTEL_SERVICE_NAME=support-agent
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
+      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-no_content}
+      - OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK=${OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK:-}
+      - OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH=${OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH:-}
+      - OTEL_BSP_MAX_EXPORT_BATCH_SIZE=50
+      - AGENT_PROMPT_SIZE=${AGENT_PROMPT_SIZE:-8k}
+      - AGENT_MODEL_CALLS=${AGENT_MODEL_CALLS:-4}
+      - AGENT_RUNS=${AGENT_RUNS:-1}
+      - STAND_IN_URL=http://stand-in-model:8000
+      - CHECKOUT_URL=http://checkout-service:8080
+    depends_on:
+      stand-in-model:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      checkout-service:
+        condition: service_started

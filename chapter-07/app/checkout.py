@@ -101,6 +101,15 @@ def checkout():
     })
 
 
+@app.route("/orders/<order_id>")
+def get_order(order_id):
+    """Order lookup, the tool call the AI agent workload makes."""
+    with tracer.start_as_current_span("fetch_order") as span:
+        span.set_attribute("order.id", order_id)
+        time.sleep(0.015)
+    return jsonify({"order_id": order_id, "items": random.randint(1, 5)})
+
+
 @app.route("/checkout/slow")
 def checkout_slow():
     with tracer.start_as_current_span("inventory.slow_lookup", kind=SpanKind.CLIENT) as span:
