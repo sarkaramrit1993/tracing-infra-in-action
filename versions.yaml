@@ -96,14 +96,6 @@ packages:
   pytest: {version: "9.2.0", note: test-only, exact per author ruling 2026-11-19}
 
 open_drift:
-  - {component: flask, chapter: chapter-09, version: "3.0.0"}
-  - {component: opentelemetry-api, chapter: chapter-09, version: "1.42.1"}
-  - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-09, version: "1.42.1"}
-  - {component: opentelemetry-instrumentation-flask, chapter: chapter-09, version: "0.63b1"}
-  - {component: opentelemetry-proto, chapter: chapter-09, version: "1.42.1"}
-  - {component: opentelemetry-sdk, chapter: chapter-09, version: "1.42.1"}
-  - {component: protobuf, chapter: chapter-09, version: ">=4.25,<6"}
-  - {component: pyyaml, chapter: chapter-09, version: ">=6.0"}
   - {component: flask, chapter: chapter-10, version: "3.0.0"}
   - {component: opentelemetry-api, chapter: chapter-10, version: "1.42.1"}
   - {component: opentelemetry-exporter-otlp-proto-grpc, chapter: chapter-10, version: "1.42.1"}

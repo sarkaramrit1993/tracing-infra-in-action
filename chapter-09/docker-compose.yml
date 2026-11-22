@@ -7,9 +7,9 @@
 # happens BEFORE the sampler or ACROSS two signals.
 #
 # Path:  checkout-service
-#          -> otel-collector   (spanmetrics/pre over 100% of spans, then a tail
+#          -> otel-collector   (span_metrics/pre over 100% of spans, then a tail
 #                               sampler at one in a hundred, then
-#                               spanmetrics/post over survivors)
+#                               span_metrics/post over survivors)
 #          -> kafka(otlp_spans)
 #          -> consumer-clickhouse
 #          -> ClickHouse tracing.otel_traces
@@ -115,13 +115,13 @@ services:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
       - "127.0.0.1:8888:8888"
-      - "127.0.0.1:8889:8889"   # spanmetrics + servicegraph scrape endpoint
+      - "127.0.0.1:8889:8889"   # span_metrics + service_graph scrape endpoint
     depends_on:
       kafka:
         condition: service_healthy
       # service_started, not service_healthy: the grafana/loki image is
       # distroless, so it carries no shell and no HTTP client and a compose
-      # healthcheck has nothing to run. The otlphttp exporter retries, so a Loki
+      # healthcheck has nothing to run. The otlp_http exporter retries, so a Loki
       # that is still coming up costs a few retries and no logs.
       loki:
         condition: service_started
@@ -207,7 +207,7 @@ services:
     restart: unless-stopped
 
   # --- Prometheus ---
-  # exemplar-storage keeps the trace-id exemplars the spanmetrics connector
+  # exemplar-storage keeps the trace-id exemplars the span_metrics connector
   # exports alongside its counters. Section 9.3's metric-to-trace jump reads
   # them back through /api/v1/query_exemplars, so without this flag the bridge
   # is silently a dead end.

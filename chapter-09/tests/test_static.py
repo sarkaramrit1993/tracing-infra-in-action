@@ -196,13 +196,13 @@ def test_listing_9_1_connectors_sit_before_the_sampler():
     for fragment in (
             "dimensions: - name: http.route",
             "exemplars: enabled: true",
-            "servicegraph: store: ttl: 2s max_items: 1000",
+            "service_graph: store: ttl: 2s max_items: 1000",
             "forward: {}",
             "traces/in: receivers: [otlp] processors: [memory_limiter] "
-            "exporters: [spanmetrics/pre, servicegraph, forward]",
+            "exporters: [span_metrics/pre, service_graph, forward]",
             "traces/sampled: receivers: [forward]",
-            "exporters: [kafka, spanmetrics/post]",
-            "metrics: receivers: [spanmetrics/pre, spanmetrics/post, servicegraph] "
+            "exporters: [kafka, span_metrics/post]",
+            "metrics: receivers: [span_metrics/pre, span_metrics/post, service_graph] "
             "exporters: [prometheus]"):
         assert normalize(fragment) in body, f"listing 9.1 lost: {fragment}"
 
@@ -216,14 +216,14 @@ def test_listing_9_1_samples_in_exactly_one_pipeline():
     assert "tail_sampling" not in pipelines["traces/in"].get("processors", []), \
         "the pre-sample pipeline must not sample, or 'pre' counts survivors too"
     assert pipelines["traces/in"].get("processors", [])[:1] == ["memory_limiter"], \
-        ("traces/in must run memory_limiter first, or spanmetrics/pre counts a batch "
+        ("traces/in must run memory_limiter first, or span_metrics/pre counts a batch "
          "that memory_limiter downstream then refuses, the SDK retries it, and the "
          "pre-sampler series counts it twice")
     assert "tail_sampling" in pipelines["traces/sampled"]["processors"], \
         "nothing samples anywhere; pre and post would be the same series twice"
-    assert "spanmetrics/pre" in pipelines["traces/in"]["exporters"], \
+    assert "span_metrics/pre" in pipelines["traces/in"]["exporters"], \
         "the pre connector must hang off the unsampled fork"
-    assert "spanmetrics/post" in pipelines["traces/sampled"]["exporters"], \
+    assert "span_metrics/post" in pipelines["traces/sampled"]["exporters"], \
         "the post connector must hang off the sampled fork"
 
 
@@ -235,7 +235,7 @@ def test_listing_9_1_histograms_are_explicit_not_exponential():
     exemplar has no bucket to hang off, so /api/v1/query_exemplars returns
     nothing. Both halves of section 9.3's metric-to-trace jump die silently."""
     connectors = yaml.safe_load(read("collector/gateway-config.yaml"))["connectors"]
-    for name in ("spanmetrics/pre", "spanmetrics/post"):
+    for name in ("span_metrics/pre", "span_metrics/post"):
         histogram = connectors[name]["histogram"]
         assert "explicit" in histogram, \
             f"{name} must declare explicit buckets or its exemplars have nowhere to attach"
@@ -253,7 +253,7 @@ def test_listing_9_1_the_post_connector_carries_exemplars():
     rather than to a docstring; the post side resolves every time and the pre
     side does not. The post connector is the one section 9.3 reads."""
     connectors = yaml.safe_load(read("collector/gateway-config.yaml"))["connectors"]
-    assert connectors["spanmetrics/post"]["exemplars"]["enabled"] is True, \
+    assert connectors["span_metrics/post"]["exemplars"]["enabled"] is True, \
         "without post exemplars the metric-to-trace jump has no pointer that survives"
 
 
@@ -337,7 +337,7 @@ def test_listing_9_2_target_table_folds_by_fingerprint():
 def test_listing_9_3_declares_all_three_bridges():
     body = normalize(listing_body("collector/gateway-config.yaml", "9.3"))
     for bridge, fragment in (
-            ("traces to logs", "otlphttp/loki: endpoint: http://loki:3100/otlp"),
+            ("traces to logs", "otlp_http/loki: endpoint: http://loki:3100/otlp"),
             ("metrics to traces", "exemplars: enabled: true"),
             ("traces to metrics", "prometheus: endpoint: 0.0.0.0:8889")):
         assert normalize(fragment) in body, f"listing 9.3 lost the {bridge} bridge: {fragment}"
@@ -403,7 +403,7 @@ def test_burn_rate_burns_against_the_pre_sample_series():
 
 @test
 def test_burn_rate_counts_requests_and_not_spans():
-    """spanmetrics counts spans and a checkout makes seven of them. Divide error
+    """span_metrics counts spans and a checkout makes seven of them. Divide error
     spans by all spans and the ratio comes out a seventh of the request error
     rate, under a label that promises 99.9% availability. The SERVER span is
     opened once per request, so selecting it is what makes the ratio a request
@@ -612,16 +612,10 @@ def test_every_benchmark_is_wired_into_the_results_renderer():
 
 
 @test
-def test_readme_version_manifest_matches_the_compose_pins():
-    """The manifest table is the only place a reader checks a version without
-    opening the compose file, so a tag that drifts in one and not the other
-    sends them after a difference that is not there."""
-    compose = yaml.safe_load(read("docker-compose.yml"))
-    pinned = {svc["image"] for svc in compose["services"].values() if "image" in svc}
-    readme = read("README.md")
-    for image in sorted(pinned):
-        assert f"`{image}`" in readme, \
-            f"{image} runs in the compose file and is not in the version manifest"
+def test_readme_points_at_the_version_registry():
+    """versions.yaml is the one list of pins and check_versions.py checks this
+    chapter against it, so a README table would only be a third copy to drift."""
+    assert "](../versions.yaml)" in read("README.md")
 
 
 @test

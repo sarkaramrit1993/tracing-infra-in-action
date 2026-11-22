@@ -5,7 +5,7 @@ Runnable companion to chapter 9 of *Tracing Infrastructure in Action*.
 You will run one small checkout service and watch two things the chapter teaches:
 
 1. **A sampled error rate is wrong.** The Collector counts span metrics twice:
-   `spanmetrics/pre` before the tail sampler and `spanmetrics/post` after it. The
+   `span_metrics/pre` before the tail sampler and `span_metrics/post` after it. The
    sampler keeps every error trace but only one in a hundred of the rest, so the
    two counts give very different error rates for the same traffic.
 2. **Traces, logs and metrics join on the trace ID.** Logs carry the trace ID of
@@ -281,11 +281,4 @@ All ports bind to `127.0.0.1` only.
 
 ### Versions
 
-| Component | Image |
-|---|---|
-| OpenTelemetry Collector (contrib) | `otel/opentelemetry-collector-contrib:0.154.0` |
-| ClickHouse | `clickhouse/clickhouse-server:26.1` |
-| Apache Kafka | `apache/kafka:4.3.1` |
-| Prometheus | `prom/prometheus:v3.14.0` |
-| Loki | `grafana/loki:3.7.8` |
-| Python | 3.12 in the app image |
+Every image and package version is pinned once, in [`versions.yaml`](../versions.yaml) at the repository root. `scripts/check_versions.py` fails if a file in this chapter disagrees with it.

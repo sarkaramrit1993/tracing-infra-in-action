@@ -5,7 +5,7 @@
 #   1. METRIC CONNECTORS SIT BEFORE THE SAMPLER. Span metrics and the service
 #      graph are derived from 100% of spans in the traces/in pipeline, then a
 #      forward connector hands the same spans to traces/sampled where the tail
-#      sampler drops most of them. A second spanmetrics connector runs AFTER the
+#      sampler drops most of them. A second span_metrics connector runs AFTER the
 #      sampler. Comparing the pre and post series is the point: pre counts every
 #      span, post counts only the survivors and weights each as 1, so its error
 #      rate reads inflated. That divergence is what motivates deriving metrics
@@ -89,7 +89,7 @@ processors:
     send_batch_size: 8192
     timeout: 1s
 
-# ---- Listing 9.1: spanmetrics and servicegraph before the sampler ----
+# ---- Listing 9.1: span_metrics and service_graph before the sampler ----
 # Listing 9.1 is this file's back half read as one question: what is counted, and
 # on which side of the sampler. Listing 9.3's fence sits inside it, over the same
 # connectors plus the exporters, read as a different question: which signal can
@@ -97,7 +97,7 @@ processors:
 # ---- Listing 9.3: The three bridges, declared ----
 connectors:
   # Span metrics BEFORE the sampler: every span counted, the ground truth.
-  spanmetrics/pre:
+  span_metrics/pre:
     namespace: pre
     dimensions:
       - name: http.route
@@ -118,7 +118,7 @@ connectors:
   # Span metrics AFTER the sampler: only the kept spans, each weighed as 1.
   # Same connector type, same dimensions, different namespace, so its series are
   # distinct but line up one-for-one against pre.
-  spanmetrics/post:
+  span_metrics/post:
     namespace: post
     dimensions:
       - name: http.route
@@ -137,7 +137,7 @@ connectors:
     metrics_flush_interval: 15s
 
   # Service graph derived from the full pre-sample span stream.
-  servicegraph:
+  service_graph:
     store:
       ttl: 2s
       max_items: 1000
@@ -165,12 +165,12 @@ exporters:
     retry_on_failure:
       enabled: true
 
-  # Loki's native OTLP ingest. Loki serves OTLP at /otlp, and the otlphttp
+  # Loki's native OTLP ingest. Loki serves OTLP at /otlp, and the otlp_http
   # exporter appends /v1/logs to whatever endpoint it is given, so this resolves
-  # to http://loki:3100/otlp/v1/logs. This is the stock otlphttp exporter, not a
+  # to http://loki:3100/otlp/v1/logs. This is the stock otlp_http exporter, not a
   # Loki-specific one: Loki speaks OTLP itself, so nothing here needs to know it
   # is talking to Loki.
-  otlphttp/loki:
+  otlp_http/loki:
     endpoint: http://loki:3100/otlp
     tls:
       insecure: true
@@ -179,7 +179,7 @@ exporters:
     retry_on_failure:
       enabled: true
 
-  # Prometheus scrape endpoint for both spanmetrics namespaces and the service
+  # Prometheus scrape endpoint for both span_metrics namespaces and the service
   # graph. enable_open_metrics exposes exemplars alongside the counters, which
   # is what section 9.3's metric-to-trace jump reads.
   prometheus:
@@ -201,7 +201,7 @@ service:
     #
     # memory_limiter runs here, first, and it has to. It is the first
     # processor on the pipeline that touches the receiver, so a
-    # batch it refuses is refused before spanmetrics/pre has counted it. Left
+    # batch it refuses is refused before span_metrics/pre has counted it. Left
     # off, the connector counts a batch, memory_limiter downstream rejects it,
     # the SDK retries the same spans, and pre_calls_total counts them again.
     # The pre-sampler series would inflate under exactly the
@@ -209,7 +209,7 @@ service:
     traces/in:
       receivers: [otlp]
       processors: [memory_limiter]
-      exporters: [spanmetrics/pre, servicegraph, forward]
+      exporters: [span_metrics/pre, service_graph, forward]
 
     # Only this pipeline samples. The transform runs
     # before the sampler so the flattened attributes are on the span whichever
@@ -217,11 +217,11 @@ service:
     traces/sampled:
       receivers: [forward]
       processors: [transform/exception_to_span, tail_sampling, batch]
-      exporters: [kafka, spanmetrics/post]
+      exporters: [kafka, span_metrics/post]
 
-    # Both spanmetrics namespaces plus the service graph scrape out of :8889.
+    # Both span_metrics namespaces plus the service graph scrape out of :8889.
     metrics:
-      receivers: [spanmetrics/pre, spanmetrics/post, servicegraph]
+      receivers: [span_metrics/pre, span_metrics/post, service_graph]
       exporters: [prometheus]
 
     # Logs in over OTLP, out to Loki over OTLP. No sampling: the trace-to-log
@@ -230,7 +230,7 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/loki]
+      exporters: [otlp_http/loki]
   telemetry:
     metrics:
       level: detailed

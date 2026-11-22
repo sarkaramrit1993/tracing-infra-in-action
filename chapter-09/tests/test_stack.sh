@@ -204,7 +204,7 @@ Q_POST_ERR="sum(post_calls_total{service_name=\"$SVC\",span_name=\"$SPAN\",statu
 # All FOUR series, not just the two totals. The totals appear a scrape before
 # the error series does, and a poll that stops at the totals reads post errors
 # as zero and reports a divergence failure that is really a stopwatch failure.
-wait_for 150 "all four spanmetrics series to reach Prometheus" \
+wait_for 150 "all four span_metrics series to reach Prometheus" \
   'gt0 "$Q_PRE" && gt0 "$Q_POST" && gt0 "$Q_PRE_ERR" && gt0 "$Q_POST_ERR"'
 PRE=$(PROMQ "$Q_PRE")
 POST=$(PROMQ "$Q_POST")
@@ -307,7 +307,7 @@ PYEOF
 pass "every recording-rule selector matches at least one live series"
 
 echo "== 9c. the burn-rate ratio is per request, not per span =="
-# spanmetrics counts spans, and one checkout produces seven of them, so a ratio
+# span_metrics counts spans, and one checkout produces seven of them, so a ratio
 # over every span divides the failures by seven times the request count. The
 # span_kind selector is what makes it a request error rate again. Without it a
 # 1.44 percent threshold does not fire until real requests fail at about ten

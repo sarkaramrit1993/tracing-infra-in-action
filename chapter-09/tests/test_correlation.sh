@@ -197,7 +197,7 @@ print('\n'.join(t))"
 i=0
 until [ "$(DELTA "$PRE0" "$(PROM_SNAP pre_calls_total)")" -ge $((PLAIN * 7)) ]; do
   i=$((i + 1))
-  [ "$i" -le 150 ] || fail "pre_calls_total never counted the $PLAIN requests at seven spans each. The namespace: pre setting on the spanmetrics connector is what puts it under this name; without it the series is traces_span_metrics_calls_total and every rule referencing pre_calls_total silently evaluates to nothing"
+  [ "$i" -le 150 ] || fail "pre_calls_total never counted the $PLAIN requests at seven spans each. The namespace: pre setting on the span_metrics connector is what puts it under this name; without it the series is traces_span_metrics_calls_total and every rule referencing pre_calls_total silently evaluates to nothing"
   sleep 1
 done
 echo "   satisfied after ${i}s: pre_calls_total counted all $PLAIN requests"

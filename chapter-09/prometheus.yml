@@ -14,7 +14,7 @@ scrape_configs:
     static_configs:
       - targets: ["otel-collector:8888"]
 
-  # spanmetrics (pre + post namespaces) and the service graph, exposed by the
+  # span_metrics (pre + post namespaces) and the service graph, exposed by the
   # Collector's prometheus exporter in OpenMetrics so exemplars come through.
   - job_name: otel-spanmetrics
     metrics_path: /metrics

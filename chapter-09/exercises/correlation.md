@@ -277,9 +277,9 @@ t = t.replace("""  batch:
   batch:
     send_batch_size: 8192""", 1)
 t = t.replace("""      processors: [memory_limiter, batch]
-      exporters: [otlphttp/loki]""",
+      exporters: [otlp_http/loki]""",
 """      processors: [memory_limiter, transform/strip_trace_id, batch]
-      exporters: [otlphttp/loki]""", 1)
+      exporters: [otlp_http/loki]""", 1)
 p.write_text(t)
 PY
 docker compose restart otel-collector
@@ -544,7 +544,7 @@ No `strip_trace_id` processor anywhere, the service-graph store back at 1,000,
 both histograms back on explicit buckets, the exemplar-storage flag back on the
 Prometheus command, Loki accepting structured metadata again, and nothing with a
 `.bak` or `.tmp` suffix left behind. The two counts of two are not a coincidence
-worth reading into: there is one `explicit:` block per `spanmetrics` connector,
+worth reading into: there is one `explicit:` block per `span_metrics` connector,
 and `allow_structured_metadata: true` appears in `loki/loki.yaml` twice, once in
 the comment that explains it and once as the setting.
 
