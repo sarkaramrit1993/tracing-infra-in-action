@@ -46,7 +46,7 @@ exporters:
   # The block-archetype leg of the fan-out. Tempo's OTLP receiver is on 4317
   # inside the network (published on 4417 so it does not clash with this
   # Collector's own 4317 on the host).
-  otlp/tempo:
+  otlp_grpc/tempo:
     endpoint: tempo:4317
     tls:
       insecure: true
@@ -60,7 +60,13 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [kafka, otlp/tempo]
+      exporters: [kafka, otlp_grpc/tempo]
   telemetry:
     metrics:
       level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888

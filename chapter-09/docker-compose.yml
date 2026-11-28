@@ -7,9 +7,9 @@
 # happens BEFORE the sampler or ACROSS two signals.
 #
 # Path:  checkout-service
-#          -> otel-collector   (spanmetrics/pre over 100% of spans, then a tail
+#          -> otel-collector   (span_metrics/pre over 100% of spans, then a tail
 #                               sampler at one in a hundred, then
-#                               spanmetrics/post over survivors)
+#                               span_metrics/post over survivors)
 #          -> kafka(otlp_spans)
 #          -> consumer-clickhouse
 #          -> ClickHouse tracing.otel_traces
@@ -91,7 +91,7 @@ services:
       OTEL_SERVICE_NAME: checkout-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_INSECURE: "true"
-      OTEL_BSP_SCHEDULE_DELAY: "5000"
+      OTEL_BSP_SCHEDULE_DELAY: "1000"
       OTEL_BLRP_SCHEDULE_DELAY: "2000"
     command: ["python", "checkout.py"]
     healthcheck:
@@ -104,6 +104,53 @@ services:
       otel-collector:
         condition: service_started
 
+  # --- Agent workload (docker compose --profile agent) ---
+  # The stand-in model answers the agent's model calls and the refund route. With
+  # STAND_IN_SPANS on, the refund route ends a SERVER span in the agent's trace
+  # under the name payment-stub, so the service graph has a callee to pair with
+  # the agent's HTTP call. The short batch delay keeps the two halves of an edge
+  # inside the service graph's two-second pairing window.
+  stand-in-model:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch9]
+    command: ["python", "stand_in_model.py"]
+    environment:
+      OTEL_SERVICE_NAME: payment-stub
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_BSP_SCHEDULE_DELAY: "200"
+      STAND_IN_SPANS: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  agent:
+    build: ../chapter-02/agent
+    image: tracing-in-action-agent:ch02
+    profiles: ["agent"]
+    networks: [ch9]
+    environment:
+      OTEL_SERVICE_NAME: support-agent
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SEMCONV_STABILITY_OPT_IN: gen_ai_latest_experimental
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: no_content
+      AGENT_RUN_SECONDS: short
+      AGENT_FAIL_LAST_TOOL: ${AGENT_FAIL_LAST_TOOL:-}
+      AGENT_PROMPT_SIZE: 1k
+      STAND_IN_URL: http://stand-in-model:8000
+      CHECKOUT_URL: http://checkout-service:8080
+    depends_on:
+      stand-in-model:
+        condition: service_healthy
+      checkout-service:
+        condition: service_healthy
+
   # --- OTel Collector: OTLP in; metrics before AND after the sampler; Kafka
   #     out for traces, Loki out for logs ---
   otel-collector:
@@ -115,13 +162,13 @@ services:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
       - "127.0.0.1:8888:8888"
-      - "127.0.0.1:8889:8889"   # spanmetrics + servicegraph scrape endpoint
+      - "127.0.0.1:8889:8889"   # span_metrics + service_graph scrape endpoint
     depends_on:
       kafka:
         condition: service_healthy
       # service_started, not service_healthy: the grafana/loki image is
       # distroless, so it carries no shell and no HTTP client and a compose
-      # healthcheck has nothing to run. The otlphttp exporter retries, so a Loki
+      # healthcheck has nothing to run. The otlp_http exporter retries, so a Loki
       # that is still coming up costs a few retries and no logs.
       loki:
         condition: service_started
@@ -207,7 +254,7 @@ services:
     restart: unless-stopped
 
   # --- Prometheus ---
-  # exemplar-storage keeps the trace-id exemplars the spanmetrics connector
+  # exemplar-storage keeps the trace-id exemplars the span_metrics connector
   # exports alongside its counters. Section 9.3's metric-to-trace jump reads
   # them back through /api/v1/query_exemplars, so without this flag the bridge
   # is silently a dead end.

@@ -34,9 +34,9 @@ What the chapter argues, and what this proves or refutes on your own hardware:
     service and span, not the clock), so Delta encoding gives only a modest win,
     not the heavy compression a clock-led sort key would earn.
   - trace_id    : 32 lowercase hex characters encode 16 random bytes, so half the
-    stored width is the encoding and not the id. Two characters per byte caps the
-    ratio at 2x, and it measured 1.96x: the hex being squeezed back out, not any
-    general incompressibility. timestamp
+    stored width is the encoding and not the id. It stores 16.3 bytes a row: the
+    hex squeezed back out, not any general incompressibility. The ratio depends on
+    what ClickHouse counts as uncompressed (2.46x on 26.1, 1.96x on 25.8). timestamp
     compresses worse. What makes trace_id a cost driver
     is its size on disk, which is the largest of any column here, not its ratio.
 

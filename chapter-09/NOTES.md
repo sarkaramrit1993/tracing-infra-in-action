@@ -20,9 +20,9 @@ over the same workload, at the same grain. Two Collectors would introduce a
 second variable. One Collector with two connectors on opposite sides of the
 sampler does not.
 
-`traces/in` receives OTLP, hands the full stream to `spanmetrics/pre` and
-`servicegraph`, and forwards the same spans on. `traces/sampled` receives the
-forward, runs `tail_sampling`, and exports to Kafka and to `spanmetrics/post`.
+`traces/in` receives OTLP, hands the full stream to `span_metrics/pre` and
+`service_graph`, and forwards the same spans on. `traces/sampled` receives the
+forward, runs `tail_sampling`, and exports to Kafka and to `span_metrics/post`.
 The `forward` connector is what makes that split possible: it is the only way to
 have one receiver feed two pipelines with different processor chains.
 
@@ -69,7 +69,7 @@ reading a half-arrived number.
 This one cost the most time to find, so it is first among the traps.
 
 If the Docker VM's disk fills, Loki keeps running. `docker compose ps` shows
-`Up`. The `/ready` endpoint returns 200. The Collector's `otlphttp/loki`
+`Up`. The `/ready` endpoint returns 200. The Collector's `otlp_http/loki`
 exporter retries, gives up quietly, and drops the batch. Every log query returns
 an empty result with `"status": "success"`. The only evidence anywhere is one
 line at `warn` level in Loki's own log.
@@ -255,7 +255,7 @@ it cost to find that out, so the next person can decide against a revert on
 evidence rather than rediscovering it.
 
 **The burn-rate ratio has to be request-grain, and it takes two changes to get
-there.** `spanmetrics` counts spans and one checkout produces seven of them, so
+there.** `span_metrics` counts spans and one checkout produces seven of them, so
 an error ratio over every span comes out around a seventh of the request error
 rate. Under a 99.9% objective the fast threshold of 1.44% then needs a real
 request failure rate of **10.1%** before it fires, which is an outage nobody

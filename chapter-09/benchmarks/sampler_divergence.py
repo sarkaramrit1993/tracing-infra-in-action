@@ -1,7 +1,7 @@
 """Chapter 9 benchmark: the pre/post sampler divergence, packaged as a measurement.
 
-The keystone gateway config runs span metrics twice: `spanmetrics/pre` counts
-100% of spans before the tail sampler, `spanmetrics/post` counts only the
+The keystone gateway config runs span metrics twice: `span_metrics/pre` counts
+100% of spans before the tail sampler, `span_metrics/post` counts only the
 survivors and weighs each as 1. The tail sampler keeps every error trace but only
 one success in a hundred, so the POST error rate reads inflated against the PRE
 error rate, which is the ground truth. That divergence is the whole reason
@@ -14,7 +14,7 @@ framed: it asserts only the DIRECTION (post rate > pre rate). The magnitude is a
 function of the injected error ratio and the sample rate, so the script reports
 both rates and their ratio and never a universal constant.
 
-Run (stack must be up, after some /checkout traffic and a spanmetrics flush):
+Run (stack must be up, after some /checkout traffic and a span_metrics flush):
   python sampler_divergence.py
   SERVICE=checkout-service SPAN=fraud.score python sampler_divergence.py
 """
@@ -71,7 +71,7 @@ def run():
     if pre_total <= 0 or post_total <= 0:
         raise SystemExit(
             "[divergence] pre or post span metrics are empty. Drive /checkout "
-            "traffic and wait for the 15s spanmetrics flush + a Prometheus scrape, "
+            "traffic and wait for the 15s span_metrics flush + a Prometheus scrape, "
             "then rerun.")
 
     pre_rate = pre_err / pre_total

@@ -19,7 +19,7 @@ of range, and the query behind it is correct in the sense that it computes
 exactly what it says it computes.
 
 This stack puts both numbers side by side. Listing 9.1's Collector config runs
-`spanmetrics` twice, once on the pre-sampling fork and once after the sampler, so
+`span_metrics` twice, once on the pre-sampling fork and once after the sampler, so
 the honest rate and the survivors' rate come off one workload and one process
 with nothing else different between them.
 
@@ -265,7 +265,7 @@ including why the tail sampler is plain probabilistic and does not stamp a
 did: a downstream that can read the threshold can weight its counts back up, and
 the divergence disappears.
 
-**Cause the failure on purpose.** Move the `spanmetrics/pre` connector to the
+**Cause the failure on purpose.** Move the `span_metrics/pre` connector to the
 sampled fork. This is the mistake the whole listing exists to prevent, and it is
 one line in each of two pipelines:
 
@@ -275,10 +275,10 @@ python3 - <<'PY'
 from pathlib import Path
 p = Path("collector/gateway-config.yaml")
 t = p.read_text()
-t = t.replace("exporters: [spanmetrics/pre, servicegraph, forward]",
-              "exporters: [servicegraph, forward]")
-t = t.replace("exporters: [kafka, spanmetrics/post]",
-              "exporters: [kafka, spanmetrics/post, spanmetrics/pre]")
+t = t.replace("exporters: [span_metrics/pre, service_graph, forward]",
+              "exporters: [service_graph, forward]")
+t = t.replace("exporters: [kafka, span_metrics/post]",
+              "exporters: [kafka, span_metrics/post, span_metrics/pre]")
 p.write_text(t)
 PY
 docker compose restart otel-collector

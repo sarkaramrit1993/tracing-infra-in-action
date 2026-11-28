@@ -29,7 +29,7 @@
 # short window is what stops an alert firing on a spike that has already ended;
 # the long window is what stops it firing on a single bad scrape.
 #
-# THE RATIO IS OVER REQUESTS, NOT SPANS. spanmetrics counts spans and a checkout
+# THE RATIO IS OVER REQUESTS, NOT SPANS. span_metrics counts spans and a checkout
 # produces seven of them. Dropping span_kind from the selectors below divides
 # failed spans by all spans, and with the failure recorded only where it was
 # thrown that ratio is one seventh of the request error rate: the fast threshold

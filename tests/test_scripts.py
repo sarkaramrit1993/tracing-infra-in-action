@@ -870,3 +870,631 @@ def test_chapter5_timeline_marks_where_each_span_went():
     assert lines[1].split() == ["+1.0s", "span-0", "+0.0s", "+0.5s", "traces.assembled"]
     assert lines[2].split() == ["+2.0s", "span-1", "+1.0s", "+1.5s", "traces.assembled"]
     assert lines[3].split() == ["+3.0s", "span-2", "+2.0s", "+2.5s", "spans.late"]
+
+
+CH7 = ROOT / "chapter-07"
+CH7_AGENT_SCRIPTS = ("send-agent-to-tempo.sh", "read-agent-prompt-back.sh", "capture-to-file.sh")
+CH7_REF = "file:///uploads/0a1b2c3d-0000-4000-8000-000000000001_inputs.json"
+
+
+def test_chapter7_agent_scripts_are_runnable_and_strict():
+    for name in CH7_AGENT_SCRIPTS:
+        path = CH7 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/agent-lib.sh"' in text, f"{name}: does not source agent-lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert "set -euo pipefail" in (CH7 / "scripts" / "lib.sh").read_text()
+    assert "source \"$(dirname \"${BASH_SOURCE[0]}\")/lib.sh\"" in (CH7 / "scripts" / "agent-lib.sh").read_text()
+
+
+def test_chapter7_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH7 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+    agent = text.split("\n  agent:\n")[1]
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317" in agent
+    assert "agent-uploads:/uploads" in agent
+
+
+def _tempo_trace_json(with_prompt, with_ref):
+    import base64
+
+    def span_id(n):
+        return base64.b64encode(bytes([n] * 8)).decode()
+
+    def attr(key, value):
+        return {"key": key, "value": {"stringValue": value}}
+
+    spans = []
+    for n, start in ((1, 1000), (2, 2000)):
+        attrs = []
+        if with_prompt:
+            attrs.append(attr("gen_ai.input.messages", "x" * 2048))
+        if with_ref:
+            attrs.append(attr("gen_ai.input.messages_ref", CH7_REF if n == 1 else CH7_REF.replace("0001", "0002")))
+        spans.append({"spanId": span_id(n), "startTimeUnixNano": str(start), "attributes": attrs})
+    spans.append({"spanId": span_id(3), "startTimeUnixNano": "3000", "attributes": []})
+    return json.dumps({"batches": [{"scopeSpans": [{"spans": spans}]}]})
+
+
+def _run_chapter7_script(tmp_path, name, mode="up", with_prompt=True, with_ref=False, tempo_json=None,
+                         logs_fail=False, file_fails=False, ch_fails=False, spans_in_ch="3", prior_run=False):
+    """Run a chapter 7 agent script with stubbed docker, curl and sleep. mode is up, down
+    (connection refused) or tempo_empty (Tempo answers everything but trace lookups)."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-07"
+    shutil.copytree(CH7 / "scripts", chapter / "scripts")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    trace_file = tmp_path / "trace.json"
+    trace_file.write_text(tempo_json if tempo_json is not None else _tempo_trace_json(with_prompt, with_ref))
+    log_line = ('tempo-1  | level=warn ts=2026-11-19T04:12:10Z caller=rate_limited_logger.go:38 msg="attributes truncated" '
+                'tenant=single-tenant total_truncated=4 max_size_bytes=2048 example_scope=span '
+                'example_name=gen_ai.input.messages example_field=value example_orig_size=8390')
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        'case "$*" in\n'
+        '  *"compose ps -q"*) echo abc123;;\n'
+        '  *"compose exec"*)\n'
+        f'    [ "{int(ch_fails)}" = 1 ] && exit 1\n'
+        '    case "$*" in\n'
+        "      *mapContains*) printf 'C\\t0101010101010101\\t1000\\t8390\\nC\\t0202020202020202\\t2000\\t8818\\n';;\n"
+        f'      *"SELECT count()"*) echo {spans_in_ch};;\n'
+        '      *) echo 1;;\n'
+        '    esac;;\n'
+        '  *"compose run"*)\n'
+        '    case "$*" in\n'
+        f'      *"sh -c"*) [ "{int(file_fails)}" = 1 ] && exit 1; printf \'8391\\n{{"content":"Order ORD-1042"}}\\n\';;\n'
+        '      *) echo "run 1/1: trace_id=deadbeef01 size=8k capture=span_only seconds=0.3";;\n'
+        '    esac;;\n'
+        f'  *"compose logs"*) [ "{int(logs_fail)}" = 1 ] && exit 1; echo \'{log_line}\' | sed "s/^tempo-1  | //";;\n'
+        'esac\nexit 0\n'
+    )
+    collector = (
+        'otelcol_receiver_refused_spans{receiver="otlp",transport="grpc"} 0\n'
+        'otelcol_exporter_sent_spans{exporter="otlp_grpc/tempo"} 3\n'
+    )
+    tempo = (
+        'tempo_receiver_refused_spans{receiver="otlp/otlp_receiver",transport="grpc"} 0\n'
+        'tempo_distributor_attributes_truncated_total{scope="span",tenant="single-tenant"} 4\n'
+        'tempo_distributor_attributes_truncated_total{scope="event",tenant="single-tenant"} 0\n'
+    )
+    (bin_dir / "curl").write_text(
+        '#!/usr/bin/env bash\n'
+        f'[ "{mode}" = down ] && exit 7\n'
+        'case "$*" in\n'
+        f'  *api/traces/*) [ "{mode}" = tempo_empty ] && exit 7; cat {trace_file}; exit 0;;\n'
+        f'  *:8888/metrics*) cat <<\'M\'\n{collector}M\n    exit 0;;\n'
+        f'  *:3200/metrics*) cat <<\'M\'\n{tempo}M\n    exit 0;;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp_path), "POLL_TRIES": "5",
+           "POLL_SECONDS": "0", "READ_BUDGET": "2"}
+    if prior_run:
+        state_dir = tmp_path / "tracing-in-action-ch07"
+        state_dir.mkdir()
+        (state_dir / "agent").write_text("STACK_ID=abc123\nTRACE_ID=deadbeef01\n")
+    return subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env)
+
+
+def test_chapter7_send_script_reports_the_trace_in_tempo():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "send-agent-to-tempo.sh")
+        assert (Path(tmp) / "tracing-in-action-ch07" / "agent").read_text() == "STACK_ID=abc123\nTRACE_ID=deadbeef01\n"
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "run 1/1: trace_id=deadbeef01 size=8k capture=span_only" in result.stdout
+    assert "Spans of that trace in Tempo: 3" in result.stdout
+    assert "Next: ./scripts/read-agent-prompt-back.sh" in result.stdout
+
+
+def test_chapter7_read_back_shows_the_push_succeeded_and_the_value_came_back_cut():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh", prior_run=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    out = result.stdout
+    assert "Collector: refused 0 spans, failed to send 0 spans to Tempo" in out
+    assert "Tempo: refused 0 spans, discarded 0 spans" in out
+    assert "attribute values cut: 4" in out
+    assert "max_size_bytes=2048 example_scope=span example_name=gen_ai.input.messages" in out
+    rows = [line.split() for line in out.splitlines() if line.strip()[:1] in ("1", "2")]
+    assert rows == [["1", "8390", "2048"], ["2", "8818", "2048"]]
+
+
+def test_chapter7_read_back_needs_a_run_first():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh")
+    assert result.returncode != 0
+    assert "no agent run yet: run ./scripts/send-agent-to-tempo.sh first" in result.stderr
+
+
+def test_chapter7_read_back_survives_an_empty_tempo_log_and_gives_up_when_the_stores_disagree():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh", prior_run=True, logs_fail=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "log:" not in result.stdout
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "read-agent-prompt-back.sh", prior_run=True, spans_in_ch="0")
+    assert result.returncode != 0
+    assert "timed out after 2s waiting for the trace in ClickHouse and Tempo" in result.stderr
+
+
+def test_chapter7_capture_script_prints_one_reference_and_the_file():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", with_prompt=False, with_ref=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"gen_ai.input.messages_ref = {CH7_REF}" in result.stdout
+    assert "Spans with gen_ai.input.messages in Tempo: 0" in result.stdout
+    assert "  8391" in result.stdout
+    assert 'Order ORD-1042' in result.stdout
+
+
+def test_chapter7_capture_script_refuses_a_reference_outside_uploads():
+    import tempfile
+
+    bad = _tempo_trace_json(False, True).replace(CH7_REF, "file:///etc/passwd")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", tempo_json=bad)
+    assert result.returncode != 0
+    assert "Unexpected reference file:///etc/passwd" in result.stderr
+
+
+def test_chapter7_capture_script_says_so_when_there_is_no_reference_or_no_file():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", with_prompt=True, with_ref=False)
+    assert result.returncode != 0
+    assert "has no gen_ai.input.messages_ref" in result.stderr
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "capture-to-file.sh", with_prompt=False, with_ref=True, file_fails=True)
+    assert result.returncode != 0
+    assert "Could not read /uploads/" in result.stderr
+
+
+def test_chapter7_scripts_say_what_to_run_when_the_stack_is_down():
+    import tempfile
+
+    for name in CH7_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter7_script(Path(tmp), name, mode="down", prior_run=True)
+        assert result.returncode != 0, name
+        assert "The stack is not running. From chapter-07/ run: docker compose up -d --build --wait" in result.stderr, name
+
+
+def test_chapter7_scripts_survive_a_tempo_that_does_not_return_the_trace():
+    import tempfile
+
+    for name in ("send-agent-to-tempo.sh", "capture-to-file.sh"):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter7_script(Path(tmp), name, mode="tempo_empty")
+        assert result.returncode != 0, name
+        assert "Tempo has none of the trace" in result.stderr, name
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = _run_chapter7_script(Path(tmp), "send-agent-to-tempo.sh", tempo_json="not json")
+    assert result.returncode != 0
+    assert "Tempo has none of the trace" in result.stderr
+
+
+def test_chapter7_scripts_survive_a_clickhouse_that_stops_answering():
+    import tempfile
+
+    for name in CH7_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_chapter7_script(Path(tmp), name, ch_fails=True, prior_run=True)
+        assert result.returncode != 0, name
+        assert "ClickHouse is not answering" in result.stderr, name
+
+
+CH8 = ROOT / "chapter-08"
+CH8_RECORDED = ROOT / "chapter-02" / "agent" / "results" / "agent-traces-otlp.json"
+
+
+def _run_chapter8_script(tmp_path, name, ch_fails=False, agent_spans="0",
+                         log_reply="8203\t8.56 KiB", recorded=CH8_RECORDED, with_recorded=True):
+    """Run a chapter 8 agent script with a stubbed docker. Every call lands in calls.log and the
+    rows piped into clickhouse-client land in stdin.log. log_reply is what the query log answers (empty means no entry)."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "repo" / "chapter-08"
+    shutil.copytree(CH8 / "scripts", chapter / "scripts")
+    shutil.copytree(CH8 / "generate", chapter / "generate", ignore=shutil.ignore_patterns("__pycache__"))
+    if with_recorded:
+        target = tmp_path / "repo" / "chapter-02" / "agent" / "results"
+        target.mkdir(parents=True)
+        shutil.copy(recorded, target / "agent-traces-otlp.json")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls.log"
+    stdin_log = tmp_path / "stdin.log"
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        f'echo "$*" >> {calls}\n'
+        f'[ "{int(ch_fails)}" = 1 ] && exit 1\n'
+        'case "$*" in\n'
+        f'  *"--multiquery"*) cat > {stdin_log}; exit 0;;\n'
+        f'  *"service_name = \'support-agent\'"*) echo {agent_spans};;\n'
+        f'  *"SELECT count() FROM tracing.otel_traces"*) echo 1079411;;\n'
+        '  *uniqExact*) printf "1\\t1\\n";;\n'
+        f'  *system.query_log*) printf "{log_reply}\\n" | sed "/^$/d";;\n'
+        'esac\nexit 0\n'
+    )
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin"}
+    result = subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env)
+    return result, calls, stdin_log
+
+
+CH8_AGENT_SCRIPTS = ("load-agent-traces.sh", "find-runs-by-tool.sh", "remove-agent-traces.sh")
+
+
+def test_chapter8_agent_scripts_are_runnable_and_strict():
+    for name in CH8_AGENT_SCRIPTS:
+        path = CH8 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{name}: does not source lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert "set -euo pipefail" in (CH8 / "scripts" / "lib.sh").read_text()
+
+
+def test_chapter8_converter_turns_the_recorded_run_into_eleven_rows():
+    from importlib import util
+
+    spec = util.spec_from_file_location("otlp_to_rows", CH8 / "generate" / "otlp_to_rows.py")
+    mod = util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rows = list(mod.rows(json.loads(CH8_RECORDED.read_text())))
+    assert len(rows) == 11
+    assert {r["service_name"] for r in rows} == {"support-agent"}
+    refund = [r for r in rows if r["span_name"] == "execute_tool issue_refund"]
+    assert [r["attributes"]["gen_ai.tool.name"] for r in refund] == ["issue_refund"]
+    assert sorted(r["status_code"] for r in rows).count("STATUS_CODE_ERROR") == 1
+    assert all(isinstance(r["attributes"]["gen_ai.response.finish_reasons"], str)
+               for r in rows if "gen_ai.response.finish_reasons" in r["attributes"])
+
+
+def test_chapter8_load_inserts_every_recorded_span_and_says_how_many():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, calls, stdin_log = _run_chapter8_script(Path(tmp), "load-agent-traces.sh", agent_spans="0")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.startswith("loaded ")
+        sent = stdin_log.read_text().splitlines()
+    assert sent[0] == "INSERT INTO tracing.otel_traces"
+    assert len([line for line in sent if line.startswith("{")]) == 11
+
+
+def test_chapter8_load_refuses_a_second_load():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, _, stdin_log = _run_chapter8_script(Path(tmp), "load-agent-traces.sh", agent_spans="11")
+        assert result.returncode != 0
+        assert "11 agent spans are already loaded" in result.stderr
+        assert not stdin_log.exists()
+
+
+def test_chapter8_load_stops_when_the_count_comes_back_empty():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, _, stdin_log = _run_chapter8_script(Path(tmp), "load-agent-traces.sh", agent_spans="")
+        assert result.returncode != 0
+        assert "did not answer with a span count" in result.stderr
+        assert not stdin_log.exists()
+
+
+def test_chapter8_scripts_say_what_to_run_when_clickhouse_is_down():
+    import tempfile
+
+    for name in CH8_AGENT_SCRIPTS:
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _, _ = _run_chapter8_script(Path(tmp), name, ch_fails=True)
+        assert result.returncode != 0, name
+        assert "ClickHouse is not answering" in result.stderr, name
+
+
+def test_chapter8_load_says_where_the_recorded_run_should_be_when_it_is_missing():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, _, stdin_log = _run_chapter8_script(Path(tmp), "load-agent-traces.sh", with_recorded=False)
+        assert result.returncode != 0
+        assert "chapter-02/agent/results/agent-traces-otlp.json" in result.stderr
+        assert not stdin_log.exists()
+
+
+def test_chapter8_load_stops_on_a_recorded_file_with_no_spans(tmp_path):
+    empty = tmp_path / "empty.json"
+    empty.write_text('{"resourceSpans": []}')
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, _, stdin_log = _run_chapter8_script(Path(tmp), "load-agent-traces.sh", recorded=empty)
+        assert result.returncode != 0
+        assert "holds no spans" in result.stderr
+        assert not stdin_log.exists()
+
+
+def test_chapter8_load_stops_on_a_recorded_file_that_is_not_json(tmp_path):
+    junk = tmp_path / "junk.json"
+    junk.write_text("not json")
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, _, _ = _run_chapter8_script(Path(tmp), "load-agent-traces.sh", recorded=junk)
+        assert result.returncode != 0
+        assert "could not read" in result.stderr
+
+
+def test_chapter8_find_prints_three_filters_and_drops_its_columns():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, calls, _ = _run_chapter8_script(Path(tmp), "find-runs-by-tool.sh", agent_spans="11")
+        assert result.returncode == 0, result.stderr
+        log = calls.read_text()
+    for heading in ("by tool", "by model", "by agent name"):
+        assert heading in result.stdout
+    assert result.stdout.count("8203") == 9
+    assert "ADD COLUMN IF NOT EXISTS tool_name" in log
+    assert log.rindex("DROP COLUMN IF EXISTS tool_name") > log.rindex("MATERIALIZE COLUMN")
+
+
+def test_chapter8_find_needs_the_agent_spans_first():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, _, _ = _run_chapter8_script(Path(tmp), "find-runs-by-tool.sh", agent_spans="0")
+        assert result.returncode != 0
+        assert "Run ./scripts/load-agent-traces.sh" in result.stderr
+
+
+def test_chapter8_find_stops_when_the_query_log_has_no_entry():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, calls, _ = _run_chapter8_script(Path(tmp), "find-runs-by-tool.sh", agent_spans="11", log_reply="")
+        assert result.returncode != 0
+        assert "query log has no entry" in result.stderr
+        assert "ADD COLUMN" not in calls.read_text()
+
+
+def test_chapter8_remove_drops_the_columns_and_deletes_the_agent_spans():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result, calls, _ = _run_chapter8_script(Path(tmp), "remove-agent-traces.sh")
+        assert result.returncode == 0, result.stderr
+        log = calls.read_text()
+    assert "DROP COLUMN IF EXISTS agent_name" in log
+    assert "DELETE WHERE service_name = 'support-agent'" in log
+
+
+CH9 = ROOT / "chapter-09"
+CH9_AGENT_SCRIPTS = ("send-agent-traffic.sh", "show-agent-dependencies.sh", "show-agent-critical-path.sh")
+CH9_TRACE = "b" * 32
+CH9_SPANS = "\n".join(
+    json.dumps({"span_id": sid, "parent_span_id": parent, "span_name": name, "start_ns": str(start), "duration_ns": str(dur)})
+    for sid, parent, name, start, dur in (
+        ("0a", "", "invoke_agent support-agent", 0, 1000),
+        ("0b", "0a", "chat stand-in-1", 0, 400),
+        ("0c", "0a", "execute_tool issue_refund", 400, 100),
+        ("0d", "0c", "POST", 420, 60),
+        ("0e", "0a", "chat stand-in-1", 500, 500),
+    )
+)
+CH9_FAKE_QUERY = '''#!/usr/bin/env python3
+import os, sys
+cmd = sys.argv[1]
+if cmd == "instance":
+    print(os.environ.get("FAKE_INSTANCE", "collector-1"))
+elif cmd == "sum":
+    failed = 'failed="true"' in sys.argv[2]
+    print(os.environ.get("FAKE_FAILED" if failed else "FAKE_ALL", "none"))
+elif cmd == "edges":
+    print("support-agent -> checkout-service 5")
+elif cmd == "table":
+    sys.stdout.write(sys.stdin.read())
+else:
+    print(0)
+'''
+
+
+def _run_chapter9_script(tmp_path, name, up=True, build_ok=True, run="line", clickhouse="ok", traces="5",
+                         stored="35", failed_calls="7", graph_all="35", graph_failed="7", spans=None,
+                         prior_run=True, instance="collector-1", saved_instance="collector-1"):
+    """Run a chapter 9 agent script with stubbed docker, curl, sleep and date, and a stand-in
+    for scripts/query.py, so nothing touches Docker or Prometheus. run is line (the agent prints
+    a trace line), silent (it prints none) or fails. clickhouse is ok or down."""
+    import os
+    import shutil
+
+    chapter = tmp_path / "chapter-09"
+    shutil.copytree(CH9 / "scripts", chapter / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+    (chapter / "scripts" / "query.py").write_text(CH9_FAKE_QUERY)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    clock = tmp_path / "clock"
+    clock.write_text("0")
+    (bin_dir / "date").write_text(f'#!/usr/bin/env bash\necho $((1000000 + $(cat {clock})))\n')
+    (bin_dir / "sleep").write_text(f'#!/usr/bin/env bash\necho $(($(cat {clock}) + ${{1:-1}})) > {clock}\n')
+    run_lines = {
+        "line": f"echo run 1/1: trace_id={CH9_TRACE} size=1k capture=no_content seconds=2.3; exit 0",
+        "silent": "echo nothing useful; exit 0",
+        "fails": "echo compose exploded; exit 1",
+    }[run]
+    ch_body = {
+        "ok": (
+            f'case "$*" in\n'
+            f'  *uniqExact*) echo {traces};;\n'
+            f"  *count*\"status_code = 'STATUS_CODE_ERROR'\"*) echo {failed_calls};;\n"
+            f'  *count*) echo {stored};;\n'
+            f'  *JSONEachRow*) cat {tmp_path}/spans.jsonl;;\n'
+            f'  *TSVWithNames*) printf "service\\tspan\\tparent\\nsupport-agent\\texecute_tool issue_refund\\tinvoke_agent support-agent\\n";;\n'
+            f'esac'
+        ),
+        "down": "exit 1",
+    }[clickhouse]
+    (tmp_path / "spans.jsonl").write_text((CH9_SPANS if spans is None else spans) + "\n")
+    (bin_dir / "docker").write_text(
+        '#!/usr/bin/env bash\n'
+        'case "$*" in\n'
+        f'  *" build "*) exit {0 if build_ok else 1};;\n'
+        f'  *" run --rm"*) {run_lines};;\n'
+        f'  *clickhouse-client*) {ch_body};;\n'
+        'esac\nexit 0\n'
+    )
+    (bin_dir / "curl").write_text(f'#!/usr/bin/env bash\n{"exit 0" if up else "exit 7"}\n')
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    if prior_run:
+        state_dir = tmp_path / "tracing-in-action-ch09"
+        state_dir.mkdir()
+        (state_dir / "agent").write_text(
+            f"COLLECTOR_ID={saved_instance}\nOK_TRACE={CH9_TRACE}\nFAIL_TRACE={'c' * 32}\nIDS='x'\n"
+            "TARGET_ALL=35\nTARGET_FAILED=7\n")
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp_path),
+           "FAKE_ALL": graph_all, "FAKE_FAILED": graph_failed, "FAKE_INSTANCE": instance}
+    return subprocess.run([str(chapter / "scripts" / name)], capture_output=True, text=True, env=env, timeout=60)
+
+
+def test_chapter9_agent_scripts_are_runnable_and_strict():
+    for name in CH9_AGENT_SCRIPTS:
+        path = CH9 / "scripts" / name
+        text = path.read_text()
+        assert text.startswith("#!/usr/bin/env bash\n"), f"{name}: no shebang"
+        assert path.stat().st_mode & 0o111, f"{name}: not executable"
+        assert 'source "$(dirname "$0")/agent-lib.sh"' in text, f"{name}: does not source agent-lib.sh"
+        assert subprocess.run(["bash", "-n", str(path)]).returncode == 0, f"{name}: syntax error"
+    assert 'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"' in (CH9 / "scripts" / "agent-lib.sh").read_text()
+    assert "set -euo pipefail" in (CH9 / "scripts" / "lib.sh").read_text()
+
+
+def test_chapter9_agent_builds_from_the_canonical_copy_behind_a_profile():
+    text = (CH9 / "docker-compose.yml").read_text()
+    for service in ("stand-in-model", "agent"):
+        block = text.split(f"\n  {service}:\n")[1].split("\n\n")[0]
+        assert "build: ../chapter-02/agent" in block
+        assert 'profiles: ["agent"]' in block
+    stand_in = text.split("\n  stand-in-model:\n")[1].split("\n\n")[0]
+    assert 'STAND_IN_SPANS: "1"' in stand_in
+    assert "OTEL_SERVICE_NAME: payment-stub" in stand_in
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317" in text.split("\n  agent:\n")[1].split("\n\n")[0]
+
+
+def test_chapter9_send_script_saves_what_the_next_scripts_wait_for(tmp_path):
+    result = _run_chapter9_script(tmp_path, "send-agent-traffic.sh", prior_run=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "sent 5 agent runs, 35 calls from the agent, 7 of them failed" in result.stdout
+    saved = (tmp_path / "tracing-in-action-ch09" / "agent").read_text()
+    assert f"OK_TRACE={CH9_TRACE}\n" in saved
+    assert f"FAIL_TRACE={CH9_TRACE}\n" in saved
+    assert "TARGET_ALL=70\n" in saved and "TARGET_FAILED=14\n" in saved
+    assert saved.count(f"'{CH9_TRACE}'") == 5
+
+
+def test_chapter9_send_script_waits_for_every_run_not_only_the_first_traces(tmp_path):
+    result = _run_chapter9_script(tmp_path, "send-agent-traffic.sh", prior_run=False, traces="4")
+    assert result.returncode != 0
+    assert "timed out" in result.stderr
+
+
+def test_chapter9_send_script_stops_with_a_message_on_each_failure(tmp_path):
+    for tag, kwargs, message in (
+        ("build", {"build_ok": False}, "Could not build the agent image"),
+        ("silent", {"run": "silent"}, "The agent printed no trace ID"),
+        ("fails", {"run": "fails"}, "The agent run failed: compose exploded"),
+        ("down", {"up": False}, "is not answering"),
+    ):
+        (tmp_path / tag).mkdir()
+        result = _run_chapter9_script(tmp_path / tag, "send-agent-traffic.sh", prior_run=False, **kwargs)
+        assert result.returncode != 0, tag
+        assert message in result.stderr, tag
+
+
+def test_chapter9_dependencies_prints_the_agent_edges_and_the_error_spans(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-dependencies.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "support-agent -> checkout-service 5" in result.stdout
+    assert "execute_tool issue_refund" in result.stdout
+    assert "invoke_agent support-agent" in result.stdout
+
+
+def test_chapter9_dependencies_waits_for_the_graph_and_gives_up_with_a_message(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-dependencies.sh", graph_all="34")
+    assert result.returncode != 0
+    assert "timed out" in result.stderr
+    assert "support-agent ->" not in result.stdout
+    (tmp_path / "none").mkdir()
+    result = _run_chapter9_script(tmp_path / "none", "show-agent-dependencies.sh", graph_all="none")
+    assert result.returncode != 0 and "timed out" in result.stderr
+
+
+def test_chapter9_read_scripts_say_to_send_traffic_first(tmp_path):
+    for name in ("show-agent-dependencies.sh", "show-agent-critical-path.sh"):
+        for tag, kwargs in (("fresh", {"prior_run": False}), ("stale", {"saved_instance": "collector-0"})):
+            case = tmp_path / f"{name}-{tag}"
+            case.mkdir()
+            result = _run_chapter9_script(case, name, **kwargs)
+            assert result.returncode != 0, f"{name} {tag}"
+            assert "no agent traffic yet: run ./scripts/send-agent-traffic.sh first" in result.stderr, f"{name} {tag}"
+
+
+def test_chapter9_critical_path_prints_shares_and_names_the_longest_step(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-critical-path.sh")
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[0].split() == ["1", "chat", "stand-in-1", "40.0%"]
+    assert lines[1].split() == ["2", "execute_tool", "issue_refund", "10.0%"]
+    assert lines[2].split() == ["3", "chat", "stand-in-1", "50.0%"]
+    assert lines[-1] == "The call holding the most time: step 3, chat stand-in-1, 50.0% of the run"
+    assert "ns" not in result.stdout and "seconds" not in result.stdout
+
+
+def test_chapter9_critical_path_stops_when_the_trace_is_not_stored_yet(tmp_path):
+    result = _run_chapter9_script(tmp_path, "show-agent-critical-path.sh", spans="")
+    assert result.returncode != 0
+    assert "is not in ClickHouse yet" in result.stderr
+
+
+def test_chapter9_critical_path_follows_the_last_finisher_and_breaks_ties_by_length():
+    sys.path.insert(0, str(CH9 / "scripts"))
+    import critical_path
+
+    def trace(rows):
+        return critical_path.load(
+            json.dumps({"span_id": s, "parent_span_id": p, "span_name": s, "start_ns": a, "duration_ns": d})
+            for s, p, a, d in rows
+        )
+
+    spans = trace([("root", "", 0, 100), ("fast", "root", 0, 30), ("slow", "root", 0, 90), ("tail", "root", 90, 10)])
+    assert critical_path.on_path(spans["root"]) == {"root": 0, "tail": 10, "slow": 90}
+    tied = trace([("root", "", 0, 100), ("short", "root", 50, 50), ("long", "root", 0, 100)])
+    assert critical_path.on_path(tied["root"]) == {"root": 0, "long": 100}

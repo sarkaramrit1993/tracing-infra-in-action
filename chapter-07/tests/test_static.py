@@ -66,8 +66,8 @@ def test_gateway_fans_out_to_both_archetypes():
     cfg = yaml.safe_load(_read("collector/gateway-config.yaml"))
     exporters = cfg["service"]["pipelines"]["traces"]["exporters"]
     assert "kafka" in exporters, "row archetype (Kafka -> ClickHouse) not wired"
-    assert "otlp/tempo" in exporters, "block archetype (Tempo) not wired"
-    assert cfg["exporters"]["otlp/tempo"]["endpoint"] == "tempo:4317"
+    assert "otlp_grpc/tempo" in exporters, "block archetype (Tempo) not wired"
+    assert cfg["exporters"]["otlp_grpc/tempo"]["endpoint"] == "tempo:4317"
 
 
 def test_tempo_writes_blocks_to_the_same_object_store():
@@ -402,10 +402,11 @@ def test_every_script_is_strict_bash_and_used():
         text = _read(os.path.join("scripts", name))
         assert not re.search(r"declare -A|mapfile|readarray|\$\{\w+,,\}|\$\{\w+\^\^\}", text), \
             f"{name} needs bash 4, macOS ships 3.2"
-        if name == "lib.sh":
+        if name in ("lib.sh", "agent-lib.sh"):
             continue
         assert text.startswith("#!/usr/bin/env bash\n"), f"{name} has no bash shebang"
-        assert 'source "$(dirname "$0")/lib.sh"' in text, f"{name} does not source lib.sh"
+        assert re.search(r'source "\$\(dirname "\$0"\)/(agent-)?lib\.sh"', text), \
+            f"{name} does not source lib.sh or agent-lib.sh"
         assert name in used, f"scripts/{name} is never run by any page"
 
 

@@ -92,8 +92,8 @@ It fails if `trace_id` compresses outside a band around the ~2x floor the chapte
 claims for a random identifier, which would mean the generator stopped producing
 random ids or the codec path changed, and it fails if `service_name` drops under
 a 50x floor, which is where losing the LowCardinality dictionary would put it.
-Both bands are wide: `trace_id` measured 1.96x and `service_name` 477x at 200,000
-rows. It also fails if `NUM_SPANS` is small enough that ClickHouse keeps the
+Both bands are wide: `trace_id` measured 2.46x and `service_name` 477x at 200,000
+rows on ClickHouse 26.1. It also fails if `NUM_SPANS` is small enough that ClickHouse keeps the
 fixture in a Compact part, roughly under a hundred thousand rows, because
 `system.columns` reports no per-column bytes for those and every ratio comes back
 `nan`.
@@ -105,9 +105,11 @@ runs; `status_code` is not in the sort key. `timestamp` rides mid-key in this
 schema (the sort key leads
 with service and span, not the clock), so its Delta encoding gives only a modest
 win rather than the heavy compression a clock-led sort key would earn; and
-`trace_id` measured 1.96x, because 32 lowercase hex characters carry 16 random
-bytes, so two characters per byte caps the ratio at 2x and the codec squeezes
-that encoding back out. It is not the floor here,
+`trace_id` stores 16.3 bytes a row, because 32 lowercase hex characters carry
+16 random bytes and the codec squeezes the encoding back out and stops there.
+Read the stored bytes, not the ratio: the ratio divides by what ClickHouse counts
+as uncompressed, which is 40 bytes per id on 26.1 (2.46x) and was 33 on 25.8
+(1.96x), while the stored size barely moved. It is not the floor here,
 `timestamp` compresses worse. What makes `trace_id` the cost driver is the size
 it still occupies after that, the largest of any column in the table. See
 `results/` for the figures this run measured on synthetic data; regenerate them
@@ -214,9 +216,11 @@ network is slower, and the gap widens with the size of the read.
 The files in `results/historical-minio/` were measured when the cold tier was
 MinIO, before its images stopped being published. They are kept as history and
 are not what `RESULTS.md` quotes. On SeaweedFS the structural numbers came back
-identical (one part, 50,000 rows, 348,677 bytes, 15 objects). The ratio in
-`RESULTS.md` is 1.77x against MinIO's 1.81x, and nine SeaweedFS runs landed
-between 1.38x and 1.96x, about the spread MinIO gave run to run.
+identical (one part, 50,000 rows, 348,677 bytes, 15 objects) on ClickHouse 25.8.
+On 26.1 the same part is 424,807 bytes, the same in every run. The ratio in
+`RESULTS.md` is 1.61x; two runs on 26.1 gave 1.89x and 1.61x, and nine SeaweedFS
+runs on 25.8 landed between 1.38x and 1.96x, about the spread MinIO gave run to
+run (1.81x).
 
 ## tenant_cardinality_blowup.py
 
