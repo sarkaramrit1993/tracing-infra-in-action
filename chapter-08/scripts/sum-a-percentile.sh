@@ -25,7 +25,7 @@ CREATE MATERIALIZED VIEW tracing.red_p99_summed
 ENGINE = SummingMergeTree
 ORDER BY (minute, service_name)
 AS SELECT service_name, toStartOfMinute(timestamp) AS minute,
-          quantileExactWeighted(0.99)(duration_ns, toUInt64(round(adjusted_count))) / 1e6 AS p99_ms
+          quantileExactWeighted(0.99)(duration_ns, toUInt64(round(adjusted_count * 1000))) / 1e6 AS p99_ms
 FROM tracing.otel_traces WHERE parent_span_id = '' AND service_name = 'rollup-demo-p99'
 GROUP BY service_name, minute"
 ch --query "
@@ -33,7 +33,7 @@ CREATE MATERIALIZED VIEW tracing.red_p99_merged
 ENGINE = AggregatingMergeTree
 ORDER BY (minute, service_name)
 AS SELECT service_name, toStartOfMinute(timestamp) AS minute,
-          quantileExactWeightedState(0.99)(duration_ns, toUInt64(round(adjusted_count))) AS p99_state
+          quantileExactWeightedState(0.99)(duration_ns, toUInt64(round(adjusted_count * 1000))) AS p99_state
 FROM tracing.otel_traces WHERE parent_span_id = '' AND service_name = 'rollup-demo-p99'
 GROUP BY service_name, minute"
 ch --query "SYSTEM STOP MERGES tracing.red_p99_summed"

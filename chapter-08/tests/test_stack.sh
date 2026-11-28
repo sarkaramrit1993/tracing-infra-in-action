@@ -74,7 +74,7 @@ RATIO=$(awk -v pop="$POP" -v kept="$BIASED" 'BEGIN { printf "%.0f", pop / kept }
 pass "count() reads $BIASED, low by ${RATIO}x, which is the bug the chapter opens with"
 
 W_P99=$(CH --query "SELECT round(quantileExactWeighted(0.99)(duration_ns,
-          toUInt64(round(adjusted_count))) / 1e6, 1) FROM tracing.otel_traces WHERE $WINDOW")
+          toUInt64(round(adjusted_count * 1000))) / 1e6, 1) FROM tracing.otel_traces WHERE $WINDOW")
 U_P99=$(CH --query "SELECT round(quantile(0.99)(duration_ns) / 1e6, 1)
           FROM tracing.otel_traces WHERE $WINDOW")
 [ "$W_P99" = "$TRUE_P99" ] \
