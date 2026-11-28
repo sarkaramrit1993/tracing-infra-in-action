@@ -195,7 +195,7 @@ traces_service_graph_request_total
 
 An AI agent makes the same kinds of calls a checkout does: it calls a model, it calls tools, and a tool calls a service. These three scripts send five agent runs through the stack above and show which of those calls become edges in the service graph, which call holds the time, and where a failure lands. The agent and its stand-in model come from [`../chapter-02/agent/`](../chapter-02/agent/), so there is no model to sign up for and every run takes the same steps. The stand-in also plays a payment service, `payment-stub`, so the agent's refund tool has something to call.
 
-Run these after steps 1 to 5. The first run builds the agent image, which takes about a minute.
+Run these after steps 1 to 5. The first run builds the agent image, which takes about a minute. The service graph keeps counting for as long as the stack is up, so running `send-agent-traffic.sh` twice doubles the numbers below. To get them back, take the stack down with `docker compose --profile agent down -v` and start again from step 1.
 
 ### A1. Send five agent runs
 
