@@ -50,7 +50,7 @@ GROUP BY service_name;
 SELECT service_name,
        round(quantileExactWeighted(0.99)(
              duration_ns,
-             toUInt64(round(adjusted_count)))
+             toUInt64(round(adjusted_count * 1000)))
              / 1e6, 1) AS p99_ms
 FROM tracing.otel_traces
 WHERE timestamp >= toStartOfMinute(
